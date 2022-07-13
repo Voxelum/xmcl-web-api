@@ -63,6 +63,7 @@ serve(async (req: Request) => {
             ...body,
             sign: createHash("md5").update(`${token}params${body.params}ts${body.ts}user_id${body.user_id}`).digest(),
         })
+        console.log(bodyContent)
         const response = await fetch("https://afdian.net/api/open/query-sponsor", {
             method: 'POST',
             body: bodyContent,
