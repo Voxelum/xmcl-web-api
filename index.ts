@@ -59,9 +59,10 @@ serve(async (req: Request) => {
             params: JSON.stringify({ page: 1 }),
             ts: Math.floor(Date.now() / 1000),
         }
+        const sign = createHash("md5").update(`${token}params${body.params}ts${body.ts}user_id${body.user_id}`).toString('hex')
         const bodyContent = JSON.stringify({
             ...body,
-            sign: createHash("md5").update(`${token}params${body.params}ts${body.ts}user_id${body.user_id}`).digest(),
+            sign,
         })
         console.log(bodyContent)
         const response = await fetch("https://afdian.net/api/open/query-sponsor", {
