@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.142.0/http/server.ts";
 import { gt } from "https://deno.land/x/semver/mod.ts"
-import { createHash } from "https://deno.land/std@$STD_VERSION/hash/mod.ts";
+import { createHash } from "https://deno.land/std@0.142.0/hash/mod.ts";
 
 
 interface GithubReleaseItem {
