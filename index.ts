@@ -56,7 +56,7 @@ serve(async (req: Request) => {
         const token = Deno.env.get('AFDIAN_TOKEN')
         const body = {
             user_id: Deno.env.get('AFDIAN_USER_ID'),
-            params: "{}",
+            params: JSON.stringify({ page: 1 }),
             ts: Math.floor(Date.now() / 1000),
         }
         const bodyContent = JSON.stringify({
