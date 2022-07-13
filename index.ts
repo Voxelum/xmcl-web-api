@@ -59,17 +59,20 @@ serve(async (req: Request) => {
             params: "{}",
             ts: Math.floor(Date.now() / 1000),
         }
+        const bodyContent = JSON.stringify({
+            ...body,
+            sign: createHash("md5").update(`${token}params${body.params}ts${body.ts}user_id${body.user_id}`).digest(),
+        })
         const response = await fetch("https://afdian.net/api/open/query-sponsor", {
             method: 'POST',
-            body: JSON.stringify({
-                ...body,
-                sign: createHash("md5").update(`${token}params${body.params}ts${body.ts}user_id${body.user_id}`).digest(),
-            }),
+            body: bodyContent,
             headers: {
                 'Content-Type': 'application/json',
             },
         })
         const content: AfdianResponse = await response.json()
+        console.log(bodyContent)
+        console.log(content)
         const fileContent = await Deno.readFile('./afdian.svg')
         const decoder = new TextDecoder('utf-8')
         const svg = decoder.decode(fileContent)
