@@ -1,8 +1,10 @@
 import { serve } from "https://deno.land/std@0.142.0/http/server.ts";
+import { gt } from "https://deno.land/x/semver/mod.ts"
 
 interface GithubReleaseItem {
     tag_name: string
     prerelease: boolean
+    body: string
     assets: Array<{
         name: string
         browser_download_url: string
@@ -26,9 +28,21 @@ serve(async (req: Request) => {
                 'Authorization': `token ${Deno.env.get('GITHUB_PAT')}`,
             }
         })
+        const version = parsed.searchParams.get('version')
         const releases: GithubReleaseItem[] = await response.json()
-        const filtered = releases.filter(v => includePrerelease ? true : !v.prerelease)[0]
-        return Response.json(filtered)
+        if (version) {
+            const filtered = releases.filter(r => gt(r.tag_name, version))
+            const latest = filtered.shift()!
+
+            for (const r of filtered) {
+                latest.body += `\n${r.body}\n`
+            }
+
+            return Response.json(latest)
+        } else {
+            const filtered = releases.filter(v => includePrerelease ? true : !v.prerelease)[0]
+            return Response.json(filtered)
+        }
     }
     // if (parsed.pathname.endsWith('/afdian-badge')) {
     //     return Response.json({
