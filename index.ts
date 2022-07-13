@@ -61,7 +61,7 @@ serve(async (req: Request) => {
         
         return Response.json({
            schemaVersion: 1,
-           label: " ",
+           label: 'KOOK',
            logoSvg: svg,
            message: content.online_count,
            labelColor: "87eb00"
