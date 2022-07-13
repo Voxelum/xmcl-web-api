@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.142.0/http/server.ts";
 import { gt } from "https://deno.land/x/semver/mod.ts"
+import { createHash } from "https://deno.land/std@$STD_VERSION/hash/mod.ts";
+
 
 interface GithubReleaseItem {
     tag_name: string
@@ -51,7 +53,22 @@ serve(async (req: Request) => {
         }
     }
     if (parsed.pathname.endsWith('/afdian-badge')) {
-        const response = await fetch("https://afdian.net/api/open/query-sponsor")
+        const token = Deno.env.get('AFDIAN_TOKEN')
+        const body = {
+            user_id: Deno.env.get('AFDIAN_USER_ID'),
+            params: "{}",
+            ts: Math.floor(Date.now() / 1000),
+        }
+        const response = await fetch("https://afdian.net/api/open/query-sponsor", {
+            method: 'POST',
+            body: JSON.stringify({
+                ...body,
+                sign: createHash("md5").update(`${token}params${body.params}ts${body.ts}user_id${body.user_id}`).digest(),
+            }),
+            headers: {
+                'Content-Type': 'application/json',
+            },
+        })
         const content: AfdianResponse = await response.json()
         const fileContent = await Deno.readFile('./afdian.svg')
         const decoder = new TextDecoder('utf-8')
@@ -63,7 +80,7 @@ serve(async (req: Request) => {
             color: "946ce6",
             logoSvg: svg,
             message: `${content.data.total_count} 位天使`,
-         })
+        })
     }
     if (parsed.pathname.endsWith('/kook-badge')) {
         const response = await fetch("https://kookapp.cn/api/guilds/2998646379574089/widget.json")
@@ -71,13 +88,13 @@ serve(async (req: Request) => {
         const decoder = new TextDecoder('utf-8')
         const fileContent = await Deno.readFile('./favicon-kook.svg')
         const svg = decoder.decode(fileContent)
-        
+
         return Response.json({
-           schemaVersion: 1,
-           label: 'KOOK',
-           logoSvg: svg,
-           message: `${content.online_count} 人在线`,
-           labelColor: "87eb00"
+            schemaVersion: 1,
+            label: 'KOOK',
+            logoSvg: svg,
+            message: `${content.online_count} 人在线`,
+            labelColor: "87eb00"
         })
     }
     return Response.json({ error: 'Not Found' }, { status: 404 })
