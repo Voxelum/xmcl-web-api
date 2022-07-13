@@ -18,6 +18,12 @@ interface KookResponse {
     online_count: string
 }
 
+interface AfdianResponse {
+    data: {
+        total_count: number
+    }
+}
+
 serve(async (req: Request) => {
     const parsed = new URL(req.url)
     if (parsed.pathname.endsWith('/latest')) {
@@ -44,14 +50,21 @@ serve(async (req: Request) => {
             return Response.json(filtered)
         }
     }
-    // if (parsed.pathname.endsWith('/afdian-badge')) {
-    //     return Response.json({
-    //         schemaVersion: 1,
-    //         label: "爱发电",
-    //         color: "946ce6",
-    //         message: content.online_count,
-    //      })
-    // }
+    if (parsed.pathname.endsWith('/afdian-badge')) {
+        const response = await fetch("https://afdian.net/api/open/query-sponsor")
+        const content: AfdianResponse = await response.json()
+        const fileContent = await Deno.readFile('./afdian.svg')
+        const decoder = new TextDecoder('utf-8')
+        const svg = decoder.decode(fileContent)
+
+        return Response.json({
+            schemaVersion: 1,
+            label: "爱发电",
+            color: "946ce6",
+            logoSvg: svg,
+            message: `${content.data.total_count} 位天使`,
+         })
+    }
     if (parsed.pathname.endsWith('/kook-badge')) {
         const response = await fetch("https://kookapp.cn/api/guilds/2998646379574089/widget.json")
         const content: KookResponse = await response.json()
@@ -63,7 +76,7 @@ serve(async (req: Request) => {
            schemaVersion: 1,
            label: 'KOOK',
            logoSvg: svg,
-           message: content.online_count,
+           message: `${content.online_count} 人在线`,
            labelColor: "87eb00"
         })
     }
