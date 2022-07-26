@@ -36,6 +36,23 @@ serve(async (req: Request) => {
                 'Authorization': `token ${Deno.env.get('GITHUB_PAT')}`,
             }
         })
+
+        const langs = req.headers.get('Accept-Language')
+
+        let lang = ''
+        if (langs) {
+            const langItems = langs.split(';')
+            for (const item of langItems) {
+                if (item.indexOf('zh') !== -1) {
+                    lang = 'zh'
+                    break
+                } else if (item.indexOf('en') !== -1) {
+                    lang = 'en'
+                    break
+                }
+            }
+        }
+
         const version = parsed.searchParams.get('version')
         const releases: GithubReleaseItem[] = await response.json()
         if (version) {
@@ -43,7 +60,18 @@ serve(async (req: Request) => {
             const latest = filtered.shift()!
 
             for (const r of filtered) {
-                latest.body += `\n${r.body}\n`
+                if (lang) {
+                    try {
+                        const response = await fetch(`https://raw.githubusercontent.com/voxelum/xmcl-page/master/src/pages/${lang}/changelogs/${version}.md`)
+                        const markdown = await response.text()
+                        const content = markdown.substring(markdown.lastIndexOf('---') + 4)
+                        latest.body += `\n${content}\n`
+                    } catch {
+                        latest.body += `\n${r.body}\n`
+                    }
+                } else {
+                    latest.body += `\n${r.body}\n`
+                }
             }
 
             return Response.json(latest)
@@ -64,7 +92,6 @@ serve(async (req: Request) => {
             ...body,
             sign,
         })
-        console.log(bodyContent)
         const response = await fetch("https://afdian.net/api/open/query-sponsor", {
             method: 'POST',
             body: bodyContent,
@@ -73,8 +100,6 @@ serve(async (req: Request) => {
             },
         })
         const content: AfdianResponse = await response.json()
-        console.log(bodyContent)
-        console.log(content)
         const fileContent = await Deno.readFile('./afdian.svg')
         const decoder = new TextDecoder('utf-8')
         const svg = decoder.decode(fileContent)
