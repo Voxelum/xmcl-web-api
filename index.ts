@@ -60,9 +60,10 @@ serve(async (req: Request) => {
             const latest = filtered.shift()!
 
             for (const r of filtered) {
+                const v = r.tag_name.startsWith('v') ? r.tag_name.substring(1) : r.tag_name
                 if (lang) {
                     try {
-                        const response = await fetch(`https://raw.githubusercontent.com/voxelum/xmcl-page/master/src/pages/${lang}/changelogs/${version}.md`)
+                        const response = await fetch(`https://raw.githubusercontent.com/voxelum/xmcl-page/master/src/pages/${lang}/changelogs/${v}.md`)
                         const markdown = await response.text()
                         const content = markdown.substring(markdown.lastIndexOf('---') + 4)
                         latest.body += `\n${content}\n`
