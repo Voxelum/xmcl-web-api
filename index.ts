@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.142.0/http/server.ts";
-import { gt } from "https://deno.land/x/semver/mod.ts"
+import { gte } from "https://deno.land/x/semver/mod.ts"
 import { createHash } from "https://deno.land/std@0.142.0/hash/mod.ts";
 
 
@@ -30,7 +30,7 @@ serve(async (req: Request) => {
     const parsed = new URL(req.url)
     if (parsed.pathname.endsWith('/latest')) {
         const includePrerelease = parsed.searchParams.has('prerelease')
-        const response = await fetch('https://api.github.com/repos/voxelum/x-minecraft-launcher/releases?per_page=5', {
+        const response = await fetch('https://api.github.com/repos/voxelum/x-minecraft-launcher/releases?per_page=10', {
             headers: {
                 'Accept': 'application/vnd.github.v3+json',
                 'Authorization': `token ${Deno.env.get('GITHUB_PAT')}`,
@@ -56,8 +56,10 @@ serve(async (req: Request) => {
         const version = parsed.searchParams.get('version')
         const releases: GithubReleaseItem[] = await response.json()
         if (version) {
-            const filtered = releases.filter(r => gt(r.tag_name, version))
-            const latest = filtered.shift()!
+            const filtered = releases.filter(r => gte(r.tag_name.substring(1), version))
+            const latest = filtered[0]
+            // reset body
+            let allChangelogs = ''
 
             for (const r of filtered) {
                 const v = r.tag_name.startsWith('v') ? r.tag_name.substring(1) : r.tag_name
@@ -66,14 +68,16 @@ serve(async (req: Request) => {
                         const response = await fetch(`https://raw.githubusercontent.com/voxelum/xmcl-page/master/src/pages/${lang}/changelogs/${v}.md`)
                         const markdown = await response.text()
                         const content = markdown.substring(markdown.lastIndexOf('---') + 4)
-                        latest.body += `\n${content}\n`
+                        allChangelogs += `\n${content}\n`
                     } catch {
-                        latest.body += `\n${r.body}\n`
+                        allChangelogs += `\n${r.body}\n`
                     }
                 } else {
-                    latest.body += `\n${r.body}\n`
+                    allChangelogs += `\n${r.body}\n`
                 }
             }
+
+            latest.body = allChangelogs
 
             return Response.json(latest)
         } else {
