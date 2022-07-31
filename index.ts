@@ -82,7 +82,7 @@ serve(async (req: Request) => {
 
             return Response.json(latest)
         } else {
-            const filtered = releases.filter(v => includePrerelease ? true : !v.prerelease)[0]
+            const filtered = releases.filter(v => (includePrerelease ? true : !v.prerelease) && !v.draft)[0]
             return Response.json(filtered)
         }
     }
