@@ -11,6 +11,7 @@ interface GithubReleaseItem {
         name: string
         browser_download_url: string
     }>
+    draft: boolean
 }
 
 interface KookResponse {
@@ -56,10 +57,10 @@ serve(async (req: Request) => {
         const version = parsed.searchParams.get('version')
         const releases: GithubReleaseItem[] = await response.json()
         if (version) {
-            const filtered = releases.filter(r => gte(r.tag_name.substring(1), version))
+            const filtered = releases.filter(r => gte(r.tag_name.substring(1), version) && !r.draft)
             const latest = filtered[0]
             // reset body
-            let allChangelogs = ''
+            const changelogs: string[] = []
 
             for (const r of filtered) {
                 const v = r.tag_name.startsWith('v') ? r.tag_name.substring(1) : r.tag_name
@@ -68,16 +69,16 @@ serve(async (req: Request) => {
                         const response = await fetch(`https://raw.githubusercontent.com/voxelum/xmcl-page/master/src/pages/${lang}/changelogs/${v}.md`)
                         const markdown = await response.text()
                         const content = markdown.substring(markdown.lastIndexOf('---') + 4)
-                        allChangelogs += `\n${content}\n`
+                        changelogs.push(content)
                     } catch {
-                        allChangelogs += `\n${r.body}\n`
+                        changelogs.push(r.body)
                     }
                 } else {
-                    allChangelogs += `\n${r.body}\n`
+                    changelogs.push(r.body)
                 }
             }
 
-            latest.body = allChangelogs
+            latest.body = changelogs.join('\n\n')
 
             return Response.json(latest)
         } else {
