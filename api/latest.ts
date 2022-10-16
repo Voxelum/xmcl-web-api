@@ -42,6 +42,9 @@ export default defineApi(async (req, parsed) => {
     if (version) {
         const filtered = releases.filter(r => gte(r.tag_name.substring(1), version) && !r.draft)
         const latest = filtered[0]
+        if (!latest) {
+            return new Response('Not Found', { status: 404 })
+        }
         // reset body
         const changelogs: string[] = []
 
