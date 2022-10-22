@@ -1,8 +1,9 @@
 import { defineApi } from "../type.ts"
+import { nanoid } from "https://deno.land/x/nanoid@v3.0.0/mod.ts"
 
 export default defineApi(async (req, url) => {
     if (req.method === 'GET') {
-        const group = url.pathname.substring(url.pathname.lastIndexOf('/'))
+        const group = url.searchParams.get('id') || nanoid()
         const channel = new BroadcastChannel(group);
 
         const stream = new ReadableStream({
@@ -21,7 +22,11 @@ export default defineApi(async (req, url) => {
         });
     }
     if (req.method === 'PUT') {
-        const group = url.pathname.substring(url.pathname.lastIndexOf('/'))
+        const group = url.searchParams.get('id')
+
+        if (!group) {
+            return new Response('Bad Request', { status: 400 })
+        }
 
         const channel = new BroadcastChannel(group);
 
