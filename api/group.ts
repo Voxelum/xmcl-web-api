@@ -6,6 +6,7 @@ export default defineApi(async (req, url) => {
         const group = url.searchParams.get('id') || nanoid()
         const channel = new BroadcastChannel(group);
 
+        console.log(`Get join group request ${group}!`)
         const stream = new ReadableStream({
             start: (controller) => {
                 channel.addEventListener('message', ({ data }) => {
@@ -29,8 +30,9 @@ export default defineApi(async (req, url) => {
         }
 
         const channel = new BroadcastChannel(group);
-
+        
         const data = await req.json()
+        console.log(`broadcast message to group ${group}: ${data}`)
         channel.postMessage(data)
         channel.close()
 
