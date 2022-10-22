@@ -10,6 +10,8 @@ export default defineApi(async (req, url) => {
         const stream = new ReadableStream({
             start: (controller) => {
                 channel.addEventListener('message', ({ data }) => {
+                    console.log(`Get broadcast message from channel ${group}`)
+                    console.log(data)
                     controller.enqueue({ data });
                 });
             },
@@ -32,7 +34,8 @@ export default defineApi(async (req, url) => {
         const channel = new BroadcastChannel(group);
         
         const data = await req.json()
-        console.log(`broadcast message to group ${group}: ${data}`)
+        console.log(`broadcast message to group ${group}`)
+        console.log(data)
         channel.postMessage(data)
         channel.close()
 
