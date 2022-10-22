@@ -12,7 +12,7 @@ export default defineApi(async (req, url) => {
                 channel.addEventListener('message', ({ data }) => {
                     console.log(`Get broadcast message from channel ${group}`)
                     console.log(data)
-                    controller.enqueue(JSON.stringify(data));
+                    controller.enqueue(`data: ${JSON.stringify(data)}\n\n`);
                 });
             },
             cancel() {
