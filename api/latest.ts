@@ -1,5 +1,5 @@
 import { defineApi } from '../type.ts'
-import { gte } from "https://deno.land/x/semver@v1.4.0/mod.ts"
+import { gte, lt } from "https://deno.land/x/semver@v1.4.0/mod.ts"
 
 interface GithubReleaseItem {
     tag_name: string
@@ -44,6 +44,9 @@ export default defineApi(async (req, parsed) => {
         const latest = filtered[0]
         if (!latest) {
             return new Response('Not Found', { status: 404 })
+        }
+        if (lt(version, '0.30.0')) {
+            latest.assets = latest.assets.filter(r => !r.name.endsWith('asar'))
         }
         // reset body
         const changelogs: string[] = []

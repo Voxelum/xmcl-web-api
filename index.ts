@@ -16,7 +16,7 @@ serve((req: Request) => {
         return handleKookBadge(req, parsed)
     }
     if (parsed.pathname.endsWith('/group')) {
-        return  handleGroup(req, parsed)
+        return handleGroup(req, parsed)
     }
     return Response.json({ error: 'Not Found' }, { status: 404 })
 });
