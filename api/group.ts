@@ -20,15 +20,16 @@ export default defineApi((req, url) => {
     socket.onopen = () => {
         console.log(`Websocket created ${group}!`)
         channel.addEventListener('message', ({ data }) => {
-            console.log(`Get broadcast message from channel ${group}`)
+            console.log(`Get message from broadcast channel ${group}`)
             console.log(data)
             socket.send(data)
         });
+        socket.send('{ "created": true }')
     }
 
     socket.onmessage = (ev) => {
         const data = ev.data
-        console.log(`broadcast message to channel ${group}`)
+        console.log(`Get message from client side & send to channel ${group}`)
         console.log(data)
         channel.postMessage(data)
     }
