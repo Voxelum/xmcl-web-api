@@ -1,5 +1,6 @@
 import { defineApi } from '../type.ts'
 import { gte, lt } from "https://deno.land/x/semver@v1.4.0/mod.ts"
+import { Status } from "https://deno.land/x/oak@v11.1.0/mod.ts";
 
 interface GithubReleaseItem {
     tag_name: string
@@ -12,8 +13,9 @@ interface GithubReleaseItem {
     draft: boolean
 }
 
-export default defineApi(async (req, parsed) => {
-    const includePrerelease = parsed.searchParams.has('prerelease')
+export default defineApi((router) => router.get('/latest', async (ctx) => {
+    const request = ctx.request
+    const includePrerelease = request.url.searchParams.has('prerelease')
     const response = await fetch('https://api.github.com/repos/voxelum/x-minecraft-launcher/releases?per_page=10', {
         headers: {
             'Accept': 'application/vnd.github.v3+json',
@@ -21,7 +23,7 @@ export default defineApi(async (req, parsed) => {
         }
     })
 
-    const langs = req.headers.get('Accept-Language')
+    const langs = request.headers.get('Accept-Language')
 
     let lang = ''
     if (langs) {
@@ -37,13 +39,13 @@ export default defineApi(async (req, parsed) => {
         }
     }
 
-    const version = parsed.searchParams.get('version')
+    const version = request.url.searchParams.get('version')
     const releases: GithubReleaseItem[] = await response.json()
     if (version) {
         const filtered = releases.filter(r => gte(r.tag_name.substring(1), version) && !r.draft)
         const latest = filtered[0]
         if (!latest) {
-            return new Response('Not Found', { status: 404 })
+            ctx.throw(Status.NotFound)
         }
         if (lt(version, '0.30.0')) {
             latest.assets = latest.assets.filter(r => !r.name.endsWith('asar'))
@@ -69,9 +71,9 @@ export default defineApi(async (req, parsed) => {
 
         latest.body = changelogs.join('\n\n')
 
-        return Response.json(latest)
+        ctx.response.body = latest
     } else {
         const filtered = releases.filter(v => (includePrerelease ? true : !v.prerelease) && !v.draft)[0]
-        return Response.json(filtered)
+        ctx.response.body = filtered
     }
-})
+}))
