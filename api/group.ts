@@ -1,45 +1,42 @@
 import { defineApi } from "../type.ts"
 import { nanoid } from "https://deno.land/x/nanoid@v3.0.0/mod.ts"
 
-export default defineApi(async (req, url) => {
-    if (req.method === 'GET') {
-        const group = url.searchParams.get('id') || nanoid()
-        const channel = new BroadcastChannel(group);
+export default defineApi((req, url) => {
+    if (req.headers.get('upgrade') !== 'websocket') {
+        return new Response('Not supported', { status: 405 })
+    }
 
-        console.log(`Get join group request ${group}!`)
-        const stream = new ReadableStream({
-            start: (controller) => {
-                channel.addEventListener('message', ({ data }) => {
-                    console.log(`Get broadcast message from channel ${group}`)
-                    console.log(data)
-                    controller.enqueue(`data: ${JSON.stringify(data)}\n\n`);
-                });
-            },
-            cancel() {
-                channel.close();
-            },
-        });
+    // const authorization = req.headers.get('Authorization')
+    // if (!authorization) {
+        // return new Response('Unauthenticated', { status: 401 })
+    // }
 
-        return new Response(stream.pipeThrough(new TextEncoderStream()), {
-            headers: { "content-type": "text/event-stream" },
+    const group = url.searchParams.get('id') || nanoid()
+    const channel = new BroadcastChannel(group);
+
+    const { response, socket } = Deno.upgradeWebSocket(req)
+    console.log(`Get join group request ${group}!`)
+
+    socket.onopen = () => {
+        console.log(`Websocket created ${group}!`)
+        channel.addEventListener('message', ({ data }) => {
+            console.log(`Get broadcast message from channel ${group}`)
+            console.log(data)
+            socket.send(data)
         });
     }
-    if (req.method === 'PUT') {
-        const group = url.searchParams.get('id')
 
-        if (!group) {
-            return new Response('Bad Request', { status: 400 })
-        }
-
-        const channel = new BroadcastChannel(group);
-        
-        const data = await req.json()
-        console.log(`broadcast message to group ${group}`)
+    socket.onmessage = (ev) => {
+        const data = ev.data
+        console.log(`broadcast message to channel ${group}`)
         console.log(data)
         channel.postMessage(data)
-        channel.close()
-
-        return new Response("OK");
     }
-    return new Response('Not supported', { status: 405 })
+
+    socket.onclose = () => {
+        console.log(`Websocket closed ${group}!`)
+        channel.close()
+    }
+
+    return response
 })
