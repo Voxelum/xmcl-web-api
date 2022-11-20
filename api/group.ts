@@ -25,8 +25,9 @@ export default defineApi((router) => {
         socket.onopen = () => {
             console.log(`Websocket created ${group}!`)
             channel.addEventListener('message', ({ data }) => {
-                console.log(`Get message from broadcast channel ${group}`)
-                console.log(data)
+                if (typeof data === 'string') {
+                    console.log(`Get message from group ${group} ${data}`)
+                }
                 socket.send(data)
             });
         }
