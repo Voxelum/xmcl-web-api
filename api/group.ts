@@ -34,8 +34,10 @@ export default defineApi((router) => {
 
         socket.onmessage = (ev) => {
             const data = ev.data
-            console.log(`Get message from client side & send to channel ${group}`)
-            console.log(data)
+            if (typeof data === 'string') {
+                console.log(`Get message from client side & send to channel ${group}`)
+                console.log(data)
+            }
             channel.postMessage(data)
         }
 

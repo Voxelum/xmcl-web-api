@@ -35,7 +35,7 @@ async function getMicrosoftProfile(token: string) {
         },
     })
     if (response.status !== 200) {
-        throw new Error()
+        throw { status: response.status }
     }
     return await response.json() as MicrosoftMinecraftProfile
 }
