@@ -33,9 +33,11 @@ async function ensureAccount(name: string, namespace: string) {
         name: name,
         realm: namespace,
     }, {
-        name: name,
-        realm: namespace,
-        hmackey: "5eb36f16f3bca1acf48639d9919c5094",
+        $set: {
+            name: name,
+            realm: namespace,
+            hmackey: "5eb36f16f3bca1acf48639d9919c5094",
+        }
     }, {
         upsert: true
     })
