@@ -1,9 +1,6 @@
 import { defineApi } from "../type.ts";
 import { hmac } from "https://deno.land/x/hmac@v2.0.1/mod.ts";
-// import {
-//     Bson,
-//     MongoClient,
-// } from "https://deno.land/x/mongo@v0.31.1/mod.ts";
+import { MongoClient } from "https://deno.land/x/mongo@v0.31.1/mod.ts";
 import { Status } from "https://deno.land/x/oak@v11.1.0/mod.ts";
 
 interface MicrosoftMinecraftProfile {
@@ -25,6 +22,33 @@ function getTURNCredentials(name: string, secret: string) {
             'turn:20.239.69.131'
         ]
     };
+}
+
+const client = new MongoClient()
+const database = client.connect({
+    servers: [{
+        host: 'xmcl-mongo.mongo.cosmos.azure.com',
+        port: 10255,
+    }],
+    credential: {
+        username: Deno.env.get('MONGO_USERNAME')!,
+        password: Deno.env.get('MONGO_PASSWORD')!,
+    },
+    db: 'coturn',
+})
+
+async function ensureAccount(name: string, namespace: string) {
+    const collection = (await database).collection('turnusers_lt')
+    await collection.updateOne({
+        name: name,
+        realm: namespace,
+    }, {
+        name: name,
+        realm: namespace,
+        hmackey: "5eb36f16f3bca1acf48639d9919c5094",
+    }, {
+        upsert: true
+    })
 }
 
 async function getMicrosoftProfile(token: string) {
@@ -67,6 +91,7 @@ export default defineApi((router) => {
             try {
                 const profile = await getMicrosoftProfile(accessToken)
                 const id = profile.id
+                await ensureAccount(id, 'official')
                 context.response.body = getTURNCredentials(id, secret)
             } catch (e) {
                 console.error(e)
@@ -82,6 +107,7 @@ export default defineApi((router) => {
 
             try {
                 const { id } = await checkMicrosoftAuthenticate(accessToken)
+                await ensureAccount(id, 'microsoft')
                 context.response.body = getTURNCredentials(id, secret)
             } catch (e) {
                 console.error(e)
