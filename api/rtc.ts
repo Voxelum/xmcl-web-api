@@ -25,17 +25,7 @@ function getTURNCredentials(name: string, secret: string) {
 }
 
 const client = new MongoClient()
-const database = client.connect({
-    servers: [{
-        host: 'xmcl-mongo.mongo.cosmos.azure.com',
-        port: 10255,
-    }],
-    credential: {
-        username: Deno.env.get('MONGO_USERNAME')!,
-        password: Deno.env.get('MONGO_PASSWORD')!,
-    },
-    db: 'coturn',
-})
+const database = client.connect(Deno.env.get('MONGO_CONNECION_STRING')!)
 
 async function ensureAccount(name: string, namespace: string) {
     const collection = (await database).collection('turnusers_lt')
