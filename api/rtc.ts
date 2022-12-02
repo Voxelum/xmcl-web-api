@@ -30,12 +30,12 @@ const database = client.connect(Deno.env.get('MONGO_CONNECION_STRING')!)
 async function ensureAccount(name: string, namespace: string) {
     const collection = (await database).collection('turnusers_lt')
     await collection.updateOne({
-        name: name,
-        realm: namespace,
+        name: `${namespace}:${name}`,
+        realm: 'xmcl',
     }, {
         $set: {
-            name: name,
-            realm: namespace,
+            name: `${namespace}:${name}`,
+            realm: 'xmcl',
             hmackey: "5eb36f16f3bca1acf48639d9919c5094",
         }
     }, {
