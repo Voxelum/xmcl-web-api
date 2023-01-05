@@ -15,6 +15,13 @@ afdianBadge(router)
 kookBadge(router)
 rtc(router)
 group(router)
+
+fetch('https://www.mcbbs.net/forum-news-1.html').then((result) => {
+    console.log('got mcbbs')
+}, (e) => {
+    console.log('fail to get mcbbs %o', e)
+})
+
 // proxy(router)
 
 app.use(router.routes())
