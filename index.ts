@@ -6,6 +6,7 @@ import kookBadge from "./api/kook-badge.ts"
 import rtc from "./api/rtc.ts"
 import group from "./api/group.ts"
 import proxy from "./api/proxy.ts"
+import mcbbs from "./api/mcbbs.ts"
 
 const app = new Application();
 const router = new Router();
@@ -16,6 +17,7 @@ kookBadge(router)
 rtc(router)
 group(router)
 proxy(router)
+mcbbs(router)
 
 app.use(router.routes())
 app.use(router.allowedMethods())
