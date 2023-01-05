@@ -1,7 +1,7 @@
 import { defineApi } from "../type.ts";
 
 export default defineApi((router) => {
-  router.get("/curseforge/.+", async (ctx) => {
+  router.get("/curseforge/(.*)", async (ctx) => {
     const path = ctx.request.url.pathname.substring('/curseforge'.length)
     if (!path) {
       ctx.response.status = 400;
@@ -15,7 +15,7 @@ export default defineApi((router) => {
       ctx.response.status = response.status;
       ctx.response.body = response.body;
     }
-  }).get("/modrinth/.+", async (ctx) => {
+  }).get("/modrinth/(.*)", async (ctx) => {
     const path = ctx.request.url.pathname.substring('/modrinth'.length)
     if (!path) {
       ctx.response.status = 400;

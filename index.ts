@@ -15,8 +15,7 @@ afdianBadge(router)
 kookBadge(router)
 rtc(router)
 group(router)
-
-// proxy(router)
+proxy(router)
 
 app.use(router.routes())
 app.use(router.allowedMethods())
