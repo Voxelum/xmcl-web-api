@@ -19,6 +19,10 @@ group(router)
 proxy(router)
 mcbbs(router)
 
+router.get('/', ({ response }) => {
+    response.body = 'API is online'
+})
+
 app.use(router.routes())
 app.use(router.allowedMethods())
 
