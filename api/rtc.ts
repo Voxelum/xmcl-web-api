@@ -1,110 +1,102 @@
-import { defineApi } from "../type.ts";
 import { hmac } from "https://deno.land/x/hmac@v2.0.1/mod.ts";
-import { MongoClient } from "https://deno.land/x/mongo@v0.31.1/mod.ts";
-import { Status } from "https://deno.land/x/oak@v11.1.0/mod.ts";
-
-interface MicrosoftMinecraftProfile {
-    id: string
-    name: string
-}
+import { Database } from "https://deno.land/x/mongo@v0.31.1/mod.ts";
+import {
+  composeMiddleware,
+  Context,
+  Router,
+  Status,
+} from "https://deno.land/x/oak@v11.1.0/mod.ts";
+import { microsoftAuthMiddleware } from "../middlewares/microsoftAuth.ts";
+import {
+  minecraftAuthMiddleware,
+  MinecraftAuthState,
+} from "../middlewares/minecraftAuth.ts";
+import { mongoDbMiddleware, MongoDbState } from "../middlewares/mongoDb.ts";
+import { defineApi } from "../type.ts";
 
 function getTURNCredentials(name: string, secret: string) {
-    const unixTimeStamp = Math.floor(Date.now() / 1000) + 24 * 3600
+  const unixTimeStamp = Math.floor(Date.now() / 1000) + 24 * 3600;
 
-    const username = [unixTimeStamp, name].join(':')
-    const password = hmac('sha1', secret, username, 'utf-8', 'base64');
+  const username = [unixTimeStamp, name].join(":");
+  const password = hmac("sha1", secret, username, "utf-8", "base64");
 
-    return {
-        username,
-        password,
-        ttl: 86400,
-        uris: [
-            'turn:20.239.69.131'
-        ]
-    };
+  return {
+    username,
+    password,
+    ttl: 86400,
+    uris: [
+      "turn:20.239.69.131",
+    ],
+  };
 }
 
-const client = new MongoClient()
-const database = client.connect(Deno.env.get('MONGO_CONNECION_STRING')!)
-
-async function ensureAccount(name: string, namespace: string) {
-    const collection = (await database).collection('turnusers_lt')
-    await collection.updateOne({
-        name: `${namespace}:${name}`,
-        realm: 'xmcl',
-    }, {
-        $set: {
-            name: `${namespace}:${name}`,
-            realm: 'xmcl',
-            hmackey: "5eb36f16f3bca1acf48639d9919c5094",
-        }
-    }, {
-        upsert: true
-    })
+async function ensureAccount(
+  database: Database,
+  name: string,
+  namespace: string,
+) {
+  const collection = database.collection("turnusers_lt");
+  await collection.updateOne({
+    name: `${namespace}:${name}`,
+    realm: "xmcl",
+  }, {
+    $set: {
+      name: `${namespace}:${name}`,
+      realm: "xmcl",
+      hmackey: "5eb36f16f3bca1acf48639d9919c5094",
+    },
+  }, {
+    upsert: true,
+  });
 }
 
-async function getMicrosoftProfile(token: string) {
-    const response = await fetch('https://api.minecraftservices.com/minecraft/profile', {
-        method: 'GET',
-        headers: {
-            Authorization: `Bearer ${token}`,
-        },
-    })
-    if (response.status !== 200) {
-        throw { status: response.status }
-    }
-    return await response.json() as MicrosoftMinecraftProfile
-}
-
-async function checkMicrosoftAuthenticate(authorization: string) {
-    const response = await fetch('https://graph.microsoft.com/v1.0/me', {
-        headers: {
-            Authorization: authorization,
-        }
-    })
-    if (response.status === 200) {
-        const content = await response.json()
-        const { id, userPrincipalName } = content
-        return { id: id as string, userPrincipalName: userPrincipalName as string }
-    }
-    throw ({ statusCode: response.status, error: 'Fail to request microsoft graph to verify user!' })
-}
-
-export default defineApi((router) => {
-    const secret = Deno.env.get('RTC_SECRET')
+export default defineApi(
+  (router: Router) => {
+    const secret = Deno.env.get("RTC_SECRET");
     if (secret) {
-        router.post('/rtc/official', async (context) => {
-            const authorization = context.request.headers.get('authorization')
-            if (!authorization || !authorization.startsWith('Bearer ')) {
-                return context.throw(Status.BadRequest, 'Require authorization header')
-            }
+      router.post(
+        "/rtc/official",
+        composeMiddleware<MinecraftAuthState & MongoDbState>([
+          minecraftAuthMiddleware,
+          mongoDbMiddleware,
+        ]),
+        async (context) => {
+          try {
+            const id = context.state.profile.id;
+            await ensureAccount(
+              await context.state.getDatabase(),
+              id,
+              "official",
+            );
+            context.response.body = getTURNCredentials(id, secret);
+          } catch (e) {
+            console.error(e);
+            context.throw(Status.Unauthorized);
+          }
+        },
+      );
 
-            const accessToken = authorization.substring('Bearer '.length)
-            try {
-                const profile = await getMicrosoftProfile(accessToken)
-                const id = profile.id
-                await ensureAccount(id, 'official')
-                context.response.body = getTURNCredentials(id, secret)
-            } catch (e) {
-                console.error(e)
-                context.throw(Status.Unauthorized)
-            }
-        })
-        router.post('/rtc/microsoft', async (context) => {
-            const authorization = context.request.headers.get('authorization')
-            if (!authorization || !authorization.startsWith('Bearer ')) {
-                return context.throw(Status.BadRequest, 'Require authorization header')
-            }
-            const accessToken = authorization.substring('Bearer '.length)
-
-            try {
-                const { id } = await checkMicrosoftAuthenticate(accessToken)
-                await ensureAccount(id, 'microsoft')
-                context.response.body = getTURNCredentials(id, secret)
-            } catch (e) {
-                console.error(e)
-                context.throw(Status.Unauthorized)
-            }
-        })
+      router.post(
+        "/rtc/microsoft",
+        composeMiddleware<MinecraftAuthState & MongoDbState>([
+          minecraftAuthMiddleware,
+          mongoDbMiddleware,
+        ]),
+        async (context) => {
+          try {
+            const id = context.state.profile.id;
+            await ensureAccount(
+              await context.state.getDatabase(),
+              id,
+              "microsoft",
+            );
+            context.response.body = getTURNCredentials(id, secret);
+          } catch (e) {
+            console.error(e);
+            context.throw(Status.Unauthorized);
+          }
+        },
+      );
     }
-})
+  },
+);
