@@ -1,5 +1,5 @@
 import { defineApi } from '../type.ts'
-import { gte, lt } from "https://deno.land/x/semver@v1.4.0/mod.ts"
+import { gte, lt } from "https://deno.land/std@0.178.0/semver/mod.ts"
 import { Status } from "https://deno.land/x/oak@v11.1.0/mod.ts";
 
 interface GithubReleaseItem {
