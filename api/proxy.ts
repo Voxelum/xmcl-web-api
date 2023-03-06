@@ -144,7 +144,7 @@ export default defineApi(
     }).get(
       "/modrinth/(.*)",
       composeMiddleware<MinecraftAuthState & MongoDbState>([
-        // minecraftAuthMiddleware,
+        minecraftAuthMiddleware,
         mongoDbMiddleware,
       ]),
       async (ctx, next) => {
