@@ -80,6 +80,7 @@ export default defineApi(
           role: "user",
           content: `Translate following text into Chinese:\n${t}`,
         }]);
+        console.log(resp)
         const result = resp.choices[0].message.content
 
         await coll.insertOne({
