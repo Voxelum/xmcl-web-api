@@ -61,12 +61,15 @@ export default defineApi(
               : undefined,
           });
           ctx.response.status = response.status;
-          ctx.response.body = response.body;
+          ctx.response.body =
+            response.headers.get("content-type")?.startsWith("application/json")
+              ? await response.json()
+              : response.body;
         }
         await next();
       },
     ).get("/curseforge/v1/mods/:modId", async (ctx) => {
-      const body = ctx.response.body as { summary: string };
+      const body = ctx.response.body as { data: { summary: string } };
 
       const db = await ctx.state.getDatabase();
       const coll = db.collection("translated");
@@ -100,7 +103,8 @@ export default defineApi(
         return result;
       };
 
-      body.summary = await process(body.summary);
+      body.data.summary = await process(body.data.summary);
+      ctx.response.body = body;
     }).get("/curseforge/v1/mods/:modId/description", async (ctx) => {
       const body = ctx.response.body as { data: string };
 
@@ -141,6 +145,7 @@ export default defineApi(
         return result;
       };
       body.data = await process(body.data);
+      ctx.response.body = body;
     }).get(
       "/modrinth/(.*)",
       composeMiddleware<MinecraftAuthState & MongoDbState>([
