@@ -19,9 +19,9 @@ export const mongoDbMiddleware: Middleware<MongoDbState> = async (
       database = await client.connect(Deno.env.get("MONGO_CONNECION_STRING")!);
       return database;
     };
-    await next();
   } catch (e) {
     console.error(e);
     ctx.throw(Status.Unauthorized);
   }
+  await next();
 };
