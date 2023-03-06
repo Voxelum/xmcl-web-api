@@ -2,11 +2,9 @@ import { hmac } from "https://deno.land/x/hmac@v2.0.1/mod.ts";
 import { Database } from "https://deno.land/x/mongo@v0.31.1/mod.ts";
 import {
   composeMiddleware,
-  Context,
   Router,
   Status,
 } from "https://deno.land/x/oak@v11.1.0/mod.ts";
-import { microsoftAuthMiddleware } from "../middlewares/microsoftAuth.ts";
 import {
   minecraftAuthMiddleware,
   MinecraftAuthState,
