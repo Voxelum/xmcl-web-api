@@ -55,26 +55,57 @@ export default defineApi(
           const response = await fetch(url, {
             method: ctx.request.method,
             headers: ctx.request.headers,
-            body: ctx.request.hasBody ? ctx.request.body({ type: "stream" }).value : undefined,
+            body: ctx.request.hasBody
+              ? ctx.request.body({ type: "stream" }).value
+              : undefined,
           });
           ctx.response.status = response.status;
           ctx.response.body = response.body;
         }
         await next();
       },
-    ).get("/curseforge/v1/mods/:modId/description", async (ctx) => {
-      const body = ctx.response.body as string;
+    ).get("/curseforge/v1/mods/:modId", async (ctx) => {
+      const body = ctx.response.body as { summary: string };
 
       const db = await ctx.state.getDatabase();
       const coll = db.collection("translated");
 
-      const processDescription = async () => {
-        const id = await sha1(body);
+      const process = async (t: string) => {
+        const id = await sha1(t);
         const founed = await coll.findOne({ _id: id });
         if (founed) {
           return founed.content as string;
         }
-        const parts = splitHTMLChildrenLargerThan4000ByTag(body);
+        const resp = await chat([systemPrompt, {
+          role: "user",
+          content: `Translate following text into Chinese:\n${t}`,
+        }]);
+        const result = resp.choices[0].message.content
+
+        await coll.insertOne({
+          _id: id,
+          content: result,
+          modId: ctx.params.modId,
+          domain: "curseforge",
+          type: "description",
+        });
+        return result;
+      };
+
+      body.summary = await process(body.summary);
+    }).get("/curseforge/v1/mods/:modId/description", async (ctx) => {
+      const body = ctx.response.body as { data: string };
+
+      const db = await ctx.state.getDatabase();
+      const coll = db.collection("translated");
+
+      const process = async (d: string) => {
+        const id = await sha1(d);
+        const founed = await coll.findOne({ _id: id });
+        if (founed) {
+          return founed.content as string;
+        }
+        const parts = splitHTMLChildrenLargerThan4000ByTag(d);
         const outputs = await Promise.all(parts.map(async (p) => {
           const resp = await chat([systemPrompt, {
             role: "user",
@@ -94,10 +125,7 @@ export default defineApi(
         });
         return result;
       };
-      const [description] = await Promise.all([
-        processDescription(),
-      ]);
-      ctx.response.body = description;
+      body.data = await process(body.data);
     }).get(
       "/modrinth/(.*)",
       composeMiddleware<MinecraftAuthState & MongoDbState>([
