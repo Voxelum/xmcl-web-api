@@ -69,6 +69,7 @@ export default defineApi(
         await next();
       },
     ).get("/curseforge/v1/mods/:modId", async (ctx) => {
+      if (ctx.params.modId === 'search') return;
       const body = ctx.response.body as { data: { summary: string } };
 
       const db = await ctx.state.getDatabase();
