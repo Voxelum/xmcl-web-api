@@ -55,7 +55,7 @@ export default defineApi(
           const response = await fetch(url, {
             method: ctx.request.method,
             headers: ctx.request.headers,
-            body: ctx.request.body({ type: "stream" }).value,
+            body: ctx.request.hasBody ? ctx.request.body({ type: "stream" }).value : undefined,
           });
           ctx.response.status = response.status;
           ctx.response.body = response.body;
