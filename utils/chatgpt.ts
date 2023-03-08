@@ -19,6 +19,7 @@ export interface ModrinthResponseBody {
   id: string;
   description: string;
   body: string;
+  slug: string;
 }
 
 export interface Message {

@@ -16,7 +16,11 @@ import {
   Router,
   Status,
 } from "https://deno.land/x/oak@v11.1.0/mod.ts";
-import { Database } from "https://deno.land/x/mongo@v0.31.1/mod.ts";
+import {
+  Collection,
+  Database,
+  Document,
+} from "https://deno.land/x/mongo@v0.31.1/mod.ts";
 import { MongoDbState } from "../middlewares/mongoDb.ts";
 import { mongoDbMiddleware } from "../middlewares/mongoDb.ts";
 
@@ -30,14 +34,107 @@ const sha1 = async (str: string) => {
 
   return hashHex;
 };
+const systemPrompt = {
+  role: "system",
+  content:
+    "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into different languages by locale code.",
+};
+const translate = async (
+  id: string,
+  locale: string,
+  text: string,
+  slug: string,
+  type: string,
+  domain: string,
+  textType: "markdown" | "html" | "raw",
+  coll: Collection<Document>,
+) => {
+  const _id = await sha1(text + locale);
+  const founed = await coll.findOne({
+    _id: {
+      $eq: _id,
+    },
+  });
+  if (founed) {
+    return founed.content as string;
+  }
+
+  const process = async (t: string) => {
+    const resp = await chat([systemPrompt, {
+      role: "user",
+      content:
+        `Translate following ${textType} text into ${locale} ${textType} text:\n${t}`,
+    }]);
+    if ("error" in resp) {
+      return resp;
+    }
+    return resp.choices[0].message.content;
+  };
+
+  let result = "";
+  if (textType === "markdown") {
+    const holder = [] as string[];
+    const transformed = placeholderAllUrlInMarkdown(text, holder);
+    const chunks = splitMarkdownIfLengthLargerThan4000(transformed);
+    const outputs = await Promise.all(chunks.map(process));
+    const err = outputs.find((o) => typeof o === "object");
+    if (err) return err;
+    result = restoreAllUrlInMarkdown(outputs.join(""), holder);
+  } else if (textType === "html") {
+    const chunks = splitHTMLChildrenLargerThan4000ByTag(text);
+    const outputs = await Promise.all(chunks.map(process));
+    const err = outputs.find((o) => typeof o === "object");
+    if (err) return err;
+    result = outputs.join("");
+  } else {
+    const translated = await process(text);
+    if (typeof translated === "object") return translated;
+    result = translated;
+  }
+
+  await coll.insertOne({
+    _id,
+    id,
+    content: result,
+    locale,
+    slug,
+    domain,
+    type,
+  });
+
+  return result;
+};
+
+const ensureSourceLocale = async (
+  id: string,
+  type: string,
+  domain: string,
+  text: string,
+  slug: string,
+  coll: Collection<Document>,
+) => {
+  const locale = "en";
+  const _id = await sha1(text + locale);
+  const founed = await coll.findOne({
+    _id: {
+      $eq: _id,
+    },
+  });
+  if (!founed) {
+    await coll.insertOne({
+      _id,
+      content: text,
+      id,
+      locale,
+      slug,
+      domain,
+      type,
+    });
+  }
+};
 
 export default defineApi(
   (router: Router<{ getDatabase(): Promise<Database> }>) => {
-    const systemPrompt = {
-      role: "system",
-      content:
-        "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into Chinese.",
-    };
     router.get(
       "/curseforge/(.*)",
       composeMiddleware<MinecraftAuthState & MongoDbState>([
@@ -69,84 +166,107 @@ export default defineApi(
         await next();
       },
     ).get("/curseforge/v1/mods/:modId", async (ctx) => {
-      if (ctx.params.modId === 'search') return;
-      const body = ctx.response.body as { data: { summary: string } };
+      if (ctx.params.modId === "search") return;
+      const body = ctx.response.body as {
+        data: { summary: string; slug: string };
+      };
+
+      const langs = ctx.request.acceptsLanguages();
+      if (!langs) {
+        return ctx.throw(Status.BadRequest, "No language specified");
+      }
+
+      const lang = langs[0];
 
       const db = await ctx.state.getDatabase();
       const coll = db.collection("translated");
-
-      const process = async (t: string) => {
-        const id = await sha1(t);
-        const founed = await coll.findOne({ _id: id });
-        if (founed) {
-          return founed.content as string;
-        }
-        const resp = await chat([systemPrompt, {
-          role: "user",
-          content: `Translate following text into Chinese:\n${t}`,
-        }]);
-        if ("error" in resp) {
+      if (lang !== "*" && !lang.startsWith("en")) {
+        const summary = await translate(
+          ctx.params.modId,
+          lang,
+          body.data.summary,
+          body.data.slug,
+          "summary",
+          "curseforge",
+          "raw",
+          coll,
+        );
+        if (typeof summary === "object") {
           return ctx.throw(
             Status.InternalServerError,
-            resp.error.message,
-            resp.error,
+            summary.error.message,
+            summary.error,
           );
         }
-        const result = resp.choices[0].message.content;
+        body.data.summary = summary;
 
-        await coll.insertOne({
-          _id: id,
-          content: result,
-          modId: ctx.params.modId,
-          domain: "curseforge",
-          type: "description",
-        });
-        return result;
-      };
-
-      body.data.summary = await process(body.data.summary);
-      ctx.response.body = body;
+        ctx.response.body = body;
+        ctx.response.headers.set("content-language", lang);
+      } else {
+        await ensureSourceLocale(
+          ctx.params.modId,
+          "summary",
+          "curseforge",
+          body.data.summary,
+          body.data.slug,
+          coll,
+        ).catch(() => {});
+      }
     }).get("/curseforge/v1/mods/:modId/description", async (ctx) => {
       const body = ctx.response.body as { data: string };
 
+      const langs = ctx.request.acceptsLanguages();
+      if (!langs) {
+        return ctx.throw(Status.BadRequest, "No language specified");
+      }
+
+      const lang = langs[0];
+
+      const response = await fetch(
+        "https://api.curseforge.com/v1/mods/" + ctx.params.modId,
+        {
+          headers: ctx.request.headers,
+        },
+      );
+
+      const slug = (await response.json()).data.slug;
+
       const db = await ctx.state.getDatabase();
       const coll = db.collection("translated");
+      if (lang !== "*" && !lang.startsWith("en")) {
+        const description = await translate(
+          ctx.params.modId,
+          lang,
+          body.data,
+          slug,
+          "description",
+          "curseforge",
+          "html",
+          coll,
+        );
 
-      const process = async (d: string) => {
-        const id = await sha1(d);
-        const founed = await coll.findOne({ _id: id });
-        if (founed) {
-          return founed.content as string;
+        if (typeof description === "object") {
+          return ctx.throw(
+            Status.InternalServerError,
+            description.error.message,
+            description.error,
+          );
         }
-        const parts = splitHTMLChildrenLargerThan4000ByTag(d);
-        const outputs = await Promise.all(parts.map(async (p) => {
-          const resp = await chat([systemPrompt, {
-            role: "user",
-            content:
-              `Translate following HTML text into Chinese HTML text:\n${p}`,
-          }]);
-          if ("error" in resp) {
-            return ctx.throw(
-              Status.InternalServerError,
-              resp.error.message,
-              resp.error,
-            );
-          }
-          return resp.choices[0].message.content;
-        }));
 
-        const result = outputs.join("");
-        await coll.insertOne({
-          _id: id,
-          content: result,
-          modId: ctx.params.modId,
-          domain: "curseforge",
-          type: "description",
-        });
-        return result;
-      };
-      body.data = await process(body.data);
-      ctx.response.body = body;
+        body.data = description;
+        ctx.response.body = body;
+        ctx.response.headers.set("content-language", lang);
+      } else {
+        await ensureSourceLocale(
+          ctx.params.modId,
+          "summary",
+          "curseforge",
+          body.data,
+          slug,
+          coll,
+        )
+          .catch(() => {});
+      }
     }).get(
       "/modrinth/(.*)",
       composeMiddleware<MinecraftAuthState & MongoDbState>([
@@ -179,99 +299,78 @@ export default defineApi(
       },
     ).get("/modrinth/v2/project/:id", async (ctx) => {
       const body = ctx.response.body as ModrinthResponseBody;
+      const langs = ctx.request.acceptsLanguages();
+      if (!langs) {
+        return ctx.throw(Status.BadRequest, "No language specified");
+      }
 
+      const lang = langs[0];
       const db = await ctx.state.getDatabase();
       const coll = db.collection("translated");
+      if (lang !== "*" && !lang.startsWith("en")) {
+        const summaryResult = await translate(
+          ctx.params.id,
+          lang,
+          body.description,
+          body.slug,
+          "summary",
+          "modrinth",
+          "raw",
+          coll,
+        );
+        const descriptionResult = await translate(
+          ctx.params.id,
+          lang,
+          body.body,
+          body.slug,
+          "description",
+          "modrinth",
+          "markdown",
+          coll,
+        );
 
-      const processDescription = async () => {
-        const description = body.description;
-        const id = await sha1(description);
-        const founed = await coll.findOne({
-          _id: {
-            $eq: id,
-          },
-        });
-        if (founed) return founed.content as string;
-
-        const resp = await chat([systemPrompt, {
-          role: "user",
-          content: `Translate following text into Chinese:\n${description}`,
-        }]);
-        if ("error" in resp) {
+        if (typeof summaryResult === "object") {
           return ctx.throw(
             Status.InternalServerError,
-            resp.error.message,
-            resp.error,
+            summaryResult.error.message,
+            summaryResult.error,
           );
         }
-        const result = resp.choices[0].message.content;
+        if (typeof descriptionResult === "object") {
+          return ctx.throw(
+            Status.InternalServerError,
+            descriptionResult.error.message,
+            descriptionResult.error,
+          );
+        }
 
-        await coll.insertOne({
-          _id: id,
-          content: result,
-          modId: ctx.params.id,
-          domain: "modrinth",
-          type: "summary",
-        });
-        return result;
-      };
-      const processBody = async () => {
-        const bodyText = body.body;
-        const id = await sha1(bodyText);
-        const founed = await coll.findOne({
-          _id: {
-            $eq: id,
-          },
-        });
-        if (founed) return founed.content as string;
-        const holder = [] as string[];
-        const transformed = placeholderAllUrlInMarkdown(bodyText, holder);
-        const chunks = splitMarkdownIfLengthLargerThan4000(transformed);
+        body.description = summaryResult;
+        body.body = descriptionResult;
 
-        const outputs = await Promise.all(chunks.map(async (c) => {
-          const messages = [{
-            role: "system",
-            content:
-              "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into Chinese.",
-          }, {
-            role: "user",
-            content:
-              `Translate following markdown text into Chinese markdown text:\n${c}`,
-          }];
-          const resp = await chat(messages);
-          if ("error" in resp) {
-            return ctx.throw(
-              Status.InternalServerError,
-              resp.error.message,
-              resp.error,
-            );
-          }
-          const content = resp.choices[0].message.content;
-          return content;
-        }));
-        const message = outputs.join("\n");
-        const restored = restoreAllUrlInMarkdown(message, holder);
-
-        await coll.insertOne({
-          _id: id,
-          content: restored,
-          modId: ctx.params.id,
-          domain: "modrinth",
-          type: "description",
-        });
-
-        return restored;
-      };
-
-      const [summary, description] = await Promise.all([
-        processDescription(),
-        processBody(),
-      ]);
-
-      body.description = summary;
-      body.body = description;
-
-      ctx.response.body = body;
+        ctx.response.body = body;
+        ctx.response.headers.set("content-language", lang);
+      } else {
+        await Promise.all([
+          ensureSourceLocale(
+            ctx.params.id,
+            "summary",
+            "modrinth",
+            body.description,
+            body.slug,
+            coll,
+          )
+            .catch(() => {}),
+          ensureSourceLocale(
+            ctx.params.id,
+            "description",
+            "modrinth",
+            body.body,
+            body.slug,
+            coll,
+          )
+            .catch(() => {}),
+        ]);
+      }
     });
   },
 );
