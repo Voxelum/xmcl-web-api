@@ -46,7 +46,7 @@ const translate = async (
   slug: string,
   type: string,
   domain: string,
-  textType: "markdown" | "html" | "raw",
+  textType: "markdown" | "html" | "",
   coll: Collection<Document>,
 ) => {
   const _id = await sha1(text + locale);
@@ -98,6 +98,7 @@ const translate = async (
     content: result,
     locale,
     slug,
+    extension: textType,
     domain,
     type,
   });
@@ -188,7 +189,7 @@ export default defineApi(
           body.data.slug,
           "summary",
           "curseforge",
-          "raw",
+          "",
           coll,
         );
         if (typeof summary === "object") {
@@ -315,7 +316,7 @@ export default defineApi(
           body.slug,
           "summary",
           "modrinth",
-          "raw",
+          "",
           coll,
         );
         const descriptionResult = await translate(
