@@ -20,6 +20,7 @@ export const mongoDbMiddleware: Middleware<MongoDbState> = async (
       return database;
     };
   } catch (e) {
+    console.error("Error connecting to MongoDB")
     console.error(e);
     ctx.throw(Status.Unauthorized);
   }

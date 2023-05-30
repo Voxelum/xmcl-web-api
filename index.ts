@@ -1,5 +1,6 @@
 import { Application, Router } from "https://deno.land/x/oak@v11.1.0/mod.ts";
 import "https://deno.land/x/dotenv@v3.1.0/load.ts";
+import { oakCors } from "https://deno.land/x/cors/mod.ts";
 
 import latest from "./api/latest.ts";
 import afdianBadge from "./api/afdian-badge.ts";
@@ -26,6 +27,7 @@ router.get("/", ({ response }) => {
   response.body = "API is online";
 });
 
+app.use(oakCors()); // Enable CORS for All Routes
 app.use(router.routes());
 app.use(router.allowedMethods());
 
