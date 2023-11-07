@@ -68,7 +68,12 @@ const translate = async (
     if ("error" in resp) {
       return resp;
     }
-    return resp.choices[0].message.content;
+    let content = resp.choices[0].message.content;
+    if (content.startsWith('```' + locale)) {
+      content = content.substring(('```' + locale).length);
+      content = content.substring(0, content.length - 3);
+    }
+    return content;
   };
 
   let result = "";
