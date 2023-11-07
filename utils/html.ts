@@ -16,7 +16,7 @@ export function splitHTMLChildrenLargerThan16kByTag(htmlText: string) {
   let currentSection = "";
   for (const child of document!.body.children) {
     const text = child.outerHTML;
-    if (currentSection.length + text.length > 10_000) {
+    if (currentSection.length + text.length > 15_000) {
       result.push(currentSection);
       currentSection = "";
     }

@@ -10,7 +10,7 @@ export function splitMarkdownIfLengthLargerThan16k(
   const result: string[] = [];
   let currentSection = "";
   for (const section of sections) {
-    if (currentSection.length + section.length > 10_000) {
+    if (currentSection.length + section.length > 15_000) {
       result.push(currentSection);
       currentSection = section;
     } else {
