@@ -37,7 +37,7 @@ const sha1 = async (str: string) => {
 const systemPrompt = {
   role: "system",
   content:
-    "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into different languages by locale code.",
+    "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into different languages by locale code. Your output should be the same format with the input. Do not wrap code block to the output.",
 };
 const translate = async (
   id: string,
@@ -63,7 +63,7 @@ const translate = async (
     const resp = await chat([systemPrompt, {
       role: "user",
       content:
-        `Translate following ${textType} text into ${locale} raw ${textType} text (Please not wrap with code block):\n${t}`,
+        `Translate following ${textType} text into ${locale} ${textType} text:\n${t}`,
     }]);
     if ("error" in resp) {
       return resp;
