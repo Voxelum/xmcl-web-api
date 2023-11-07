@@ -5,11 +5,11 @@ import {
   MinecraftAuthState,
 } from "../middlewares/minecraftAuth.ts";
 import { chat, ModrinthResponseBody } from "../utils/chatgpt.ts";
-import { splitHTMLChildrenLargerThan4000ByTag } from "../utils/html.ts";
+import { splitHTMLChildrenLargerThan16kByTag } from "../utils/html.ts";
 import {
   placeholderAllUrlInMarkdown,
   restoreAllUrlInMarkdown,
-  splitMarkdownIfLengthLargerThan4000,
+  splitMarkdownIfLengthLargerThan16k,
 } from "../utils/markdown.ts";
 import {
   composeMiddleware,
@@ -75,13 +75,13 @@ const translate = async (
   if (textType === "markdown") {
     const holder = [] as string[];
     const transformed = placeholderAllUrlInMarkdown(text, holder);
-    const chunks = splitMarkdownIfLengthLargerThan4000(transformed);
+    const chunks = splitMarkdownIfLengthLargerThan16k(transformed);
     const outputs = await Promise.all(chunks.map(process));
     const err = outputs.find((o) => typeof o === "object");
     if (err) return err;
     result = restoreAllUrlInMarkdown(outputs.join(""), holder);
   } else if (textType === "html") {
-    const chunks = splitHTMLChildrenLargerThan4000ByTag(text);
+    const chunks = splitHTMLChildrenLargerThan16kByTag(text);
     const outputs = await Promise.all(chunks.map(process));
     const err = outputs.find((o) => typeof o === "object");
     if (err) return err;

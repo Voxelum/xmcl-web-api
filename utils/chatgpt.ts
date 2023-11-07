@@ -34,14 +34,16 @@ export interface ChatGPTBody {
   choices: { text: string; index: number; finish_reason: string }[];
 }
 
-export const chat = (messages: Message[]) =>
-  fetch(
+export const chat = (messages: Message[]) => {
+  const key = Deno.env.get("OPENAI_API_KEY")!
+  console.log('APIKey:' + key?.substring(0, 5) + '...' + key?.substring(key.length - 5))
+  return fetch(
     "https://api.openai.com/v1/chat/completions",
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${Deno.env.get("OPENAI_API_KEY")}`,
+        "Authorization": `Bearer ${key}`,
       },
       body: JSON.stringify({
         model: "gpt-3.5-turbo-1106",
@@ -51,3 +53,4 @@ export const chat = (messages: Message[]) =>
   )
     .then((resp) => resp.json())
     .then((s) => s as ChatGPTChatBody | ChatGPTError);
+}

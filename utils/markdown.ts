@@ -3,14 +3,14 @@ export function splitMarkdowntoSections(markdownText: string): string[] {
   return sections;
 }
 
-export function splitMarkdownIfLengthLargerThan4000(
+export function splitMarkdownIfLengthLargerThan16k(
   markdownText: string,
 ): string[] {
   const sections = splitMarkdowntoSections(markdownText);
   const result: string[] = [];
   let currentSection = "";
   for (const section of sections) {
-    if (currentSection.length + section.length > 4000) {
+    if (currentSection.length + section.length > 10_000) {
       result.push(currentSection);
       currentSection = section;
     } else {
