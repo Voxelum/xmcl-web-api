@@ -34,11 +34,10 @@ const sha1 = async (str: string) => {
 
   return hashHex;
 };
-const systemPrompt = {
-  role: "system",
-  content:
-    "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into different languages by locale code. Your output should be the same format with the input. Do not wrap extra markdown code block (```) to the output, and do not repeat the locale code in output text.",
-};
+
+const markdownPrompt = "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into different languages by locale code. I'm going to give you markdown text. You should give me translated markdown text. Do not wrap extra markdown code block (```) to the output, and do not add locale prefix to output."
+const htmlPrompt = "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into different languages by locale code. I'm going to give you html text. You should give me translated html text. Do not add locale prefix to output."
+const plainPrompt = "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into different languages by locale code. Please do not add locale prefix to output."
 const translate = async (
   id: string,
   locale: string,
@@ -59,11 +58,11 @@ const translate = async (
     return founed.content as string;
   }
 
-  const process = async (t: string) => {
-    const resp = await chat([systemPrompt, {
+  const process = async (t: string, prom: string) => {
+    const resp = await chat([{
       role: "user",
       content:
-        `Translate following ${textType} text into ${locale}, Do not wrap extra markdown code block (\`\`\`) to the output!:\n${t}`,
+        `${prom} Translate following text into ${locale}:\n${t}`,
     }]);
     if ("error" in resp) {
       return resp;
@@ -73,6 +72,9 @@ const translate = async (
       content = content.substring(('```' + locale).length);
       content = content.substring(0, content.length - 3);
     }
+    if (content.startsWith(locale)) {
+      content = content.substring(locale.length);
+    }
     return content;
   };
 
@@ -81,18 +83,20 @@ const translate = async (
     const holder = [] as string[];
     const transformed = placeholderAllUrlInMarkdown(text, holder);
     const chunks = splitMarkdownIfLengthLargerThan16k(transformed);
-    const outputs = await Promise.all(chunks.map(process));
+    console.log("Split into", chunks.length, "chunks")
+    const outputs = await Promise.all(chunks.map(c => process(c, markdownPrompt)));
     const err = outputs.find((o) => typeof o === "object");
     if (err) return err;
     result = restoreAllUrlInMarkdown(outputs.join(""), holder);
   } else if (textType === "html") {
     const chunks = splitHTMLChildrenLargerThan16kByTag(text);
-    const outputs = await Promise.all(chunks.map(process));
+    console.log("Split into", chunks.length, "chunks")
+    const outputs = await Promise.all(chunks.map(c => process(c, htmlPrompt)));
     const err = outputs.find((o) => typeof o === "object");
     if (err) return err;
     result = outputs.join("");
   } else {
-    const translated = await process(text);
+    const translated = await process(text, plainPrompt);
     if (typeof translated === "object") return translated;
     result = translated;
   }
