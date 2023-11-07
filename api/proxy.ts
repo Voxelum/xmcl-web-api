@@ -37,7 +37,7 @@ const sha1 = async (str: string) => {
 const systemPrompt = {
   role: "system",
   content:
-    "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into different languages by locale code. Your output should be the same format with the input. Do not wrap code block to the output.",
+    "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into different languages by locale code. Your output should be the same format with the input. Do not wrap markdown code block to the output!",
 };
 const translate = async (
   id: string,
