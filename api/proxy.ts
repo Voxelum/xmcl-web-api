@@ -63,7 +63,7 @@ const translate = async (
     const resp = await chat([systemPrompt, {
       role: "user",
       content:
-        `Translate following ${textType} text into ${locale} ${textType} text:\n${t}`,
+        `Translate following ${textType} text into ${locale}:\n${t}`,
     }]);
     if ("error" in resp) {
       return resp;
