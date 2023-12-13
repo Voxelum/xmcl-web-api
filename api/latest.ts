@@ -54,6 +54,11 @@ export default defineApi((router) =>
         ctx.throw(Status.NotFound);
       }
       if (lt(version, "0.30.0")) {
+        // Upgrade electron version
+        latest.assets = latest.assets.filter((r) => !r.name.endsWith("asar"));
+      }
+      if (lt(version, "0.38.0")) {
+        // Upgrade electron version to >= 25
         latest.assets = latest.assets.filter((r) => !r.name.endsWith("asar"));
       }
       // reset body

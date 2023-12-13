@@ -9,6 +9,7 @@ import rtc from "./api/rtc.ts";
 import group from "./api/group.ts";
 import proxy from "./api/proxy.ts";
 import mcbbs from "./api/mcbbs.ts";
+import flights from "./api/flights.ts";
 import { mongoDbMiddleware } from "./middlewares/mongoDb.ts";
 
 const app = new Application();
@@ -22,6 +23,7 @@ rtc(router)
 group(router);
 proxy(router);
 mcbbs(router);
+flights(router);
 
 router.get("/", ({ response }) => {
   response.body = "API is online";
