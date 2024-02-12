@@ -92,7 +92,7 @@ export default defineApi((router) =>
           changelogs.unshift(`如果您是通过 Appx 或 AppInstaller 安装的启动器，请注意：`)
           changelogs.unshift(`由于证书过期，您将不会很快收到最新更新。建议您下载 zip 包并手动安装。`)
           changelogs.unshift(`点击[这个链接](https://docs.xmcl.app/zh/guide/appx-migrate)查看如何迁移数据。`)
-        } else if (lang === 'en') {
+        } else {
           changelogs.unshift(`# Notice (Windows User)`)
           changelogs.unshift(`If you installed the launcher via Appx or AppInstaller, please be aware:`)
           changelogs.unshift(`You won't receive the latest updates soon due to the certificate expiration. It's suggested to download the zip package and install it manually.`)
