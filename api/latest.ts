@@ -71,7 +71,7 @@ export default defineApi((router) =>
         if (lang) {
           try {
             const response = await fetch(
-              `https://raw.githubusercontent.com/voxelum/xmcl-page/master/docs/${lang}/changelogs/${v}.md`,
+              `https://raw.githubusercontent.com/voxelum/xmcl-page/master/src/${lang}/changelogs/${v}.md`,
             );
             const markdown = await response.text();
             const content = markdown.substring(markdown.lastIndexOf("---") + 4);
