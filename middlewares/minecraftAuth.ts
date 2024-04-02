@@ -1,4 +1,4 @@
-import { Middleware, Status } from "https://deno.land/x/oak@v11.1.0/mod.ts";
+import { Middleware, Status } from "oak";
 import { MicrosoftMinecraftProfile } from "../type.ts";
 
 export interface MinecraftAuthState {

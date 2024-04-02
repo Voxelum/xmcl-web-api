@@ -1,8 +1,6 @@
-import { defineApi } from "../type.ts";
+import { Router } from "oak";
 
-export default defineApi((router) => {
-  router.get("/flights", (ctx) => {
-    ctx.response.body = {
-    };
-  });
+export default new Router().get("/flights", (ctx) => {
+  ctx.response.body = {
+  };
 });

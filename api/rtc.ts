@@ -4,13 +4,12 @@ import {
   composeMiddleware,
   Router,
   Status,
-} from "https://deno.land/x/oak@v11.1.0/mod.ts";
+} from "oak";
 import {
   minecraftAuthMiddleware,
   MinecraftAuthState,
 } from "../middlewares/minecraftAuth.ts";
 import { mongoDbMiddleware, MongoDbState } from "../middlewares/mongoDb.ts";
-import { defineApi } from "../type.ts";
 
 function getTURNCredentials(name: string, secret: string) {
   const unixTimeStamp = Math.floor(Date.now() / 1000) + 24 * 3600;
@@ -48,53 +47,50 @@ async function ensureAccount(
   });
 }
 
-export default defineApi(
-  (router: Router) => {
-    const secret = Deno.env.get("RTC_SECRET");
-    if (secret) {
-      router.post(
-        "/rtc/official",
-        composeMiddleware<MinecraftAuthState & MongoDbState>([
-          minecraftAuthMiddleware,
-          mongoDbMiddleware,
-        ]),
-        async (context) => {
-          try {
-            const id = context.state.profile.id;
-            await ensureAccount(
-              await context.state.getDatabase(),
-              id,
-              "official",
-            );
-            context.response.body = getTURNCredentials(id, secret);
-          } catch (e) {
-            console.error(e);
-            context.throw(Status.Unauthorized);
-          }
-        },
-      );
+const secret = Deno.env.get("RTC_SECRET");
+const router = new Router();
+if (secret) {
+  router.post(
+    "/rtc/official",
+    composeMiddleware<MinecraftAuthState & MongoDbState>([
+      minecraftAuthMiddleware,
+      mongoDbMiddleware,
+    ]),
+    async (context) => {
+      try {
+        const id = context.state.profile.id;
+        await ensureAccount(
+          await context.state.getDatabase(),
+          id,
+          "official",
+        );
+        context.response.body = getTURNCredentials(id, secret);
+      } catch (e) {
+        console.error(e);
+        context.throw(Status.Unauthorized);
+      }
+    },
+  ).post(
+    "/rtc/microsoft",
+    composeMiddleware<MinecraftAuthState & MongoDbState>([
+      minecraftAuthMiddleware,
+      mongoDbMiddleware,
+    ]),
+    async (context) => {
+      try {
+        const id = context.state.profile.id;
+        await ensureAccount(
+          await context.state.getDatabase(),
+          id,
+          "microsoft",
+        );
+        context.response.body = getTURNCredentials(id, secret);
+      } catch (e) {
+        console.error(e);
+        context.throw(Status.Unauthorized);
+      }
+    },
+  );
+}
 
-      router.post(
-        "/rtc/microsoft",
-        composeMiddleware<MinecraftAuthState & MongoDbState>([
-          minecraftAuthMiddleware,
-          mongoDbMiddleware,
-        ]),
-        async (context) => {
-          try {
-            const id = context.state.profile.id;
-            await ensureAccount(
-              await context.state.getDatabase(),
-              id,
-              "microsoft",
-            );
-            context.response.body = getTURNCredentials(id, secret);
-          } catch (e) {
-            console.error(e);
-            context.throw(Status.Unauthorized);
-          }
-        },
-      );
-    }
-  },
-);
+export default router;

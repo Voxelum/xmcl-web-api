@@ -1,6 +1,6 @@
 import { Database } from "https://deno.land/x/mongo@v0.31.1/mod.ts";
 import { MongoClient } from "https://deno.land/x/mongo@v0.31.1/src/client.ts";
-import { Middleware, Status } from "https://deno.land/x/oak@v11.1.0/mod.ts";
+import { Middleware, Status } from "oak";
 
 export interface MongoDbState {
   getDatabase(): Promise<Database>;
