@@ -22,7 +22,7 @@ export const minecraftAuthMiddleware: Middleware<
   if (response.status !== 200) {
     ctx.response.body = await response.text();
     console.error(ctx.response.body);
-    throw ctx.throw(Status.Unauthorized);
+    return ctx.throw(Status.Unauthorized);
   }
   ctx.state.profile = await response.json() as MicrosoftMinecraftProfile;
   await next();

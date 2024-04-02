@@ -4,29 +4,23 @@ import { minecraftAuthMiddleware } from '../middlewares/minecraftAuth.ts';
 const router = new Router();
 
 function isValidModrinthValue(text: string) {
-    // The modrinth value should be two valid base64 string joint by :
-    const [base64, base642] = text.split(":")
+    // The modrinth value should be a valid base64 string 
     try {
-        atob(base64)
-        atob(base642)
+        atob(text)
     } catch {
         return false
     }
     return true
 }
 function isValidCurseforgeValue(text: string) {
-    // The curseforge value should be a number:number
-    const [p, f] = text.split(":")
-    if (isNaN(Number(p)) || isNaN(Number(f))) {
-        return false
-    }
-    return true
+    // The curseforge value should be a number
+    return Number.isInteger(Number(text))
 }
 
-function isValidSheet(v: unknown, validator: (v: string) => boolean) {
-    if (!(v instanceof Array)) return false
-    for (const el of v) {
-        if (typeof el !== "string" || !validator(el)) return false
+function isValidSheet(o: object, validator: (v: string) => boolean) {
+    for (const [k, v] of Object.entries(o)) {
+        if (typeof v !== "string" || !validator(v)) return false
+        if (typeof k !== "string" || !validator(k)) return false
     }
     return true
 }
@@ -34,8 +28,8 @@ function isValidSheet(v: unknown, validator: (v: string) => boolean) {
 type Modsheets = {
     [key: string]: {
         public?: boolean,
-        modrinth: string[],
-        curseforge: string[]
+        modrinth?: Record<string, string>,
+        curseforge?: Record<string, string>
     }
 }
 
