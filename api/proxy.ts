@@ -9,7 +9,7 @@ import {
   Status,
 } from "oak";
 import {
-  minecraftAuthMiddleware,
+  getMinecraftAuthMiddleware,
   MinecraftAuthState,
 } from "../middlewares/minecraftAuth.ts";
 import { mongoDbMiddleware, MongoDbState } from "../middlewares/mongoDb.ts";
@@ -143,7 +143,7 @@ const ensureSourceLocale = async (
 export default new Router().get(
   "/curseforge/(.*)",
   composeMiddleware<MinecraftAuthState & MongoDbState>([
-    minecraftAuthMiddleware,
+    getMinecraftAuthMiddleware(),
     mongoDbMiddleware,
   ]),
   async (ctx, next) => {
@@ -275,7 +275,7 @@ export default new Router().get(
 }).get(
   "/modrinth/(.*)",
   composeMiddleware<MinecraftAuthState & MongoDbState>([
-    minecraftAuthMiddleware,
+    getMinecraftAuthMiddleware(),
     mongoDbMiddleware,
   ]),
   async (ctx, next) => {

@@ -3,10 +3,9 @@ import { Database } from "https://deno.land/x/mongo@v0.31.1/mod.ts";
 import {
   composeMiddleware,
   Router,
-  Status,
 } from "oak";
 import {
-  minecraftAuthMiddleware,
+  getMinecraftAuthMiddleware,
   MinecraftAuthState,
 } from "../middlewares/minecraftAuth.ts";
 import { mongoDbMiddleware, MongoDbState } from "../middlewares/mongoDb.ts";
@@ -47,47 +46,49 @@ async function ensureAccount(
   });
 }
 
+const stuns = [
+  "stun.miwifi.com",
+  "stun.l.google.com",
+]
+
 const secret = Deno.env.get("RTC_SECRET");
 const router = new Router();
 if (secret) {
   router.post(
     "/rtc/official",
-    composeMiddleware<MinecraftAuthState & MongoDbState>([
-      minecraftAuthMiddleware,
+    composeMiddleware<Partial<MinecraftAuthState> & MongoDbState>([
+      getMinecraftAuthMiddleware(false),
       mongoDbMiddleware,
     ]),
     async (context) => {
-      try {
-        const id = context.state.profile.id;
-        await ensureAccount(
-          await context.state.getDatabase(),
-          id,
-          "official",
-        );
-        context.response.body = getTURNCredentials(id, secret);
-      } catch (e) {
-        console.error(e);
-        context.throw(Status.Unauthorized);
+      const tryGetCred = async () => {
+        try {
+          if (context.state.profile) {
+            const id = context.state.profile.id;
+            await ensureAccount(
+              await context.state.getDatabase(),
+              id,
+              "official",
+            );
+            const creds = getTURNCredentials(id, secret);
+            return creds
+          }
+          return undefined
+        } catch (e) {
+          console.error(e);
+          return undefined
+        }
       }
-    },
-  ).post(
-    "/rtc/microsoft",
-    composeMiddleware<MinecraftAuthState & MongoDbState>([
-      minecraftAuthMiddleware,
-      mongoDbMiddleware,
-    ]),
-    async (context) => {
-      try {
-        const id = context.state.profile.id;
-        await ensureAccount(
-          await context.state.getDatabase(),
-          id,
-          "microsoft",
-        );
-        context.response.body = getTURNCredentials(id, secret);
-      } catch (e) {
-        console.error(e);
-        context.throw(Status.Unauthorized);
+
+      const cred = await tryGetCred()
+      if (cred) {
+        return {
+          ...cred,
+          stuns,
+        }
+      }
+      return {
+        stuns,
       }
     },
   );

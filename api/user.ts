@@ -1,5 +1,5 @@
 import { Router } from "oak";
-import { minecraftAuthMiddleware } from '../middlewares/minecraftAuth.ts';
+import { getMinecraftAuthMiddleware } from '../middlewares/minecraftAuth.ts';
 
 const router = new Router();
 
@@ -33,7 +33,7 @@ type Modsheets = {
     }
 }
 
-router.get("/mod-sheets", minecraftAuthMiddleware, async (ctx) => {
+router.get("/mod-sheets", getMinecraftAuthMiddleware(), async (ctx) => {
     const kv = await Deno.openKv();
     const profile = ctx.state.profile
     const modSheet = await kv.get(["mod-sheets", profile.id])
@@ -55,7 +55,7 @@ router.get("/mod-sheets", minecraftAuthMiddleware, async (ctx) => {
     const publicRecord = Object.fromEntries(Object.entries(record).filter(([_, v]) => v.public))
     ctx.response.body = publicRecord
     ctx.response.status = 200
-}).post("/mod-sheets", minecraftAuthMiddleware, async (ctx) => {
+}).post("/mod-sheets", getMinecraftAuthMiddleware(), async (ctx) => {
     const kv = await Deno.openKv();
     const profile = ctx.state.profile
     const record = await ctx.request.body.json() as Modsheets
