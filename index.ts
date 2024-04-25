@@ -23,8 +23,9 @@ router.use(mongoDbMiddleware)
   .use(proxy.routes())
   .use(flights.routes());
 
+
 router.get("/", ({ response }) => {
-  response.body = "API is online";
+  response.body = JSON.stringify([...router.keys()]);
 });
 
 app.use(oakCors()); // Enable CORS for All Routes
