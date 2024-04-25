@@ -59,6 +59,10 @@ export default new Router().get("/latest", async (ctx) => {
       // Upgrade electron version to >= 25
       latest.assets = latest.assets.filter((r) => !r.name.endsWith("asar"));
     }
+    if (lt(version, "0.44.2")) {
+      // Upgrade electron version to >= 30
+      latest.assets = latest.assets.filter((r) => !r.name.endsWith("asar"));
+    }
     // reset body
     const changelogs: string[] = [];
 
