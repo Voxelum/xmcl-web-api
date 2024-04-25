@@ -84,13 +84,14 @@ const router = new Router().post(
 
     const cred = await tryGetCred()
     if (cred) {
-      return {
+      context.response.body = {
         ...cred,
         stuns,
       }
-    }
-    return {
-      stuns,
+    } else {
+      context.response.body = {
+        stuns,
+      }
     }
   },
 );
