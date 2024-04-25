@@ -52,46 +52,47 @@ const stuns = [
 ]
 
 const secret = Deno.env.get("RTC_SECRET");
-const router = new Router();
-if (secret) {
-  router.post(
-    "/rtc/official",
-    composeMiddleware<Partial<MinecraftAuthState> & MongoDbState>([
-      getMinecraftAuthMiddleware(false),
-      mongoDbMiddleware,
-    ]),
-    async (context) => {
-      const tryGetCred = async () => {
-        try {
-          if (context.state.profile) {
-            const id = context.state.profile.id;
-            await ensureAccount(
-              await context.state.getDatabase(),
-              id,
-              "official",
-            );
-            const creds = getTURNCredentials(id, secret);
-            return creds
-          }
-          return undefined
-        } catch (e) {
-          console.error(e);
-          return undefined
-        }
+const router = new Router().post(
+  "/rtc/official",
+  composeMiddleware<Partial<MinecraftAuthState> & MongoDbState>([
+    getMinecraftAuthMiddleware(false),
+    mongoDbMiddleware,
+  ]),
+  async (context) => {
+    const tryGetCred = async () => {
+      if (!secret) {
+        console.warn("No RTC_SECRET");
+        return undefined
       }
+      try {
+        if (context.state.profile) {
+          const id = context.state.profile.id;
+          await ensureAccount(
+            await context.state.getDatabase(),
+            id,
+            "official",
+          );
+          const creds = getTURNCredentials(id, secret);
+          return creds
+        }
+        return undefined
+      } catch (e) {
+        console.error(e);
+        return undefined
+      }
+    }
 
-      const cred = await tryGetCred()
-      if (cred) {
-        return {
-          ...cred,
-          stuns,
-        }
-      }
+    const cred = await tryGetCred()
+    if (cred) {
       return {
+        ...cred,
         stuns,
       }
-    },
-  );
-}
+    }
+    return {
+      stuns,
+    }
+  },
+);
 
 export default router;
