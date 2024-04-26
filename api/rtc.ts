@@ -91,6 +91,7 @@ const router = new Router().post(
     } else {
       context.response.body = {
         stuns,
+        uris: [],
       }
     }
   },
