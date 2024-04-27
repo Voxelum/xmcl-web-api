@@ -47,8 +47,8 @@ async function ensureAccount(
 }
 
 const stuns = [
-  "stun.miwifi.com",
-  // "stun.l.google.com",
+  "stun.miwifi.com:3478",
+  "stun.l.google.com:19302",
 ]
 
 const secret = Deno.env.get("RTC_SECRET");
