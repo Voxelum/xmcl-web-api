@@ -4,23 +4,16 @@ import {
   Document
 } from "https://deno.land/x/mongo@v0.31.1/mod.ts";
 import {
-  composeMiddleware,
   Router,
   Status,
+  composeMiddleware,
 } from "oak";
 import {
-  getMinecraftAuthMiddleware,
-  MinecraftAuthState,
+  MinecraftAuthState
 } from "../middlewares/minecraftAuth.ts";
-import { mongoDbMiddleware, MongoDbState } from "../middlewares/mongoDb.ts";
-import { chat, ModrinthResponseBody } from "../utils/chatgpt.ts";
-import { splitHTMLChildrenLargerThan16kByTag } from "../utils/html.ts";
-import {
-  placeholderAllUrlInMarkdown,
-  restoreAllUrlInMarkdown,
-  splitMarkdownIfLengthLargerThan16k,
-} from "../utils/markdown.ts";
-
+import { MongoDbState, mongoDbMiddleware } from "../middlewares/mongoDb.ts";
+import { ModrinthResponseBody } from "../utils/chatgpt.ts";
+import { translate } from "../utils/translation.ts";
 const sha1 = async (str: string) => {
   const encoder = new TextEncoder();
   const data = encoder.encode(str);
@@ -31,20 +24,16 @@ const sha1 = async (str: string) => {
 
   return hashHex;
 };
-
-const markdownPrompt = "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into different languages by locale code. I'm going to give you markdown text. You should give me translated markdown text. Do not wrap extra markdown code block (```) to the output, and do not add locale prefix to output."
-const htmlPrompt = "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into different languages by locale code. I'm going to give you html text. You should give me translated html text. Do not add locale prefix to output."
-const plainPrompt = "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into different languages by locale code. Please do not add locale prefix to output."
-const translate = async (
+async function getOrTranslate(
   id: string,
   locale: string,
   text: string,
   slug: string,
-  type: string,
-  domain: string,
+  type: 'summary' | 'description',
+  domain: 'curseforge' | 'modrinth',
   textType: "markdown" | "html" | "",
   coll: Collection<Document>,
-) => {
+) {
   const _id = await sha1(text + locale);
   const founed = await coll.findOne({
     _id: {
@@ -54,50 +43,9 @@ const translate = async (
   if (founed) {
     return founed.content as string;
   }
-
-  const process = async (t: string, prom: string) => {
-    const resp = await chat([{
-      role: "user",
-      content:
-        `${prom} Translate following text into ${locale}:\n${t}`,
-    }]);
-    if ("error" in resp) {
-      return resp;
-    }
-    let content = resp.choices[0].message.content;
-    if (content.startsWith('```' + locale)) {
-      content = content.substring(('```' + locale).length);
-      content = content.substring(0, content.length - 3);
-    }
-    if (content.startsWith(locale)) {
-      content = content.substring(locale.length);
-    }
-    return content;
-  };
-
-  let result = "";
-  if (textType === "markdown") {
-    const holder = [] as string[];
-    const transformed = placeholderAllUrlInMarkdown(text, holder);
-    const chunks = splitMarkdownIfLengthLargerThan16k(transformed);
-    console.log("Split into", chunks.length, "chunks")
-    const outputs = await Promise.all(chunks.map(c => process(c, markdownPrompt)));
-    const err = outputs.find((o) => typeof o === "object");
-    if (err) return err;
-    result = restoreAllUrlInMarkdown(outputs.join(""), holder);
-  } else if (textType === "html") {
-    const chunks = splitHTMLChildrenLargerThan16kByTag(text);
-    console.log("Split into", chunks.length, "chunks")
-    const outputs = await Promise.all(chunks.map(c => process(c, htmlPrompt)));
-    const err = outputs.find((o) => typeof o === "object");
-    if (err) return err;
-    result = outputs.join("");
-  } else {
-    const translated = await process(text, plainPrompt);
-    if (typeof translated === "object") return translated;
-    result = translated;
-  }
-
+  console.time(`getOrTranslate:${id}:${type}`);
+  const result = await translate(locale, text, textType)
+  console.timeLog(`getOrTranslate:${id}:${type}`);
   await coll.insertOne({
     _id,
     id,
@@ -108,9 +56,8 @@ const translate = async (
     domain,
     type,
   });
-
-  return result;
-};
+  return result
+}
 
 const ensureSourceLocale = async (
   id: string,
@@ -143,7 +90,7 @@ const ensureSourceLocale = async (
 export default new Router().get(
   "/curseforge/(.*)",
   composeMiddleware<MinecraftAuthState & MongoDbState>([
-    getMinecraftAuthMiddleware(),
+    // getMinecraftAuthMiddleware(),
     mongoDbMiddleware,
   ]),
   async (ctx, next) => {
@@ -186,7 +133,7 @@ export default new Router().get(
   const db = await ctx.state.getDatabase();
   const coll = db.collection("translated");
   if (lang !== "*" && !lang.startsWith("en")) {
-    const summary = await translate(
+    const summary = await getOrTranslate(
       ctx.params.modId,
       lang,
       body.data.summary,
@@ -239,7 +186,7 @@ export default new Router().get(
   const db = await ctx.state.getDatabase();
   const coll = db.collection("translated");
   if (lang !== "*" && !lang.startsWith("en")) {
-    const description = await translate(
+    const description = await getOrTranslate(
       ctx.params.modId,
       lang,
       body.data,
@@ -275,7 +222,7 @@ export default new Router().get(
 }).get(
   "/modrinth/(.*)",
   composeMiddleware<MinecraftAuthState & MongoDbState>([
-    getMinecraftAuthMiddleware(),
+    // getMinecraftAuthMiddleware(),
     mongoDbMiddleware,
   ]),
   async (ctx, next) => {
@@ -303,6 +250,7 @@ export default new Router().get(
     }
   },
 ).get("/modrinth/v2/project/:id", async (ctx) => {
+  console.time(`modrinth-project:${ctx.params.id}`);
   const body = ctx.response.body as ModrinthResponseBody;
   const langs = ctx.request.acceptsLanguages();
   if (!langs) {
@@ -313,7 +261,7 @@ export default new Router().get(
   const db = await ctx.state.getDatabase();
   const coll = db.collection("translated");
   if (lang !== "*" && !lang.startsWith("en")) {
-    const summaryResult = await translate(
+    const summaryResult = await getOrTranslate(
       ctx.params.id,
       lang,
       body.description,
@@ -323,7 +271,7 @@ export default new Router().get(
       "",
       coll,
     );
-    const descriptionResult = await translate(
+    const descriptionResult = await getOrTranslate(
       ctx.params.id,
       lang,
       body.body,
@@ -354,6 +302,7 @@ export default new Router().get(
 
     ctx.response.body = body;
     ctx.response.headers.set("content-language", lang);
+    console.timeLog(`modrinth-project:${ctx.params.id}`);
   } else {
     await Promise.all([
       ensureSourceLocale(

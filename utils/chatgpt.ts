@@ -36,9 +36,9 @@ export interface ChatGPTBody {
 
 export const chat = (messages: Message[]) => {
   const key = Deno.env.get("OPENAI_API_KEY")!
-  console.log('APIKey:' + key?.substring(0, 5) + '...' + key?.substring(key.length - 5))
+  // console.log('APIKey:' + key?.substring(0, 5) + '...' + key?.substring(key.length - 5))
   return fetch(
-    "https://api.openai.com/v1/chat/completions",
+    "https://api.deepseek.com/chat/completions",
     {
       method: "POST",
       headers: {
@@ -46,7 +46,7 @@ export const chat = (messages: Message[]) => {
         "Authorization": `Bearer ${key}`,
       },
       body: JSON.stringify({
-        model: "gpt-3.5-turbo-1106",
+        model: "deepseek-chat",
         messages,
       }),
     },
