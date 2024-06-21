@@ -22,7 +22,14 @@ function getTURNCredentials(name: string, secret: string) {
     ttl: 86400,
     uris: [
       "turn:20.239.69.131",
+      "turn:221.202.158.48",
+      "turn:183.239.47.179",
     ],
+    meta: {
+      ["20.239.69.131"]: "hk",
+      ["221.202.158.48"]: "liaoning",
+      ["183.239.47.179"]: "guangzhou",
+    }
   };
 }
 
@@ -48,7 +55,15 @@ async function ensureAccount(
 
 const stuns = [
   "stun.miwifi.com:3478",
-  "stun.l.google.com:19302",
+  'stun.l.google.com:19302',
+  'stun2.l.google.com:19302',
+  'stun3.l.google.com:19302',
+  'stun4.l.google.com:19302',
+  'stun.voipbuster.com:3478',
+  'stun.voipstunt.com:3478',
+  'stun.internetcalls.com:3478',
+  'stun.voip.aebc.com:3478',
+  'stun.qq.com:3478',
 ]
 
 const secret = Deno.env.get("RTC_SECRET");
