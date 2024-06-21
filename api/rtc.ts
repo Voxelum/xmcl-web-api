@@ -10,20 +10,47 @@ import {
 } from "../middlewares/minecraftAuth.ts";
 import { mongoDbMiddleware, MongoDbState } from "../middlewares/mongoDb.ts";
 
+function parseTurnsFromEnv() {
+  try {
+    const turns = Deno.env.get('TURNS')
+    const pairs = turns?.split(',').map(p => p.split(':'))
+    const result = pairs?.map(([realm, ip]) => ({ ip, realm }))
+    return result || []
+  } catch (e) {
+    console.error(e)
+    return []
+  }
+}
+const cached = parseTurnsFromEnv()
+
 function getTURNCredentials(name: string, secret: string) {
   const unixTimeStamp = Math.floor(Date.now() / 1000) + 24 * 3600;
 
   const username = [unixTimeStamp, name].join(":");
   const password = hmac("sha1", secret, username, "utf-8", "base64");
 
-  return {
+  const result = {
     username,
     password,
     ttl: 86400,
     uris: [
       "turn:20.239.69.131",
+      "turn:20.199.15.21",
+      "turn:20.215.243.212",
     ],
+    meta: {
+      ["20.239.69.131"]: "hk",
+      ["20.199.15.21"]: "fr",
+      ["20.215.243.212"]: "po"
+    } as Record<string, string>
   };
+
+  for (const turn of cached) {
+    result.uris.push(`turn:${turn.ip}`)
+    result.meta[turn.ip] = turn.realm
+  }
+
+  return result;
 }
 
 async function ensureAccount(
@@ -48,7 +75,15 @@ async function ensureAccount(
 
 const stuns = [
   "stun.miwifi.com:3478",
-  "stun.l.google.com:19302",
+  'stun.l.google.com:19302',
+  'stun2.l.google.com:19302',
+  'stun3.l.google.com:19302',
+  'stun4.l.google.com:19302',
+  'stun.voipbuster.com:3478',
+  'stun.voipstunt.com:3478',
+  'stun.internetcalls.com:3478',
+  'stun.voip.aebc.com:3478',
+  'stun.qq.com:3478',
 ]
 
 const secret = Deno.env.get("RTC_SECRET");
