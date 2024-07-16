@@ -10,6 +10,7 @@ export default new Router().get("/group/:id", (ctx) => {
   }
 
   const group = ctx.params.id;
+  const clientId = ctx.request.url.searchParams.get("client-id");
   const channel = new BroadcastChannel(group);
 
   const socket = ctx.upgrade();
@@ -19,7 +20,18 @@ export default new Router().get("/group/:id", (ctx) => {
     console.log(`Websocket created ${group}!`);
     channel.addEventListener("message", ({ data }) => {
       if (typeof data === "string") {
-        console.log(`Get message from group ${group} ${data}`);
+        try {
+          const { type, receiver, sender } = JSON.parse(data);
+
+          if (receiver && clientId && receiver !== clientId) {
+            return;
+          }
+
+          console.log(`[${group}] Get ${type} from channel. ${sender} -> ${receiver}`);
+
+        } catch (e) {
+          console.warn(`Get message from group parsed with error`, e);
+        }
       }
       socket.send(data);
     });
@@ -28,8 +40,12 @@ export default new Router().get("/group/:id", (ctx) => {
   socket.onmessage = (ev) => {
     const data = ev.data;
     if (typeof data === "string") {
-      console.log(`Get message from client side & send to channel ${group}`);
-      console.log(data);
+      try {
+        const { type, receiver, sender } = JSON.parse(data);
+        console.log(`[${group}] Broadcast ${type} from client. ${sender} -> ${receiver}`);
+      } catch (e) {
+        console.warn(`Get message from group parsed with error`, e);
+      }
     }
     channel.postMessage(data);
   };
