@@ -13,12 +13,12 @@ export default new Router().get("/group/:id", (ctx) => {
   const channel = new BroadcastChannel(group);
 
   const socket = ctx.upgrade();
-  console.log(`Get join group request ${group}!`);
+  console.log(`[${group}] Get join group request!`);
 
   let clientId = undefined as string | undefined;
 
   socket.onopen = () => {
-    console.log(`Websocket created ${group}!`);
+    console.log(`[${group}] Websocket created!`);
     channel.addEventListener("message", ({ data }) => {
       if (typeof data === "string") {
         try {
@@ -49,7 +49,7 @@ export default new Router().get("/group/:id", (ctx) => {
         if (clientId === undefined) {
           clientId = sender;
         }
-        console.log(`[${group}] Broadcast ${type} from client. ${sender} -> ${receiver}`);
+        console.log(`[${group}] [${clientId}] Broadcast ${type} from client. ${sender} -> ${receiver}`);
       } catch (e) {
         console.warn(`Get message from group parsed with error`, e);
       }
@@ -74,8 +74,12 @@ export default new Router().get("/group/:id", (ctx) => {
     channel.postMessage(data);
   };
 
+  socket.onerror = (e) => {
+    console.error(`[${group}] [${clientId}] Websocket error`, e);
+  }
+
   socket.onclose = () => {
-    console.log(`Websocket closed ${group}!`);
+    console.log(`[${group}] [${clientId}] Websocket closed`);
     channel.close();
   };
 });
