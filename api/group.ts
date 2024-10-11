@@ -41,6 +41,10 @@ export default new Router().get("/group/:id", (ctx) => {
     });
   };
 
+  channel.onmessageerror = (ev) => {
+    console.log(`[${group}] [${clientId}] Channel error`, ev);
+  }
+
   socket.onmessage = (ev) => {
     const data = ev.data;
     if (typeof data === "string") {
