@@ -54,7 +54,7 @@ export default new Router().get("/group/:id", (ctx) => {
     if (typeof data === "string") {
       try {
         const { type, receiver, sender } = JSON.parse(data);
-        if (clientId === undefined) {
+        if (!clientId) {
           setClientId(sender);
         }
         console.log(`[${group}] [${clientId}] Broadcast ${type} from client. ${sender} -> ${receiver}`);
@@ -63,6 +63,7 @@ export default new Router().get("/group/:id", (ctx) => {
       }
     } else {
       if (!clientId) {
+        console.log(`[${group}] [${clientId}] Get binary data before client id`, data);
         const getId = (data: Uint8Array) => {
           return [...data]
             .map((b) => ('00' + b.toString(16)).slice(-2))
