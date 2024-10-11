@@ -63,7 +63,6 @@ export default new Router().get("/group/:id", (ctx) => {
       }
     } else {
       if (!clientId) {
-        console.log(`[${group}] [${clientId}] Get binary data before client id`, data);
         const getId = (data: Uint8Array) => {
           return [...data]
             .map((b) => ('00' + b.toString(16)).slice(-2))
@@ -74,6 +73,9 @@ export default new Router().get("/group/:id", (ctx) => {
           // Blob to Uint8Array
           data.arrayBuffer().then(data => new Uint8Array(data))
             .then(getId).then(setClientId);
+        }
+        if (data instanceof ArrayBuffer) {
+          setClientId(getId(new Uint8Array(data)));
         }
         if (data instanceof Uint8Array) {
           setClientId(getId(data));
