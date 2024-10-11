@@ -13,9 +13,15 @@ export default new Router().get("/group/:id", (ctx) => {
   const channel = new BroadcastChannel(group);
 
   const socket = ctx.upgrade();
-  console.log(`[${group}] Get join group request!`);
+  
+  let clientId = ctx.request.url.searchParams.get('client') || '';
 
-  let clientId = undefined as string | undefined;
+  console.log(`[${group}] [${clientId}] Get join group request!`);
+
+  function setClientId(id: string) {
+    clientId = id;
+    console.log(`[${group}] [${clientId}] Set client id`);
+  }
 
   socket.onopen = () => {
     console.log(`[${group}] Websocket created!`);
@@ -28,10 +34,8 @@ export default new Router().get("/group/:id", (ctx) => {
             if (receiver && receiver !== clientId) {
               return;
             }
-            console.log(`[${group}] [${clientId}] Get ${type} from channel. ${sender} -> ${receiver}`);
-          } else {
-            console.log(`[${group}] Get ${type} from channel. ${sender} -> ${receiver}`);
           }
+          console.log(`[${group}] [${clientId}] Get ${type} from channel. ${sender} -> ${receiver}`);
 
         } catch (e) {
           console.warn(`Get message from group parsed with error`, e);
@@ -51,7 +55,7 @@ export default new Router().get("/group/:id", (ctx) => {
       try {
         const { type, receiver, sender } = JSON.parse(data);
         if (clientId === undefined) {
-          clientId = sender;
+          setClientId(sender);
         }
         console.log(`[${group}] [${clientId}] Broadcast ${type} from client. ${sender} -> ${receiver}`);
       } catch (e) {
@@ -68,10 +72,10 @@ export default new Router().get("/group/:id", (ctx) => {
         if (data instanceof Blob) {
           // Blob to Uint8Array
           data.arrayBuffer().then(data => new Uint8Array(data))
-            .then(getId).then(id => clientId = id);
+            .then(getId).then(setClientId);
         }
         if (data instanceof Uint8Array) {
-          clientId = getId(data);
+          setClientId(getId(data));
         }
       }
     }
@@ -80,6 +84,7 @@ export default new Router().get("/group/:id", (ctx) => {
 
   socket.onerror = (e) => {
     console.error(`[${group}] [${clientId}] Websocket error`, e);
+    socket.close(1, 'message' in e ? e.message : 'Unknown error');
   }
 
   socket.onclose = () => {
