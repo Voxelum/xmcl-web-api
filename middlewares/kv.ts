@@ -24,7 +24,7 @@ const promise = Deno.openKv().then((kv) => {
       },
     });
 
-    if (!founed) {
+    if (founed) {
       return
     }
 
