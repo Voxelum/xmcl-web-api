@@ -28,18 +28,42 @@ const promise = Deno.openKv().then((kv) => {
       return
     }
 
-    console.time(`translate:${id}:${contentType}`);
-    const result = await translate(lang, body, contentType)
-    console.timeLog(`translate:${id}:${contentType}`);
-    
-    await coll.insertOne({
-      _id,
-      id,
-      content: result,
-      locale: lang,
-      contentType,
-      type,
-    });
+    const semaphore = await kv.get(['translate', _id])
+
+    if (semaphore.value) {
+      return
+    }
+
+    // up 1
+    const lockResult = await kv.atomic()
+      .check({ key: semaphore.key, versionstamp: semaphore.versionstamp })
+      .set(semaphore.key, 1)
+      .commit()
+
+    if (!lockResult.ok) {
+      return
+    }
+
+    try {
+      console.time(`translate:${id}:${contentType}`);
+      const result = await translate(lang, body, contentType)
+      console.timeLog(`translate:${id}:${contentType}`);
+
+      await coll.insertOne({
+        _id,
+        id,
+        content: result,
+        locale: lang,
+        contentType,
+        type,
+      });
+    } finally {
+      // delete semaphore
+      await kv.atomic()
+        .check({ key: semaphore.key, versionstamp: semaphore.versionstamp })
+        .delete(semaphore.key)
+        .commit()
+    }
   })
   return kv
 })
