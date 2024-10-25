@@ -22,7 +22,7 @@ const plainPrompt = "You are an asistant of a Minecraft mod developer. You are a
 export async function translate(
     locale: string,
     text: string,
-    textType: "markdown" | "html" | "",
+    textType: "text/markdown" | "text/html",
 ) {
     const process = async (t: string, prom: string) => {
         const resp = await chat([{
@@ -53,7 +53,7 @@ export async function translate(
     };
 
     let result = "";
-    if (textType === "markdown") {
+    if (textType === "text/markdown") {
         const holder = [] as string[];
         const transformed = placeholderAllUrlInMarkdown(text, holder);
         const chunks = splitMarkdownIfLengthLargerThan16k(transformed);
@@ -61,7 +61,7 @@ export async function translate(
         const err = outputs.find((o) => typeof o === "object");
         if (err) return err;
         result = restoreAllUrlInMarkdown(outputs.join(""), holder);
-    } else if (textType === "html") {
+    } else if (textType === "text/html") {
         const chunks = splitHTMLChildrenLargerThan16kByTag(text);
         const outputs = await Promise.all(chunks.map(c => process(c, htmlPrompt)));
         const err = outputs.find((o) => typeof o === "object");
