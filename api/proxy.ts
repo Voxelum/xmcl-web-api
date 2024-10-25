@@ -40,7 +40,7 @@ export default new Router().get(
 
     async function getModrinthDescrption(id: string) {
       const url = new URL(
-        `https://api.modrinth.com/api/v1/mod/${id}`,
+        `https://api.modrinth.com/v2/project/${id}`,
       );
       const response = await fetch(url, {
         headers: ctx.request.headers,
