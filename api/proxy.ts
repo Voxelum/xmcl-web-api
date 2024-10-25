@@ -17,7 +17,7 @@ export default new Router().get(
   "/translation",
   composeMiddleware<MinecraftAuthState & MongoDbState & WithHasher>([
     hasherMiddlware,
-    getMinecraftAuthMiddleware(),
+    // getMinecraftAuthMiddleware(),
     mongoDbMiddleware,
   ]),
   async (ctx) => {
