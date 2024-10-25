@@ -5,11 +5,13 @@ export interface WithHasher {
   hasher: XXH64.Hasher;
 }
 
+const promise = XXH64.create3()
+
 export const hasherMiddlware: Middleware<WithHasher> = async (
   ctx,
   next,
 ) => {
-  const hasher = await XXH64.create3()
+  const hasher = await promise
   ctx.state.hasher = hasher;
   await next();
 };

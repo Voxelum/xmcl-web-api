@@ -7,18 +7,13 @@ export interface MongoDbState {
 }
 const client = new MongoClient();
 let database: Database | undefined;
+
 export const mongoDbMiddleware: Middleware<MongoDbState> = async (
   ctx,
   next,
 ) => {
   try {
-    ctx.state.getDatabase = async () => {
-      if (database) {
-        return database;
-      }
-      database = await client.connect(Deno.env.get("MONGO_CONNECION_STRING")!);
-      return database;
-    };
+    ctx.state.getDatabase = getDatabase;
   } catch (e) {
     console.error("Error connecting to MongoDB")
     console.error(e);
@@ -26,3 +21,11 @@ export const mongoDbMiddleware: Middleware<MongoDbState> = async (
   }
   await next();
 };
+
+export async function getDatabase() {
+  if (database) {
+    return database;
+  }
+  database = await client.connect(Deno.env.get("MONGO_CONNECION_STRING")!);
+  return database;
+}

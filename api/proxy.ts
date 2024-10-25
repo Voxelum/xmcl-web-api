@@ -7,17 +7,18 @@ import {
 import { WithHasher, hasherMiddlware } from "../middlewares/hasher.ts";
 import {
   MinecraftAuthState,
-  getMinecraftAuthMiddleware
 } from "../middlewares/minecraftAuth.ts";
 import { MongoDbState, mongoDbMiddleware } from "../middlewares/mongoDb.ts";
 import { ModrinthResponseBody } from "../utils/chatgpt.ts";
 import { translate } from "../utils/translation.ts";
+import { WithKv, kvMiddlware } from "../middlewares/kv.ts";
+
 
 export default new Router().get(
   "/translation",
-  composeMiddleware<MinecraftAuthState & MongoDbState & WithHasher>([
+  composeMiddleware<MinecraftAuthState & MongoDbState & WithHasher & WithKv>([
     hasherMiddlware,
-    // getMinecraftAuthMiddleware(),
+    kvMiddlware,
     mongoDbMiddleware,
   ]),
   async (ctx) => {
@@ -107,30 +108,44 @@ export default new Router().get(
       return;
     }
 
-    console.time(`translate:${id}:${contentType}`);
-    const result = await translate(lang, body, contentType)
-    console.timeLog(`translate:${id}:${contentType}`);
-
-    if (typeof result === "object") {
-      return ctx.throw(
-        Status.InternalServerError,
-        result.error.message,
-        result.error,
-      );
-    }
-
-    await coll.insertOne({
-      _id,
-      id,
-      content: result,
-      locale: lang,
+    const enqueueResult = await ctx.state.kv.enqueue({
+      hash: _id,
+      lang,
+      body,
       contentType,
       type,
-    });
+      id,
+    })
 
-    ctx.response.status = 200;
-    ctx.response.body = result;
-    ctx.response.headers.set("content-language", lang);
-    ctx.response.headers.set('content-type', contentType);
+    if (!enqueueResult.ok) {
+      console.time(`translate:${id}:${contentType}`);
+      const result = await translate(lang, body, contentType)
+      console.timeLog(`translate:${id}:${contentType}`);
+
+      if (typeof result === "object") {
+        return ctx.throw(
+          Status.InternalServerError,
+          result.error.message,
+          result.error,
+        );
+      }
+
+      await coll.insertOne({
+        _id,
+        id,
+        content: result,
+        locale: lang,
+        contentType,
+        type,
+      });
+
+      ctx.response.status = 200;
+      ctx.response.body = result;
+      ctx.response.headers.set("content-language", lang);
+      ctx.response.headers.set('content-type', contentType);
+    } else {
+      ctx.response.status = 202;
+      ctx.response.body = '';
+    }
   },
 );
