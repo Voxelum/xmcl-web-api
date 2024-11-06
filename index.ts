@@ -7,7 +7,7 @@ import flights from "./api/flights.ts";
 import group from "./api/group.ts";
 import kookBadge from "./api/kook-badge.ts";
 import latest from "./api/latest.ts";
-import proxy from "./api/proxy.ts";
+import translation from "./api/translation.ts";
 import rtc from "./api/rtc.ts";
 import { mongoDbMiddleware } from "./middlewares/mongoDb.ts";
 
@@ -20,7 +20,7 @@ router.use(mongoDbMiddleware)
   .use(kookBadge.routes())
   .use(rtc.routes())
   .use(group.routes())
-  .use(proxy.routes())
+  .use(translation.routes())
   .use(flights.routes());
 
 

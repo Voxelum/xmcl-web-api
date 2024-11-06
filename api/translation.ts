@@ -27,7 +27,10 @@ export default new Router().get(
         `https://api.curseforge.com/v1/mods/${id}/description`,
       );
       const response = await fetch(url, {
-        headers: ctx.request.headers,
+        headers: {
+          ...ctx.request.headers,
+          'x-api-key': Deno.env.get('CURSEFORGE_KEY')!,
+        },
       });
 
       if (!response.ok) {
