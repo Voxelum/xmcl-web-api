@@ -44,12 +44,21 @@ export default new Router().get("/latest", async (ctx) => {
   const version = request.url.searchParams.get("version");
   const releases: GithubReleaseItem[] = await response.json();
   if (version) {
-    const filtered = releases.filter((r) =>
-      gte(r.tag_name.substring(1), version) && !r.draft
-    );
-    const latest = filtered[0];
+    let latest: GithubReleaseItem | undefined
+    let recent: GithubReleaseItem[]
+    if (version === 'v1.0.7') {
+      // Strange user who is using v1.0.7. Not sure who is using this version and why.
+      // We just gives the latest version for them
+      latest = releases[0];
+      recent = releases.slice(5);
+    } else {
+      recent = releases.filter((r) =>
+        gte(r.tag_name.substring(1), version) && !r.draft
+      );
+      latest = recent[0];
+    }
     if (!latest) {
-      ctx.throw(Status.NotFound);
+      ctx.throw(Status.NotFound, 'Cannot find the compatible version');
     }
     if (lt(version, "0.30.0")) {
       // Upgrade electron version
@@ -66,7 +75,7 @@ export default new Router().get("/latest", async (ctx) => {
     // reset body
     const changelogs: string[] = [];
 
-    for (const r of filtered) {
+    for (const r of recent) {
       const v = r.tag_name.startsWith("v")
         ? r.tag_name.substring(1)
         : r.tag_name;

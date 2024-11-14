@@ -86,7 +86,15 @@ export default new Router().get("/group/:id", (ctx) => {
   };
 
   socket.onerror = (e) => {
-    console.error(`[${group}] [${clientId}] Websocket error`, e);
+    if ('message' in e) {
+      if (e.message === 'No response from ping frame.') {
+        console.warn(`[${group}] [${clientId}] Websocket ping timeout. Might need reconnect.`);
+      } else {
+        console.error(`[${group}] [${clientId}]`, e.message);
+      }
+    } else {
+      console.error(`[${group}] [${clientId}] Websocket error`, e);
+    }
     socket.close(1, 'message' in e ? e.message : 'Unknown error');
   }
 
