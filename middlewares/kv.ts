@@ -60,7 +60,7 @@ const promise = Deno.openKv().then((kv) => {
     } finally {
       // delete semaphore
       await kv.atomic()
-        .check({ key: semaphore.key, versionstamp: semaphore.versionstamp })
+        .check({ key: semaphore.key, versionstamp: lockResult.versionstamp })
         .delete(semaphore.key)
         .commit()
     }
