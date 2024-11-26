@@ -89,8 +89,10 @@ export default new Router().get("/group/:id", (ctx) => {
     if ('message' in e) {
       if (e.message === 'No response from ping frame.') {
         console.warn(`[${group}] [${clientId}] Websocket ping timeout. Might need reconnect.`);
+      } else if (e.message === 'Unexpected EOF') {
+        console.warn(`[${group}] [${clientId}] Websocket unexpected EOF. Might need reconnect.`);
       } else {
-        console.error(`[${group}] [${clientId}]`, e.message);
+        console.error(`[${group}] [${clientId}]`, `${e.filename}:${e.lineno}:${e.colno} ${e.message}`, e.error);
       }
     } else {
       console.error(`[${group}] [${clientId}] Websocket error`, e);
