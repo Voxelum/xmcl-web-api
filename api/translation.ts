@@ -93,6 +93,7 @@ export default new Router().get(
     if (lang === '*' || lang.startsWith('en')) {
       ctx.response.status = 204;
       ctx.response.body = '';
+      ctx.response.headers.set("cache-control", "public, max-age=3600");
       return
     }
 
@@ -108,6 +109,7 @@ export default new Router().get(
       ctx.response.body = founed.content;
       ctx.response.headers.set("content-language", lang);
       ctx.response.headers.set('content-type', contentType);
+      ctx.response.headers.set('etag', _id);
       return;
     }
 
@@ -146,6 +148,7 @@ export default new Router().get(
       ctx.response.body = result;
       ctx.response.headers.set("content-language", lang);
       ctx.response.headers.set('content-type', contentType);
+      ctx.response.headers.set('etag', _id);
     } else {
       ctx.response.status = 202;
       ctx.response.body = '';
