@@ -249,6 +249,7 @@
     "https://deno.land/x/web_bson@v0.2.5/src/uuid_utils.ts": "322cbea409a32cfdbffcae854b91bb30b80730741e032b98f5d6868ad63bc07d",
     "https://deno.land/x/web_bson@v0.2.5/src/validate_utf8.ts": "b7f4d723c379fb66aa84e148bb59f78f4e1c96847e28c38ee7f9f3bf35703ae4",
     "https://deno.land/x/web_bson@v0.2.5/utils.ts": "4c51c0be4bbb77c1e547eeef9b5aa53ffa611f628684875375103f627649ceb1",
+    "https://deno.land/x/xxhash64@1.1.0/mod.ts": "71f60db5a2e88d652d788ff326d98e5a2b43e67159ab3040d372a4a0c5d542c0",
     "https://denopkg.com/chiefbiiko/sha1@v2.0.0/deps.ts": "434b70f37ed145ca5259353c96fdee1e7d1cd8c6a32baad9dce2aedc79d0a3bc",
     "https://denopkg.com/chiefbiiko/sha1@v2.0.0/mod.ts": "146a101c9776cc9c807053c93f23e4b321ade5251f65745df418f4a75d5fd27b",
     "https://denopkg.com/chiefbiiko/sha256@v2.0.0/deps.ts": "434b70f37ed145ca5259353c96fdee1e7d1cd8c6a32baad9dce2aedc79d0a3bc",

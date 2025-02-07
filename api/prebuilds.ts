@@ -28,7 +28,7 @@ export default new Router().get("/prebuilds", async (ctx) => {
 
     if (token) {
         const runs = await getRuns(token)
-        ctx.response.body = [];
+        ctx.response.body = runs;
     } else {
         ctx.response.body = [];
     }
