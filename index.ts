@@ -5,6 +5,7 @@ import { Application, Router } from "oak";
 import afdianBadge from "./api/afdian-badge.ts";
 import flights from "./api/flights.ts";
 import group from "./api/group.ts";
+import prebuilds from "./api/prebuilds.ts";
 import kookBadge from "./api/kook-badge.ts";
 import latest from "./api/latest.ts";
 import translation from "./api/translation.ts";
@@ -21,6 +22,7 @@ router.use(mongoDbMiddleware)
   .use(rtc.routes())
   .use(group.routes())
   .use(translation.routes())
+  .use(prebuilds.routes())
   .use(flights.routes());
 
 
