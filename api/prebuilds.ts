@@ -32,4 +32,20 @@ export default new Router().get("/prebuilds", async (ctx) => {
     } else {
         ctx.response.body = [];
     }
+}).get("prebuilds/:id", async (ctx) => {
+    const token = Deno.env.get('GITHUB_PAT')
+    const id = ctx.params.id
+
+    const resp = await fetch(`https://api.github.com/repos/voxelum/x-minecraft-launcher/actions/runs/${id}/artifacts`, {
+        headers: token ? {
+            Authorization: `token ${token}`,
+        } : {},
+    })
+
+    ctx.response.body = resp.body
+
+    resp.headers.forEach((value, key) => {
+        ctx.response.headers.set(key, value)
+    })
+    ctx.response.status = resp.status
 })

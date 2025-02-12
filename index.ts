@@ -8,6 +8,7 @@ import group from "./api/group.ts";
 import prebuilds from "./api/prebuilds.ts";
 import kookBadge from "./api/kook-badge.ts";
 import latest from "./api/latest.ts";
+import elyby from "./api/ely.by.ts"
 import translation from "./api/translation.ts";
 import rtc from "./api/rtc.ts";
 import { mongoDbMiddleware } from "./middlewares/mongoDb.ts";
@@ -21,6 +22,7 @@ router.use(mongoDbMiddleware)
   .use(kookBadge.routes())
   .use(rtc.routes())
   .use(group.routes())
+  .use(elyby.routes())
   .use(translation.routes())
   .use(prebuilds.routes())
   .use(flights.routes());
