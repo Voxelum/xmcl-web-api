@@ -32,7 +32,7 @@ export default new Router().get("/prebuilds", async (ctx) => {
     } else {
         ctx.response.body = [];
     }
-}).get("prebuilds/:id", async (ctx) => {
+}).get("/prebuilds/:id", async (ctx) => {
     const token = Deno.env.get('GITHUB_PAT')
     const id = ctx.params.id
 
