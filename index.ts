@@ -5,7 +5,7 @@ import { Application, Router } from "oak";
 import afdianBadge from "./api/afdian-badge.ts";
 import flights from "./api/flights.ts";
 import group from "./api/group.ts";
-import prebuilds from "./api/prebuilds.ts";
+import releases from "./api/releases.ts";
 import kookBadge from "./api/kook-badge.ts";
 import latest from "./api/latest.ts";
 import elyby from "./api/ely.by.ts"
@@ -24,7 +24,7 @@ router.use(mongoDbMiddleware)
   .use(group.routes())
   .use(elyby.routes())
   .use(translation.routes())
-  .use(prebuilds.routes())
+  .use(releases.routes())
   .use(flights.routes());
 
 
