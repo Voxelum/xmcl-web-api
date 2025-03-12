@@ -13,7 +13,7 @@ export default new Router().get("/group/:id", (ctx) => {
   const channel = new BroadcastChannel(group);
 
   const socket = ctx.upgrade();
-  
+
   let clientId = ctx.request.url.searchParams.get('client') || '';
 
   console.log(`[${group}] [${clientId}] Get join group request!`);
@@ -54,35 +54,47 @@ export default new Router().get("/group/:id", (ctx) => {
     if (typeof data === "string") {
       try {
         const { type, receiver, sender } = JSON.parse(data);
-        if (!clientId) {
+        if (!clientId && sender) {
           setClientId(sender);
         }
         console.log(`[${group}] [${clientId}] Broadcast ${type} from client. ${sender} -> ${receiver}`);
       } catch (e) {
         console.warn(`Get message from group parsed with error`, e);
       }
+      channel.postMessage(data);
     } else {
-      if (!clientId) {
-        const getId = (data: Uint8Array) => {
-          return [...data]
+      const handleData = (data: Uint8Array) => {
+        if (!clientId) {
+          const id = [...(data.slice(0, 16))]
             .map((b) => ('00' + b.toString(16)).slice(-2))
             .join('')
             .replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5')
+          setClientId(id);
         }
-        if (data instanceof Blob) {
-          // Blob to Uint8Array
-          data.arrayBuffer().then(data => new Uint8Array(data))
-            .then(getId).then(setClientId);
-        }
-        if (data instanceof ArrayBuffer) {
-          setClientId(getId(new Uint8Array(data)));
-        }
-        if (data instanceof Uint8Array) {
-          setClientId(getId(data));
+        if (data.length > 16) {
+          const extra = data.slice(16);
+          const timestamp = new DataView(extra.buffer).getUint32(0);
+          socket.send(JSON.stringify({
+            type: 'PONG',
+            timestamp,
+          }))
+          channel.postMessage(data.slice(0, 16))
+        } else {
+          channel.postMessage(data);
         }
       }
+      if (data instanceof Blob) {
+        // Blob to Uint8Array
+        data.arrayBuffer().then(data => new Uint8Array(data))
+          .then(handleData)
+      } else if (data instanceof ArrayBuffer) {
+        handleData(new Uint8Array(data));
+      } else if (data instanceof Uint8Array) {
+        handleData(data);
+      } else {
+        channel.postMessage(data);
+      }
     }
-    channel.postMessage(data);
   };
 
   socket.onerror = (e) => {
