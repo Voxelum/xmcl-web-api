@@ -73,7 +73,7 @@ export default new Router().get("/group/:id", (ctx) => {
         }
         if (data.length > 16) {
           const extra = data.slice(16);
-          const timestamp = new DataView(extra.buffer).getUint32(0);
+          const timestamp = new DataView(extra.buffer).getFloat64(0);
           socket.send(JSON.stringify({
             type: 'PONG',
             timestamp,
