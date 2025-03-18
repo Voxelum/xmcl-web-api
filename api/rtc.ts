@@ -37,11 +37,9 @@ function getTURNCredentials(name: string, secret: string) {
       "turn:20.239.69.131",
       "turn:20.199.15.21",
       "turn:20.215.243.212",
-      "turn:20.255.189.118",
     ],
     meta: {
       ["20.239.69.131"]: "hk",
-      ["20.255.189.118"]: "hk",
       ["20.199.15.21"]: "fr",
       ["20.215.243.212"]: "po"
     } as Record<string, string>
