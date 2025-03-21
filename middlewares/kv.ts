@@ -6,6 +6,19 @@ export interface WithKv {
   kv: Deno.Kv;
 }
 
+Deno.cron("check-db-status", "0 0 * * *", () => {
+  Deno.openKv().then(async (kv) => {
+    // get count
+    let count = 0
+    for await (const _ of kv.list({
+      prefix: ["translate"],
+    })) {
+      count++
+    }
+    kv.set(["db-count"], count.toString())
+  })
+})
+
 const promise = Deno.openKv().then((kv) => {
   kv.listenQueue(async ({ hash: _id, lang, body, contentType, type, id }: {
     hash: string,
@@ -59,10 +72,9 @@ const promise = Deno.openKv().then((kv) => {
       });
     } finally {
       // delete semaphore
-      await kv.atomic()
-        .check({ key: semaphore.key, versionstamp: lockResult.versionstamp })
-        .delete(semaphore.key)
-        .commit()
+      kv.delete(semaphore.key).catch((e) => {
+        console.error('Fail to delete translation semaphore', e)
+      })
     }
   })
   return kv
