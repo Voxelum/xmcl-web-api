@@ -108,7 +108,7 @@ export default new Router().get(
       ctx.response.body = founed.content;
       ctx.response.headers.set("content-language", lang);
       ctx.response.headers.set('content-type', contentType);
-      ctx.response.headers.set("cache-control", "public, max-age=3600");
+      ctx.response.headers.set("cache-control", "public, max-age=86400");
       return;
     }
 
@@ -147,7 +147,7 @@ export default new Router().get(
       ctx.response.body = result;
       ctx.response.headers.set("content-language", lang);
       ctx.response.headers.set('content-type', contentType);
-      ctx.response.headers.set("cache-control", "public, max-age=3600");
+      ctx.response.headers.set("cache-control", "public, max-age=86400");
     } else {
       ctx.response.status = 202;
       ctx.response.body = '';
