@@ -16,5 +16,7 @@ export default new Router().get("/modrinth/auth", async (ctx) => {
         })
     })
 
+    ctx.response.status = response.status;
+    ctx.response.headers = response.headers;
     ctx.response.body = response.body;
 })
