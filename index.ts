@@ -11,6 +11,7 @@ import latest from "./api/latest.ts";
 import elyby from "./api/ely.by.ts"
 import translation from "./api/translation.ts";
 import rtc from "./api/rtc.ts";
+import zulu from "./api/zulu.ts";
 import modrinthAuth from "./api/modrinth.ts";
 import { mongoDbMiddleware } from "./middlewares/mongoDb.ts";
 
@@ -25,6 +26,7 @@ router.use(mongoDbMiddleware)
   .use(group.routes())
   .use(elyby.routes())
   .use(translation.routes())
+  .use(zulu.routes())
   .use(releases.routes())
   .use(modrinthAuth.routes())
   .use(flights.routes());
