@@ -2,17 +2,17 @@ import { oakCors } from "https://deno.land/x/cors/mod.ts";
 import "https://deno.land/x/dotenv@v3.1.0/load.ts";
 import { Application, Router } from "oak";
 
-import afdianBadge from "./api/afdian-badge.ts";
+import elyby from "./api/ely.by.ts";
 import flights from "./api/flights.ts";
 import group from "./api/group.ts";
-import releases from "./api/releases.ts";
 import kookBadge from "./api/kook-badge.ts";
 import latest from "./api/latest.ts";
-import elyby from "./api/ely.by.ts"
-import translation from "./api/translation.ts";
-import rtc from "./api/rtc.ts";
-import zulu from "./api/zulu.ts";
 import modrinthAuth from "./api/modrinth.ts";
+import notifications from "./api/notifications.ts";
+import releases from "./api/releases.ts";
+import rtc from "./api/rtc.ts";
+import translation from "./api/translation.ts";
+import zulu from "./api/zulu.ts";
 import { mongoDbMiddleware } from "./middlewares/mongoDb.ts";
 
 const app = new Application();
@@ -20,11 +20,11 @@ const router = new Router();
 
 router.use(mongoDbMiddleware)
   .use(latest.routes())
-  .use(afdianBadge.routes())
   .use(kookBadge.routes())
   .use(rtc.routes())
   .use(group.routes())
   .use(elyby.routes())
+  .use(notifications.routes())
   .use(translation.routes())
   .use(zulu.routes())
   .use(releases.routes())

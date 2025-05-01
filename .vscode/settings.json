@@ -1,3 +1,7 @@
 {
-    "deno.enable": true
+    "deno.enable": true,
+    "azureFunctions.deploySubpath": ".",
+    "azureFunctions.projectLanguage": "Custom",
+    "azureFunctions.projectRuntime": "~4",
+    "debug.internalConsoleOptions": "neverOpen"
 }

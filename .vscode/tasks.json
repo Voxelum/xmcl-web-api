@@ -1,0 +1,17 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Start Forms",
+			"type": "shell",
+			"command": "./node_modules/.bin/grunt pre-build:localized-strings && cd Forms && set NODE_OPTIONS=--max_old_space_size=4096 && npm start"
+		},
+		{
+			"type": "func",
+			"label": "func: host start",
+			"command": "host start",
+			"problemMatcher": "$func-watch",
+			"isBackground": true
+		}
+	]
+}
