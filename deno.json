@@ -2,5 +2,9 @@
     "imports": {
         "oak": "https://deno.land/x/oak@14.2.0/mod.ts",
         "std": "https://deno.land/std@0.221.0/"
-    }
+    },
+    "tasks": {
+        "build:fn": "deno --allow-net --allow-env --allow-read --allow-run --allow-write build.ts"
+    },
+    "nodeModulesDir": "auto"
 }

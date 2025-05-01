@@ -81,7 +81,7 @@ The API is implemented in three different ways to ensure global availability and
 
 ### Mainland China Service (Go)
 
-- `MONGODB_URI` - MongoDB connection string
+- `MONGO_CONNECION_STRING` - MongoDB connection string
 - `MONGODB_NAME` - Database name (default: "xmcl-api")
 - `CURSEFORGE_KEY` - API key for CurseForge integration
 - `RTC_SECRET` - Secret for WebRTC services

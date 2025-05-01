@@ -95,7 +95,7 @@ var upgrader = websocket.Upgrader{
 func getMongoClient() (*mongo.Client, error) {
 	var err error
 	mongoOnce.Do(func() {
-		mongoURI := os.Getenv("MONGODB_URI")
+		mongoURI := os.Getenv("MONGO_CONNECION_STRING")
 		if mongoURI == "" {
 			mongoURI = "mongodb://localhost:27017"
 		}

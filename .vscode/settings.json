@@ -1,5 +1,6 @@
 {
     "deno.enable": true,
+    "editor.tabSize": 2,
     "azureFunctions.deploySubpath": ".",
     "azureFunctions.projectLanguage": "Custom",
     "azureFunctions.projectRuntime": "~4",
