@@ -1,7 +1,7 @@
 # Docs for the Azure Web Apps Deploy action: https://github.com/azure/functions-action
 # More GitHub Actions for Azure: https://github.com/Azure/actions
 
-name: Build and deploy Node.js project to Azure Function App - xmcl-core-api
+name: Build and deploy Deno project to Azure Function App - xmcl-core-api
 
 on:
   push:
@@ -11,7 +11,7 @@ on:
 
 env:
   AZURE_FUNCTIONAPP_PACKAGE_PATH: '.' # set this to the path to your web app project, defaults to the repository root
-  NODE_VERSION: '20.x' # set this to the node version to use (supports 8.x, 10.x, 12.x)
+  DENO_VERSION: '2.3.1' # set this to the Deno version to use
 
 jobs:
   build:
@@ -23,24 +23,19 @@ jobs:
       - name: 'Checkout GitHub Action'
         uses: actions/checkout@v4
 
-      - name: Setup Node ${{ env.NODE_VERSION }} Environment
-        uses: actions/setup-node@v3
+      - name: Setup Deno ${{ env.DENO_VERSION }}
+        uses: denoland/setup-deno@v2
         with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: 'Resolve Project Dependencies Using Npm'
+          deno-version: ${{ env.DENO_VERSION }}
+      - name: 'Build Azure Function with Deno'
         shell: pwsh
         run: |
-          pushd './${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}'
-          npm install
-          npm run build --if-present
-          npm run test --if-present
-          popd
+          deno run --allow-net --allow-env --allow-read --allow-run --allow-write build.ts
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
-          name: node-app
+          name: app
           path: .
 
   deploy:
@@ -54,7 +49,7 @@ jobs:
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
-          name: node-app
+          name: app
       
       - name: Login to Azure
         uses: azure/login@v2
