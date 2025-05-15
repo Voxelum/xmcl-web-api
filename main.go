@@ -801,10 +801,6 @@ func handleRtcOfficial(c *gin.Context) {
 	// Parse STUN servers
 	stuns := []string{
 		"stun.miwifi.com:3478",
-		"stun.l.google.com:19302",
-		"stun2.l.google.com:19302", 
-		"stun3.l.google.com:19302",
-		"stun4.l.google.com:19302", 
 		"stun.voipbuster.com:3478",
 		"stun.voipstunt.com:3478",
 		"stun.internetcalls.com:3478",
