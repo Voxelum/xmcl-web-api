@@ -20,7 +20,7 @@
     "npm:@azure/functions@*": "4.7.0",
     "npm:@types/node@*": "18.16.19",
     "npm:esbuild@*": "0.25.3",
-    "npm:geoip-lite@*": "1.4.10",
+    "npm:geoip-country@*": "4.2.203",
     "npm:path-to-regexp@6.2.1": "6.2.1",
     "npm:semver@*": "7.7.1"
   },
@@ -264,15 +264,13 @@
     "fs.realpath@1.0.0": {
       "integrity": "sha512-OO0pH2lK6a0hZnAdau5ItzHPI6pUlvI7jMVnxUQRtw4owF2wk8lOSabtGDCTP4Ggrg2MbGnWO9X8K1t4+fGMDw=="
     },
-    "geoip-lite@1.4.10": {
-      "integrity": "sha512-4N69uhpS3KFd97m00wiFEefwa+L+HT5xZbzPhwu+sDawStg6UN/dPwWtUfkQuZkGIY1Cj7wDVp80IsqNtGMi2w==",
+    "geoip-country@4.2.203": {
+      "integrity": "sha512-F3S+Pa3vEyZJiMujI5+se9I5F7sswibEcdc8C0hJgUEjsxkEmNUerkhrMyZxV3lNdjw0CSFqmeLGaqzhSHtdXA==",
       "dependencies": [
         "async",
-        "chalk",
-        "iconv-lite",
-        "ip-address",
+        "iconv-lite@0.5.2",
+        "ip-address@6.4.0",
         "lazy",
-        "rimraf",
         "yauzl"
       ]
     },
@@ -289,6 +287,12 @@
     },
     "has-flag@4.0.0": {
       "integrity": "sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ=="
+    },
+    "iconv-lite@0.5.2": {
+      "integrity": "sha512-kERHXvpSaB4aU3eANwidg79K8FlrN77m8G9V+0vOR3HYaRifrlwMEpT7ZBJqLSEIHnEgJTHcWK82wwLwwKwtag==",
+      "dependencies": [
+        "safer-buffer"
+      ]
     },
     "iconv-lite@0.6.3": {
       "integrity": "sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==",
@@ -314,11 +318,38 @@
         "sprintf-js"
       ]
     },
+    "ip-address@6.4.0": {
+      "integrity": "sha512-c5uxc2WUTuRBVHT/6r4m7HIr/DfV0bF6DvLH3iZGSK8wp8iMwwZSgIq2do0asFf8q9ECug0SE+6+1ACMe4sorA==",
+      "dependencies": [
+        "jsbn",
+        "lodash.find",
+        "lodash.max",
+        "lodash.merge",
+        "lodash.padstart",
+        "lodash.repeat",
+        "sprintf-js"
+      ]
+    },
     "jsbn@1.1.0": {
       "integrity": "sha512-4bYVV3aAMtDTTu4+xsDYa6sy9GyJ69/amsu9sYF2zqjiEoZA5xJi3BrfX3uY+/IekIu7MwdObdbDWpoZdBv3/A=="
     },
     "lazy@1.0.11": {
       "integrity": "sha512-Y+CjUfLmIpoUCCRl0ub4smrYtGGr5AOa2AKOaWelGHOGz33X/Y/KizefGqbkwfz44+cnq/+9habclf8vOmu2LA=="
+    },
+    "lodash.find@4.6.0": {
+      "integrity": "sha512-yaRZoAV3Xq28F1iafWN1+a0rflOej93l1DQUejs3SZ41h2O9UJBoS9aueGjPDgAl4B6tPC0NuuchLKaDQQ3Isg=="
+    },
+    "lodash.max@4.0.1": {
+      "integrity": "sha512-iykTDTb7PK33HSQmKy34zv+hh4WEu7WonJPXQcgODzUbbtradtNs8RsD/GI7XV++60KaKR1xhW56N4ISqHesfQ=="
+    },
+    "lodash.merge@4.6.2": {
+      "integrity": "sha512-0KpjqXRVvrYyCsX1swR/XTK0va6VQkQM6MNo7PqW77ByjAhoARA8EfrP1N4+KlKj8YS0ZUCtRT/YUuhyYDujIQ=="
+    },
+    "lodash.padstart@4.6.1": {
+      "integrity": "sha512-sW73O6S8+Tg66eY56DBk85aQzzUJDtpoXFBgELMd5P/SotAguo+1kYO6RuYgXxA4HJH3LFTFPASX6ET6bjfriw=="
+    },
+    "lodash.repeat@4.1.0": {
+      "integrity": "sha512-eWsgQW89IewS95ZOcr15HHCX6FVDxq3f2PNUIng3fyzsPev9imFQxIYdFZ6crl8L56UR6ZlGDLcEb3RZsCSSqw=="
     },
     "lodash@4.17.21": {
       "integrity": "sha512-v2kDEe57lecTulaDIuNTPy3Ry4gLGJ6Z1O3vE1krgXZNrsQ+LFTGHVxVjcXPs17LhbZVGedAJv8XZ1tvj5FvSg=="

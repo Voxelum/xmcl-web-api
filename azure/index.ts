@@ -1,7 +1,7 @@
 import { app, HttpRequest } from 'npm:@azure/functions';
-import geoip from 'npm:geoip-lite';
+import geoip from 'npm:geoip-country';
 import { gte, lt, Range } from 'npm:semver';
-import { getLatest, GithubReleaseItem } from "../shared/latest.ts";
+import { getLatest } from "../shared/latest.ts";
 import { getNofications } from "../shared/notifications.ts";
 
 app.get('flights', (request: HttpRequest) => {
@@ -70,18 +70,6 @@ app.get('notifications', async (request: HttpRequest) => {
   }
 })
 
-app.get('zulu', async (request: HttpRequest) => {
-  const response = await fetch('https://raw.githubusercontent.com/Voxelum/xmcl-static-resource/refs/heads/main/zulu.json', {
-    headers: request.headers,
-  })
-  return {
-    status: response.status,
-    headers: response.headers,
-    jsonBody: await response.json(),
-  }
-})
-
-
 function isChineseIP(request: HttpRequest) {
   const ip = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip");
 
@@ -89,7 +77,8 @@ function isChineseIP(request: HttpRequest) {
     return false;
   }
 
-  const geo = geoip.lookup(ip);
+  const ipWithoutPort = ip.split(":")[0].trim();
+  const geo = geoip.lookup(ipWithoutPort);
 
   if (!geo) {
     return false;
@@ -104,23 +93,21 @@ function isChineseIP(request: HttpRequest) {
 }
 
 app.get('appx', async (request: HttpRequest) => {
-  const response = await fetch("https://api.github.com/repos/voxelum/x-minecraft-launcher/releases/latest", {
-    headers: {
-      "Accept": "application/vnd.github.v3+json",
-      "Authorization": `token ${process.env.GITHUB_PAT}`,
-    },
-  })
+  const version = request.query?.get("version");
 
-  if (!response.ok) {
+  if (!version) {
     return {
-      status: response.status,
+      status: 400,
+      headers: {
+        "Content-Type": "text/plain",
+      },
+      body: "Missing version query parameter",
     }
   }
 
-  const responseBody = await response.json() as GithubReleaseItem;
-  const downloadUrl = responseBody.assets.find(a => a.name.endsWith(".appx"))?.browser_download_url
+  const downloadUrl = `https://github.com/Voxelum/x-minecraft-launcher/releases/download/v${version}/xmcl-${version}-win32-x64.appx`
 
-  if (isChineseIP(request)) {
+  if (!isChineseIP(request)) {
     return {
       status: 302,
       headers: {

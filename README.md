@@ -20,9 +20,9 @@ The API is implemented in three different ways to ensure global availability and
    - Global availability outside mainland China
    - Uses MongoDB for data storage
 
-2. **Backup Service (Azure Functions)** - Written in Go
-   - Entry point: `azure.go`
-   - Function configurations in the various function.json files
+2. **Backup Service (Azure Functions)** - Written in TypeScript
+   - Entry point: `azure/index.ts`
+   - Uses the Azure Functions JavaScript/TypeScript runtime
    - Provides fallback capabilities if the primary service is unavailable
 
 3. **Mainland China Service** - Specialized version in Go
@@ -49,10 +49,10 @@ The API is implemented in three different ways to ensure global availability and
 ### Backup Service (Azure Functions - Go)
 
 - `/latest` - Similar to Deno service, provides launcher release information
-- `/releases/:filename` - Redirects to GitHub releases
 - `/notifications` - Provides notifications from GitHub issues
 - `/flights` - Feature flight configuration
 - `/zulu` - Proxies to xmcl-static-resource repository
+- `/appx` - Handles Windows appx file distribution with proxy support for Chinese users
 
 ### Mainland China Service (Go)
 
@@ -73,11 +73,11 @@ The API is implemented in three different ways to ensure global availability and
 - `MODRINTH_SECRET` - Secret for Modrinth authentication integration
 - `TURNS` - TURN server configuration (format: "realm:ip,realm:ip")
 
-### Backup Service (Azure Functions - Go)
+### Backup Service (Azure Functions - TypeScript)
 
 - `GITHUB_PAT` - GitHub Personal Access Token for API access
-- `FUNCTIONS_CUSTOMHANDLER_PORT` - Port for Azure Functions custom handler
-- `PORT` - Fallback port if Azure Functions port is not set
+- `FUNCTIONS_CUSTOMHANDLER_PORT` - Port for Azure Functions custom handler (legacy)
+- `PORT` - Fallback port if Azure Functions port is not set (legacy)
 
 ### Mainland China Service (Go)
 
@@ -107,9 +107,9 @@ deno run --allow-net --allow-read --allow-env index.ts
 go build main.go
 ./main
 
-# Build and run the Azure Functions service
-go build azure.go
-./azure
+# Run the Azure Functions service locally
+deno run build:fn
+func start
 ```
 
 ## Deployment

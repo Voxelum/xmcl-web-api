@@ -19,8 +19,8 @@ await esbuild.build({
 });
 
 try {
-  for (const file of Deno.readDirSync('node_modules/geoip-lite/data')) {
-    Deno.link(`node_modules/geoip-lite/data/${file.name}`, `data/${file.name}`).catch(() => {})
+  for (const file of Deno.readDirSync('node_modules/geoip-country/data')) {
+    Deno.link(`node_modules/geoip-country/data/${file.name}`, `data/${file.name}`).catch(() => {})
   }
 } catch {
 }

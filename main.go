@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha1"
@@ -18,6 +19,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -67,6 +69,38 @@ type TranslationErrorResponse struct {
 	Error TranslationError `json:"error"`
 }
 
+// Deepseek API request/response models
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type DeepseekRequest struct {
+	Model    string    `json:"model"`
+	Messages []Message `json:"messages"`
+}
+
+type DeepseekChoice struct {
+	Message      Message `json:"message"`
+	Index        int     `json:"index"`
+	FinishReason string  `json:"finish_reason"`
+}
+
+type DeepseekResponse struct {
+	ID      string          `json:"id"`
+	Object  string          `json:"object"`
+	Model   string          `json:"model"`
+	Choices []DeepseekChoice `json:"choices"`
+}
+
+type DeepseekError struct {
+	Error struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+		Type    string `json:"type"`
+	} `json:"error"`
+}
+
 // RTC API models
 type TurnServer struct {
 	IP    string `json:"ip"`
@@ -80,6 +114,12 @@ type TurnCredentials struct {
 	URIs     []string          `json:"uris"`
 	Meta     map[string]string `json:"meta"`
 	Stuns    []string          `json:"stuns,omitempty"`
+}
+
+// Minecraft authentication models
+type MicrosoftMinecraftProfile struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // WebSocket upgrader for group API
@@ -569,15 +609,191 @@ func generateHash(content string) string {
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
-// Translate content using external service
+// Translate content using Deepseek AI service
 func translateContent(lang, body, contentType string) (string, error) {
-	// In a production environment, you would implement a proper translation service
-	// This is a placeholder implementation
 	fmt.Printf("Translating content to %s, content type: %s\n", lang, contentType)
 	
-	// Call your translation service here
-	// For demo purposes, we'll return the original content
-	return body, nil
+	// Get API key from environment
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		return "", fmt.Errorf("OPENAI_API_KEY environment variable not set")
+	}
+
+	// Select appropriate prompt based on content type
+	var systemPrompt string
+	switch contentType {
+	case "text/markdown":
+		systemPrompt = "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into different languages by locale code. I'm going to give you markdown text. You should give me translated markdown text. Do not wrap extra markdown code block (```) to the output, and do not add locale prefix to output."
+	case "text/html":
+		systemPrompt = "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into different languages by locale code. I'm going to give you html text. You should give me translated html text. Do not add locale prefix to output."
+	default:
+		systemPrompt = "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into different languages by locale code. Please do not add locale prefix to output."
+	}
+	
+	// Handle markdown specifically - similar to the TypeScript implementation
+	var result string
+	if contentType == "text/markdown" {
+		// In Go we'd implement the URL placeholder and chunking here
+		// For simplicity in this implementation, we'll just send the whole text
+		// In a production environment, you would implement the same chunking logic as in translation.ts
+		translatedText, err := requestTranslation(apiKey, lang, body, systemPrompt)
+		if err != nil {
+			return "", err
+		}
+		result = translatedText
+	} else if contentType == "text/html" {
+		// In a production environment, you would implement HTML chunking
+		// For simplicity, we'll just send the whole text
+		translatedText, err := requestTranslation(apiKey, lang, body, systemPrompt)
+		if err != nil {
+			return "", err
+		}
+		result = translatedText
+	} else {
+		translatedText, err := requestTranslation(apiKey, lang, body, systemPrompt)
+		if err != nil {
+			return "", err
+		}
+		result = translatedText
+	}
+
+	// Process the result to remove any locale prefix
+	if strings.HasPrefix(result, "```"+lang) {
+		result = result[len("```"+lang):]
+		if idx := strings.LastIndex(result, "```"); idx >= 0 {
+			result = result[:idx]
+		}
+	}
+	if strings.HasPrefix(result, lang) {
+		result = result[len(lang):]
+	}
+
+	return result, nil
+}
+
+// Helper function to make the actual API request to Deepseek
+func requestTranslation(apiKey string, lang string, text string, systemPrompt string) (string, error) {
+	// Prepare the request
+	messages := []Message{
+		{
+			Role:    "system",
+			Content: systemPrompt,
+		},
+		{
+			Role:    "user",
+			Content: "Translate following text into zh-CN:\nHello World",
+		},
+		{
+			Role:    "assistant",
+			Content: "你好世界",
+		},
+		{
+			Role:    "user",
+			Content: fmt.Sprintf("Translate following text into %s:\n%s", lang, text),
+		},
+	}
+
+	reqBody := DeepseekRequest{
+		Model:    "deepseek-chat",
+		Messages: messages,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %v", err)
+	}
+
+	// Create the HTTP request
+	req, err := http.NewRequest("POST", "https://api.deepseek.com/chat/completions", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+
+	// Set headers
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+
+	// Send the request
+	client := &http.Client{
+		Timeout: 120 * time.Second, // Set a reasonable timeout
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Read the response body
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %v", err)
+	}
+
+	// Check if the response is an error
+	var errResp DeepseekError
+	if err := json.Unmarshal(bodyBytes, &errResp); err == nil && errResp.Error.Message != "" {
+		return "", fmt.Errorf("API error: %s", errResp.Error.Message)
+	}
+
+	// Parse the successful response
+	var apiResp DeepseekResponse
+	if err := json.Unmarshal(bodyBytes, &apiResp); err != nil {
+		return "", fmt.Errorf("failed to parse response: %v", err)
+	}
+
+	// Extract the translated content
+	if len(apiResp.Choices) == 0 {
+		return "", fmt.Errorf("no translation provided in response")
+	}
+
+	return apiResp.Choices[0].Message.Content, nil
+}
+
+// Validate Minecraft authentication token
+func validateMinecraftAuth(authorization string, strict bool) (*MicrosoftMinecraftProfile, int, string, error) {
+	// Check if the authorization header exists and has the correct format
+	if authorization == "" || !strings.HasPrefix(authorization, "Bearer ") {
+		if strict {
+			return nil, http.StatusBadRequest, "Require authorization header", fmt.Errorf("missing or invalid authorization header")
+		}
+		return nil, 0, "", nil
+	}
+
+	// Make request to Minecraft services API
+	req, err := http.NewRequest("GET", "https://api.minecraftservices.com/minecraft/profile", nil)
+	if err != nil {
+		return nil, http.StatusInternalServerError, "Failed to create request", err
+	}
+	req.Header.Set("Authorization", authorization)
+
+	// Send the request
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, http.StatusInternalServerError, "Failed to send request", err
+	}
+	defer resp.Body.Close()
+
+	// Check response status
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		errMsg := string(bodyBytes)
+		if strict {
+			fmt.Printf("Minecraft auth failed: %s\n", errMsg)
+			return nil, http.StatusUnauthorized, errMsg, fmt.Errorf("unauthorized: %s", errMsg)
+		}
+		return nil, 0, "", nil
+	}
+
+	// Parse response
+	var profile MicrosoftMinecraftProfile
+	if err := json.NewDecoder(resp.Body).Decode(&profile); err != nil {
+		return nil, http.StatusInternalServerError, "Failed to parse profile", err
+	}
+
+	return &profile, 0, "", nil
 }
 
 // RTC API implementation
@@ -603,24 +819,42 @@ func handleRtcOfficial(c *gin.Context) {
 	turns := parseTurnsFromEnv()
 	
 	// Build response
+	var cred *TurnCredentials
+	
+	// Try to get credentials based on authentication
 	if secret != "" {
-		// Get user profile - would come from auth middleware
-		// For simplicity, we'll use a mock profile
-		userID := "demo-user-id"
+		// Get authorization header
+		authorization := c.GetHeader("Authorization")
 		
-		// Ensure the user account exists in the database
-		err := ensureRtcAccount(userID, "official")
+		// Validate Minecraft authentication (non-strict mode, same as in rtc.ts)
+		profile, status, errMsg, err := validateMinecraftAuth(authorization, false)
+		
 		if err != nil {
-			fmt.Printf("Failed to ensure RTC account: %v\n", err)
+			if status != 0 {
+				c.String(status, errMsg)
+				return
+			}
 		}
 		
-		// Generate TURN credentials
-		creds := getTURNCredentials(userID, secret, turns)
-		creds.Stuns = stuns
-		
-		c.JSON(http.StatusOK, creds)
+		// If profile is available, generate credentials for the user
+		if profile != nil {
+			// Ensure the user account exists in the database
+			err := ensureRtcAccount(profile.ID, "official")
+			if err != nil {
+				fmt.Printf("Failed to ensure RTC account: %v\n", err)
+			}
+			
+			// Generate TURN credentials
+			creds := getTURNCredentials(profile.ID, secret, turns)
+			creds.Stuns = stuns
+			cred = &creds
+		}
+	}
+	
+	if cred != nil {
+		c.JSON(http.StatusOK, cred)
 	} else {
-		// No secret, return only STUN servers
+		// No credentials generated, return only STUN servers
 		c.JSON(http.StatusOK, gin.H{
 			"stuns": stuns,
 			"uris":  []string{},
@@ -632,9 +866,8 @@ func handleRtcOfficial(c *gin.Context) {
 func parseTurnsFromEnv() []TurnServer {
 	turnsEnv := os.Getenv("TURNS")
 	if turnsEnv == "" {
-		return nil
+		return make([]TurnServer, 0)
 	}
-	
 	var turns []TurnServer
 	pairs := strings.Split(turnsEnv, ",")
 	
@@ -722,6 +955,10 @@ func getTURNCredentials(name, secret string, turns []TurnServer) TurnCredentials
 }
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		fmt.Printf("Error loading .env file")
+	}
 	// Get port from environment or use default
 	port := os.Getenv("PORT")
 	if port == "" {
