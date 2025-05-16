@@ -1,4 +1,5 @@
 import { Router } from "oak";
+import { getFlights } from "../shared/flights.ts";
 
 export default new Router().get("/flights", (ctx) => {
   const params = ctx.request.url.searchParams;
@@ -6,17 +7,12 @@ export default new Router().get("/flights", (ctx) => {
   const locale = params.get("locale");
   const build = params.get("build");
 
+
   if (!version || !locale) {
     ctx.response.body = {}
     return;
   }
 
-  if (build && Number(build) > 1002) {
-    ctx.response.body = {
-      i18nSearch: ['zh-CN']
-    }
-  } else {
-    ctx.response.body = {
-    };
-  }
+  const body = getFlights(version, locale, build);
+  ctx.response.body = body;
 });

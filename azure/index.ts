@@ -3,35 +3,19 @@ import geoip from 'npm:geoip-country';
 import { gte, lt, Range } from 'npm:semver';
 import { getLatest } from "../shared/latest.ts";
 import { getNofications } from "../shared/notifications.ts";
+import { getFlights } from "../shared/flights.ts";
 
 app.get('flights', (request: HttpRequest) => {
   const version = request.query?.get('version');
   const locale = request.query?.get('locale');
   const build = request.query?.get('build');
 
-  if (!version || !locale) {
-    return {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      jsonBody: {}
-    }
-  }
-  if (build && Number(build) > 1002) {
-    return {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      jsonBody: {
-        i18nSearch: ['zh-CN']
-      }
-    };
-  }
+  const body = getFlights(version, locale, build);
   return {
     headers: {
       'Content-Type': 'application/json',
     },
-    jsonBody: {}
+    jsonBody: body
   }
 })
 
