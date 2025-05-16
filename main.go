@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha1"
@@ -16,6 +15,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/cespare/xxhash/v2"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -87,9 +87,9 @@ type DeepseekChoice struct {
 }
 
 type DeepseekResponse struct {
-	ID      string          `json:"id"`
-	Object  string          `json:"object"`
-	Model   string          `json:"model"`
+	ID      string           `json:"id"`
+	Object  string           `json:"object"`
+	Model   string           `json:"model"`
 	Choices []DeepseekChoice `json:"choices"`
 }
 
@@ -139,30 +139,30 @@ func getMongoClient() (*mongo.Client, error) {
 		if mongoURI == "" {
 			mongoURI = "mongodb://localhost:27017"
 		}
-		
+
 		mongoDBName = os.Getenv("MONGODB_NAME")
 		if mongoDBName == "" {
 			mongoDBName = "xmcl-api"
 		}
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		
+
 		client, e := mongo.Connect(ctx, options.Client().ApplyURI(mongoURI))
 		if e != nil {
 			err = fmt.Errorf("failed to connect to MongoDB: %v", e)
 			return
 		}
-		
+
 		// Ping to verify connection
 		if e = client.Ping(ctx, readpref.Primary()); e != nil {
 			err = fmt.Errorf("failed to ping MongoDB: %v", e)
 			return
 		}
-		
+
 		mongoClient = client
 	})
-	
+
 	return mongoClient, err
 }
 
@@ -183,7 +183,7 @@ func NewBroadcastChannel(id string) *BroadcastChannel {
 		messages:  make(chan []byte, 256),
 		closeSign: make(chan struct{}),
 	}
-	
+
 	go channel.run()
 	return channel
 }
@@ -220,7 +220,7 @@ func (bc *BroadcastChannel) RemoveClient(id string) {
 	defer bc.Unlock()
 	delete(bc.clients, id)
 	fmt.Printf("[%s] [%s] Client removed from channel\n", bc.id, id)
-	
+
 	// Close channel if no clients left
 	if len(bc.clients) == 0 {
 		close(bc.closeSign)
@@ -245,7 +245,7 @@ func GetBroadcastChannel(id string) *BroadcastChannel {
 	broadcastChannels.RLock()
 	channel, exists := broadcastChannels.channels[id]
 	broadcastChannels.RUnlock()
-	
+
 	if !exists {
 		broadcastChannels.Lock()
 		// Check again in case another goroutine created it
@@ -256,7 +256,7 @@ func GetBroadcastChannel(id string) *BroadcastChannel {
 		}
 		broadcastChannels.Unlock()
 	}
-	
+
 	return channel
 }
 
@@ -265,31 +265,31 @@ func getClientID(data []byte) string {
 	if len(data) < 16 {
 		return ""
 	}
-	
+
 	id := ""
 	for i := 0; i < 16; i++ {
 		id += fmt.Sprintf("%02x", data[i])
 	}
-	
+
 	// Format as UUID
-	return fmt.Sprintf("%s-%s-%s-%s-%s", 
+	return fmt.Sprintf("%s-%s-%s-%s-%s",
 		id[0:8], id[8:12], id[12:16], id[16:20], id[20:32])
 }
 
 // Group API implementation
 func handleGroup(c *gin.Context) {
 	groupID := c.Param("id")
-	
+
 	// Upgrade HTTP connection to WebSocket
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upgrade connection"})
 		return
 	}
-	
+
 	// Get the broadcast channel for this group
 	channel := GetBroadcastChannel(groupID)
-	
+
 	// Get client ID from URL parameter or generate one later
 	clientID := c.Query("client")
 	if clientID != "" {
@@ -297,7 +297,7 @@ func handleGroup(c *gin.Context) {
 	} else {
 		fmt.Printf("[%s] [unknown] Get join group request!\n", groupID)
 	}
-	
+
 	// Handle WebSocket connection
 	go handleWebSocketConnection(conn, channel, groupID, clientID)
 }
@@ -306,12 +306,12 @@ func handleGroup(c *gin.Context) {
 func handleWebSocketConnection(conn *websocket.Conn, channel *BroadcastChannel, groupID, clientID string) {
 	defer conn.Close()
 	fmt.Printf("[%s] Websocket created!\n", groupID)
-	
+
 	// Register client if we have an ID already
 	if clientID != "" {
 		channel.AddClient(clientID, conn)
 	}
-	
+
 	// Handle incoming WebSocket messages
 	for {
 		messageType, message, err := conn.ReadMessage()
@@ -321,7 +321,7 @@ func handleWebSocketConnection(conn *websocket.Conn, channel *BroadcastChannel, 
 			}
 			break
 		}
-		
+
 		if messageType == websocket.TextMessage && len(message) > 0 {
 			// Handle text message (JSON)
 			var data map[string]interface{}
@@ -331,16 +331,16 @@ func handleWebSocketConnection(conn *websocket.Conn, channel *BroadcastChannel, 
 					channel.AddClient(clientID, conn)
 					fmt.Printf("[%s] [%s] Set client id\n", groupID, clientID)
 				}
-				
+
 				receiver, receiverExists := data["receiver"].(string)
 				msgType, _ := data["type"].(string)
 				sender, _ := data["sender"].(string)
-				
+
 				if clientID != "" && receiverExists {
-					fmt.Printf("[%s] [%s] Broadcast %s from client. %s -> %s\n", 
+					fmt.Printf("[%s] [%s] Broadcast %s from client. %s -> %s\n",
 						groupID, clientID, msgType, sender, receiver)
 				}
-				
+
 				// Broadcast message to all clients in the channel
 				channel.PostMessage(message)
 			}
@@ -352,12 +352,12 @@ func handleWebSocketConnection(conn *websocket.Conn, channel *BroadcastChannel, 
 				channel.AddClient(clientID, conn)
 				fmt.Printf("[%s] [%s] Set client id from binary\n", groupID, clientID)
 			}
-			
+
 			// Check if message contains ping data (timestamp after 16 bytes)
 			if len(message) > 16 {
 				// Extract timestamp from the message (bytes 16-24)
 				timestamp := extractTimestampFromBinary(message)
-				
+
 				// Send PONG response
 				response := map[string]interface{}{
 					"type":      "PONG",
@@ -365,7 +365,7 @@ func handleWebSocketConnection(conn *websocket.Conn, channel *BroadcastChannel, 
 				}
 				respData, _ := json.Marshal(response)
 				conn.WriteMessage(websocket.TextMessage, respData)
-				
+
 				// Only broadcast the first 16 bytes (client ID)
 				channel.PostMessage(message[:16])
 			} else {
@@ -374,7 +374,7 @@ func handleWebSocketConnection(conn *websocket.Conn, channel *BroadcastChannel, 
 			}
 		}
 	}
-	
+
 	// Clean up when connection closes
 	if clientID != "" {
 		channel.RemoveClient(clientID)
@@ -386,7 +386,7 @@ func extractTimestampFromBinary(data []byte) float64 {
 	if len(data) < 24 {
 		return 0
 	}
-	
+
 	// Assuming timestamp is stored as a float64 at offset 16
 	bits := uint64(data[16]) | uint64(data[17])<<8 | uint64(data[18])<<16 | uint64(data[19])<<24 |
 		uint64(data[20])<<32 | uint64(data[21])<<40 | uint64(data[22])<<48 | uint64(data[23])<<56
@@ -406,42 +406,42 @@ func handleTranslation(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No type specified"})
 		return
 	}
-	
+
 	if typeParam != "modrinth" && typeParam != "curseforge" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid type"})
 		return
 	}
-	
+
 	id := c.Query("id")
 	if id == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No id specified"})
 		return
 	}
-	
+
 	// Get preferred language
 	langs := c.GetHeader("Accept-Language")
 	if langs == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No language specified"})
 		return
 	}
-	
+
 	lang := strings.Split(langs, ",")[0]
 	if lang == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No language specified"})
 		return
 	}
-	
+
 	// Return empty response for English requests
 	if lang == "*" || strings.HasPrefix(lang, "en") {
 		c.Status(http.StatusNoContent)
 		return
 	}
-	
+
 	// Fetch content based on type
 	var body string
 	var contentType string
 	var err error
-	
+
 	if typeParam == "curseforge" {
 		body, err = getCurseforgeDescription(c, id)
 		contentType = "text/html"
@@ -449,27 +449,29 @@ func handleTranslation(c *gin.Context) {
 		body, err = getModrinthDescription(c, id)
 		contentType = "text/markdown"
 	}
-	
+
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	// Generate hash for cache lookup
 	hash := generateHash(body + lang)
-	
+
 	// Check if translation already exists in database
 	db, err := GetMongoDB()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to database"})
 		return
 	}
-	
+
 	coll := db.Collection("translated")
 	var result struct {
 		Content string `bson:"content"`
 	}
-	
+
+	// Using findOne is fine here since we're only reading, not writing
+	// If we need to modify this in the future, we should use findOneAndUpdate with proper options
 	err = coll.FindOne(context.Background(), bson.M{"_id": hash}).Decode(&result)
 	if err == nil {
 		// Found cached translation
@@ -479,60 +481,85 @@ func handleTranslation(c *gin.Context) {
 		c.String(http.StatusOK, result.Content)
 		return
 	}
-	
-	// No cached translation, enqueue or translate immediately
-	// For simplicity in this implementation, we'll translate immediately
-	// In a production environment, you would implement a queue system
-	
-	translatedText, err := translateContent(lang, body, contentType)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	
-	// Store translation in database
-	_, err = coll.InsertOne(context.Background(), bson.M{
-		"_id":         hash,
-		"id":          id,
-		"content":     translatedText,
-		"locale":      lang,
-		"contentType": contentType,
-		"type":        typeParam,
-	})
-	
-	if err != nil {
-		fmt.Printf("Failed to store translation: %v\n", err)
-	}
-	
-	c.Header("Content-Language", lang)
-	c.Header("Content-Type", contentType)
-	c.Header("Cache-Control", "public, max-age=86400")
-	c.String(http.StatusOK, translatedText)
+
+	// No cached translation, respond with untranslated content immediately
+	// and queue the translation request asynchronously
+	c.Header("Cache-Control", "no-cache")
+	c.String(http.StatusAccepted, "")
+
+	// Start async process to atomically add to queue if not already queued
+	go func(dbRef *mongo.Database, idRef, typeParamRef, langRef string) {
+		// Use findOneAndUpdate with upsert option for atomic operation
+		// This will either update an existing document or insert a new one if none exists
+		pendingColl := dbRef.Collection("pending_translate")
+
+		// Define the filter to find the document
+		filter := bson.M{
+			"id":     idRef,
+			"type":   typeParamRef,
+			"locale": langRef,
+		}
+
+		// Define the update operation (in this case, just setting the same values)
+		update := bson.M{
+			"$setOnInsert": bson.M{
+				"id":     idRef,
+				"type":   typeParamRef,
+				"locale": langRef,
+			},
+		}
+
+		// Set options for the operation
+		opts := options.FindOneAndUpdate().
+			SetUpsert(true).
+			SetReturnDocument(options.After)
+
+		// Perform the atomic findOneAndUpdate operation
+		var result bson.M
+		err := pendingColl.FindOneAndUpdate(
+			context.Background(),
+			filter,
+			update,
+			opts,
+		).Decode(&result)
+
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				// This should not happen with upsert=true, but log it just in case
+				fmt.Printf("Unexpected: No document returned after upsert for %s:%s to %s\n", typeParamRef, idRef, langRef)
+			} else {
+				// Log other errors
+				fmt.Printf("Failed to queue translation: %v\n", err)
+			}
+		} else {
+			fmt.Printf("Queued translation for %s:%s to %s\n", typeParamRef, idRef, langRef)
+		}
+	}(db, id, typeParam, lang)
 }
 
 // Get Curseforge mod description
 func getCurseforgeDescription(c *gin.Context, id string) (string, error) {
 	url := fmt.Sprintf("https://api.curseforge.com/v1/mods/%s/description", id)
-	
+
 	// Create request with headers
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
 	}
-	
+
 	// Copy headers from client request
 	for name, values := range c.Request.Header {
 		for _, value := range values {
 			req.Header.Add(name, value)
 		}
 	}
-	
+
 	// Add Curseforge API key
 	cfKey := os.Getenv("CURSEFORGE_KEY")
 	if cfKey != "" {
 		req.Header.Set("x-api-key", cfKey)
 	}
-	
+
 	// Send request
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -540,213 +567,100 @@ func getCurseforgeDescription(c *gin.Context, id string) (string, error) {
 		return "", err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("curseforge API error: %s", string(bodyBytes))
 	}
-	
+
 	// Parse response
 	var result struct {
 		Data string `json:"data"`
 	}
-	
+
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", err
 	}
-	
+
 	return result.Data, nil
+}
+
+type Project struct {
+	ID               string      `json:"id"`
+	Slug             string      `json:"slug"`
+	ProjectType      string      `json:"project_type"`
+	Team             string      `json:"team"`
+	Title            string      `json:"title"`
+	Description      string      `json:"description"`
+	Body             string      `json:"body"`
+	Published        time.Time   `json:"published"`
+	Updated          time.Time   `json:"updated"`
+	Approved         time.Time   `json:"approved"`
+	Status           string      `json:"status"`
+	RequestedStatus  interface{} `json:"requested_status"`
+	ModeratorMessage interface{} `json:"moderator_message"`
+	License          struct {
+		ID   string      `json:"id"`
+		Name string      `json:"name"`
+		URL  interface{} `json:"url"`
+	} `json:"license"`
+	ClientSide           string        `json:"client_side"`
+	ServerSide           string        `json:"server_side"`
+	Downloads            int           `json:"downloads"`
+	Followers            int           `json:"followers"`
+	Categories           []string      `json:"categories"`
+	AdditionalCategories []interface{} `json:"additional_categories"`
+	GameVersions         []string      `json:"game_versions"`
+	Loaders              []string      `json:"loaders"`
+	Versions             []string      `json:"versions"`
+	IconURL              string        `json:"icon_url"`
+	IssuesURL            string        `json:"issues_url"`
+	SourceURL            string        `json:"source_url"`
+	WikiURL              string        `json:"wiki_url"`
+	DiscordURL           string        `json:"discord_url"`
+	DonationUrls         []interface{} `json:"donation_urls"`
+	Gallery              []interface{} `json:"gallery"`
+	FlameAnvilProject    interface{}   `json:"flame_anvil_project"`
+	FlameAnvilUser       interface{}   `json:"flame_anvil_user"`
+	Color                int           `json:"color"`
 }
 
 // Get Modrinth project description
 func getModrinthDescription(c *gin.Context, id string) (string, error) {
 	url := fmt.Sprintf("https://api.modrinth.com/v2/project/%s", id)
-	
-	// Create request with headers
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return "", err
-	}
-	
-	// Copy headers from client request
-	for name, values := range c.Request.Header {
-		for _, value := range values {
-			req.Header.Add(name, value)
-		}
-	}
-	
+
 	// Send request
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := http.Get(url)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error sending request to Modrinth API: %v", err)
 	}
 	defer resp.Body.Close()
-	
+
+	// Read the entire response body into a string
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("error reading response body: %v", err)
+	}
+	bodyString := string(bodyBytes)
+
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("modrinth API error: %s", string(bodyBytes))
+		return "", fmt.Errorf("modrinth API error: %s", bodyString)
 	}
-	
-	// Parse response
-	var result struct {
-		Body string `json:"body"`
+
+	project := &Project{}
+	if err := json.Unmarshal(bodyBytes, &project); err != nil {
+		return "", fmt.Errorf("error parsing JSON: %v, body: %s", err, bodyString)
 	}
-	
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
-	}
-	
-	return result.Body, nil
+
+	return project.Body, nil
 }
 
 // Generate hash for content
 func generateHash(content string) string {
-	// Simple hash implementation for demo purposes
-	// In production, use a proper hashing algorithm
-	h := sha1.New()
+	// Using xxhash for consistent hashing with Deno implementation
+	h := xxhash.New()
 	h.Write([]byte(content))
-	return fmt.Sprintf("%x", h.Sum(nil))
-}
-
-// Translate content using Deepseek AI service
-func translateContent(lang, body, contentType string) (string, error) {
-	fmt.Printf("Translating content to %s, content type: %s\n", lang, contentType)
-	
-	// Get API key from environment
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		return "", fmt.Errorf("OPENAI_API_KEY environment variable not set")
-	}
-
-	// Select appropriate prompt based on content type
-	var systemPrompt string
-	switch contentType {
-	case "text/markdown":
-		systemPrompt = "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into different languages by locale code. I'm going to give you markdown text. You should give me translated markdown text. Do not wrap extra markdown code block (```) to the output, and do not add locale prefix to output."
-	case "text/html":
-		systemPrompt = "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into different languages by locale code. I'm going to give you html text. You should give me translated html text. Do not add locale prefix to output."
-	default:
-		systemPrompt = "You are an asistant of a Minecraft mod developer. You are asked to translate the mod description into different languages by locale code. Please do not add locale prefix to output."
-	}
-	
-	// Handle markdown specifically - similar to the TypeScript implementation
-	var result string
-	if contentType == "text/markdown" {
-		// In Go we'd implement the URL placeholder and chunking here
-		// For simplicity in this implementation, we'll just send the whole text
-		// In a production environment, you would implement the same chunking logic as in translation.ts
-		translatedText, err := requestTranslation(apiKey, lang, body, systemPrompt)
-		if err != nil {
-			return "", err
-		}
-		result = translatedText
-	} else if contentType == "text/html" {
-		// In a production environment, you would implement HTML chunking
-		// For simplicity, we'll just send the whole text
-		translatedText, err := requestTranslation(apiKey, lang, body, systemPrompt)
-		if err != nil {
-			return "", err
-		}
-		result = translatedText
-	} else {
-		translatedText, err := requestTranslation(apiKey, lang, body, systemPrompt)
-		if err != nil {
-			return "", err
-		}
-		result = translatedText
-	}
-
-	// Process the result to remove any locale prefix
-	if strings.HasPrefix(result, "```"+lang) {
-		result = result[len("```"+lang):]
-		if idx := strings.LastIndex(result, "```"); idx >= 0 {
-			result = result[:idx]
-		}
-	}
-	if strings.HasPrefix(result, lang) {
-		result = result[len(lang):]
-	}
-
-	return result, nil
-}
-
-// Helper function to make the actual API request to Deepseek
-func requestTranslation(apiKey string, lang string, text string, systemPrompt string) (string, error) {
-	// Prepare the request
-	messages := []Message{
-		{
-			Role:    "system",
-			Content: systemPrompt,
-		},
-		{
-			Role:    "user",
-			Content: "Translate following text into zh-CN:\nHello World",
-		},
-		{
-			Role:    "assistant",
-			Content: "你好世界",
-		},
-		{
-			Role:    "user",
-			Content: fmt.Sprintf("Translate following text into %s:\n%s", lang, text),
-		},
-	}
-
-	reqBody := DeepseekRequest{
-		Model:    "deepseek-chat",
-		Messages: messages,
-	}
-
-	jsonData, err := json.Marshal(reqBody)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %v", err)
-	}
-
-	// Create the HTTP request
-	req, err := http.NewRequest("POST", "https://api.deepseek.com/chat/completions", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %v", err)
-	}
-
-	// Set headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
-
-	// Send the request
-	client := &http.Client{
-		Timeout: 120 * time.Second, // Set a reasonable timeout
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// Read the response body
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response: %v", err)
-	}
-
-	// Check if the response is an error
-	var errResp DeepseekError
-	if err := json.Unmarshal(bodyBytes, &errResp); err == nil && errResp.Error.Message != "" {
-		return "", fmt.Errorf("API error: %s", errResp.Error.Message)
-	}
-
-	// Parse the successful response
-	var apiResp DeepseekResponse
-	if err := json.Unmarshal(bodyBytes, &apiResp); err != nil {
-		return "", fmt.Errorf("failed to parse response: %v", err)
-	}
-
-	// Extract the translated content
-	if len(apiResp.Choices) == 0 {
-		return "", fmt.Errorf("no translation provided in response")
-	}
-
-	return apiResp.Choices[0].Message.Content, nil
+	return fmt.Sprintf("%d", h.Sum64())
 }
 
 // Validate Minecraft authentication token
@@ -807,31 +721,31 @@ func handleRtcOfficial(c *gin.Context) {
 		"stun.voip.aebc.com:3478",
 		"stun.qq.com:3478",
 	}
-	
+
 	// Get RTC_SECRET from environment
 	secret := os.Getenv("RTC_SECRET")
-	
+
 	// Parse TURN servers from environment
 	turns := parseTurnsFromEnv()
-	
+
 	// Build response
 	var cred *TurnCredentials
-	
+
 	// Try to get credentials based on authentication
 	if secret != "" {
 		// Get authorization header
 		authorization := c.GetHeader("Authorization")
-		
+
 		// Validate Minecraft authentication (non-strict mode, same as in rtc.ts)
 		profile, status, errMsg, err := validateMinecraftAuth(authorization, false)
-		
+
 		if err != nil {
 			if status != 0 {
 				c.String(status, errMsg)
 				return
 			}
 		}
-		
+
 		// If profile is available, generate credentials for the user
 		if profile != nil {
 			// Ensure the user account exists in the database
@@ -839,14 +753,14 @@ func handleRtcOfficial(c *gin.Context) {
 			if err != nil {
 				fmt.Printf("Failed to ensure RTC account: %v\n", err)
 			}
-			
+
 			// Generate TURN credentials
 			creds := getTURNCredentials(profile.ID, secret, turns)
 			creds.Stuns = stuns
 			cred = &creds
 		}
 	}
-	
+
 	if cred != nil {
 		c.JSON(http.StatusOK, cred)
 	} else {
@@ -866,7 +780,7 @@ func parseTurnsFromEnv() []TurnServer {
 	}
 	var turns []TurnServer
 	pairs := strings.Split(turnsEnv, ",")
-	
+
 	for _, pair := range pairs {
 		parts := strings.Split(pair, ":")
 		if len(parts) == 2 {
@@ -876,7 +790,7 @@ func parseTurnsFromEnv() []TurnServer {
 			})
 		}
 	}
-	
+
 	return turns
 }
 
@@ -886,9 +800,9 @@ func ensureRtcAccount(name, namespace string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	collection := db.Collection("turnusers_lt")
-	
+
 	// Update or insert user
 	_, err = collection.UpdateOne(
 		context.Background(),
@@ -905,7 +819,7 @@ func ensureRtcAccount(name, namespace string) error {
 		},
 		options.Update().SetUpsert(true),
 	)
-	
+
 	return err
 }
 
@@ -913,34 +827,34 @@ func ensureRtcAccount(name, namespace string) error {
 func getTURNCredentials(name, secret string, turns []TurnServer) TurnCredentials {
 	// Generate expiration timestamp (24 hours from now)
 	expiry := time.Now().Unix() + 24*3600
-	
+
 	// Create username with expiration timestamp
 	username := fmt.Sprintf("%d:%s", expiry, name)
-	
+
 	// Calculate HMAC-SHA1 for the password
 	h := hmac.New(sha1.New, []byte(secret))
 	h.Write([]byte(username))
 	password := base64.StdEncoding.EncodeToString(h.Sum(nil))
-	
+
 	// Build URIs and metadata
 	uris := []string{
 		"turn:20.239.69.131",
-		"turn:20.199.15.21", 
+		"turn:20.199.15.21",
 		"turn:20.215.243.212",
 	}
-	
+
 	meta := map[string]string{
 		"20.239.69.131":  "hk",
-		"20.199.15.21":   "fr", 
+		"20.199.15.21":   "fr",
 		"20.215.243.212": "po",
 	}
-	
+
 	// Add custom TURN servers
 	for _, turn := range turns {
 		uris = append(uris, fmt.Sprintf("turn:%s", turn.IP))
 		meta[turn.IP] = turn.Realm
 	}
-	
+
 	return TurnCredentials{
 		Username: username,
 		Password: password,
@@ -960,18 +874,18 @@ func main() {
 	if port == "" {
 		port = "8080" // Different port from azure.go
 	}
-	
+
 	// Create router
 	router := gin.Default()
-	
+
 	// Configure CORS
 	router.Use(cors.Default())
-	
+
 	// API routes
 	router.GET("/group/:id", handleGroup)
 	router.GET("/translation", handleTranslation)
 	router.POST("/rtc/official", handleRtcOfficial)
-	
+
 	// Default route
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -982,7 +896,7 @@ func main() {
 			},
 		})
 	})
-	
+
 	// Start server
 	fmt.Printf("Server starting on port %s\n", port)
 	router.Run(":" + port)
