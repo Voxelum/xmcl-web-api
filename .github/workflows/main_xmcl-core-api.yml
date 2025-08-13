@@ -4,11 +4,11 @@
 name: Build and deploy Deno project to Azure Function App - xmcl-core-api
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'azure/**'
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - 'azure/**'
   workflow_dispatch:
 
 env:

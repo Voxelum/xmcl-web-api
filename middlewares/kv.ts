@@ -1,6 +1,7 @@
 import { Middleware } from "oak";
 import { translate } from "../utils/translation.ts";
 import { getDatabase } from "./mongoDb.ts";
+import { translatev2 } from "../utils/translationv2.ts";
 
 export interface WithKv {
   kv: Deno.Kv;
@@ -59,7 +60,7 @@ const promise = Deno.openKv().then((kv) => {
 
     try {
       console.time(`translate:${id}:${contentType}`);
-      const result = await translate(lang, body, contentType)
+      const result = await translatev2(lang, body, contentType)
       console.timeLog(`translate:${id}:${contentType}`);
 
       await coll.insertOne({

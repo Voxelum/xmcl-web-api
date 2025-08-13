@@ -5,13 +5,13 @@ import {
   composeMiddleware,
 } from "oak";
 import { WithHasher, hasherMiddlware } from "../middlewares/hasher.ts";
+import { WithKv, kvMiddlware } from "../middlewares/kv.ts";
 import {
   MinecraftAuthState,
 } from "../middlewares/minecraftAuth.ts";
 import { MongoDbState, mongoDbMiddleware } from "../middlewares/mongoDb.ts";
 import { ModrinthResponseBody } from "../utils/chatgpt.ts";
-import { translate } from "../utils/translation.ts";
-import { WithKv, kvMiddlware } from "../middlewares/kv.ts";
+import { translatev2 } from "../utils/translationv2.ts";
 
 
 export default new Router().get(
@@ -123,7 +123,7 @@ export default new Router().get(
 
     if (!enqueueResult.ok) {
       console.time(`translate:${id}:${contentType}`);
-      const result = await translate(lang, body, contentType)
+      const result = await translatev2(lang, body, contentType)
       console.timeLog(`translate:${id}:${contentType}`);
 
       if (typeof result === "object") {

@@ -1,9 +1,9 @@
 import { chat } from "../utils/chatgpt.ts";
-import { splitHTMLChildrenLargerThan16kByTag } from "../utils/html.ts";
+import { splitHTMLChildrenLargerThanWindowByTag } from "../utils/html.ts";
 import {
     placeholderAllUrlInMarkdown,
     restoreAllUrlInMarkdown,
-    splitMarkdownIfLengthLargerThan16k,
+    splitMarkdownIfLengthLargerThanWindow,
 } from "../utils/markdown.ts";
 
 
@@ -25,19 +25,21 @@ export async function translate(
     textType: "text/markdown" | "text/html",
 ) {
     const process = async (t: string, prom: string) => {
-        const resp = await chat([{
-            role: "system",
-            content: prom,
-        }, {
-            role: "user",
-            content: "Translate following text into zh-CN:\nHello World",
-        }, {
-            role: "assistant",
-            content: "你好世界"
-        }, {
-            role: "user",
-            content: `Translate following text into ${locale}:\n${t}`,
-        }]);
+        const resp = await chat({
+            messages: [{
+                role: "system",
+                content: prom,
+            }, {
+                role: "user",
+                content: "Translate following text into zh-CN:\nHello World",
+            }, {
+                role: "assistant",
+                content: "你好世界"
+            }, {
+                role: "user",
+                content: `Translate following text into ${locale}:\n${t}`,
+            }]
+        });
         if ("error" in resp) {
             return resp;
         }
@@ -56,13 +58,13 @@ export async function translate(
     if (textType === "text/markdown") {
         const holder = [] as string[];
         const transformed = placeholderAllUrlInMarkdown(text, holder);
-        const chunks = splitMarkdownIfLengthLargerThan16k(transformed);
+        const chunks = splitMarkdownIfLengthLargerThanWindow(transformed);
         const outputs = await Promise.all(chunks.map(c => process(c, markdownPrompt)));
         const err = outputs.find((o) => typeof o === "object");
         if (err) return err;
         result = restoreAllUrlInMarkdown(outputs.join(""), holder);
     } else if (textType === "text/html") {
-        const chunks = splitHTMLChildrenLargerThan16kByTag(text);
+        const chunks = splitHTMLChildrenLargerThanWindowByTag(text);
         const outputs = await Promise.all(chunks.map(c => process(c, htmlPrompt)));
         const err = outputs.find((o) => typeof o === "object");
         if (err) return err;
