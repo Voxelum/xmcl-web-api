@@ -8,7 +8,7 @@ export function getFlights(
   }
   if (build && Number(build) > 1002) {
     return {
-      i18nSearch: ['zh-CN']
+      i18nSearch: ['zh-CN', 'zh-TW', 'ru']
     };
   }
   return {}
