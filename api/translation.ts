@@ -124,7 +124,7 @@ export default new Router().get(
 
     if (!enqueueResult.ok) {
       console.time(`translate:${id}:${contentType}`);
-      const result = await translate(lang, body, contentType)
+      const result = lang === 'ru' ? await translatev2(lang, body, contentType) : await translate(lang, body, contentType)
       console.timeLog(`translate:${id}:${contentType}`);
 
       if (typeof result === "object") {

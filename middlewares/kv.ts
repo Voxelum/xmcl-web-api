@@ -60,7 +60,7 @@ const promise = Deno.openKv().then((kv) => {
 
     try {
       console.time(`translate:${id}:${contentType}`);
-      const result = await translate(lang, body, contentType)
+      const result = lang === 'ru' ? await translatev2(lang, body, contentType) : await translate(lang, body, contentType)
       console.timeLog(`translate:${id}:${contentType}`);
 
       await coll.insertOne({
