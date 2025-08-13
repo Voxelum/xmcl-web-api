@@ -12,6 +12,7 @@ import {
 import { MongoDbState, mongoDbMiddleware } from "../middlewares/mongoDb.ts";
 import { ModrinthResponseBody } from "../utils/chatgpt.ts";
 import { translatev2 } from "../utils/translationv2.ts";
+import { translate } from "../utils/translation.ts";
 
 
 export default new Router().get(
@@ -123,7 +124,7 @@ export default new Router().get(
 
     if (!enqueueResult.ok) {
       console.time(`translate:${id}:${contentType}`);
-      const result = await translatev2(lang, body, contentType)
+      const result = await translate(lang, body, contentType)
       console.timeLog(`translate:${id}:${contentType}`);
 
       if (typeof result === "object") {
