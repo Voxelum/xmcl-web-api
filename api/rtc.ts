@@ -137,14 +137,21 @@ const router = new Router().post(
         })
         const data = await response.json() as { iceServers: Array<{ urls: string | string[], username: string, credential: string }> }
         if (response.ok) {
-          console.log(data)
-          return data.iceServers[0] ? {
-            username: data.iceServers[0].username,
-            password: data.iceServers[0].credential,
-            uris: Array.isArray(data.iceServers[0].urls) ? data.iceServers[0].urls : [data.iceServers[0].urls],
-            ttl: 86400,
-            meta: {} as Record<string, string>,
-          } : undefined
+          let stuns = [] as string[]
+          for (const server of data.iceServers) {
+            if (server.username) {
+              return {
+                username: server.username,
+                password: server.credential,
+                uris: Array.isArray(server.urls) ? server.urls : [server.urls],
+                ttl: 86400,
+                meta: {} as Record<string, string>,
+                stuns,
+              }
+            } else {
+              stuns = Array.isArray(server.urls) ? server.urls : [server.urls];
+            }
+          }
         } else {
           console.error("Cloudflare API error:", data);
           return undefined
@@ -157,8 +164,8 @@ const router = new Router().post(
     const cred = context.request.url.searchParams.get("type") === "cloudflare" ? await tryGetCredCloudflare() : await tryGetCred()
     if (cred) {
       context.response.body = {
-        ...cred,
         stuns,
+        ...cred,
       }
     } else {
       context.response.body = {
