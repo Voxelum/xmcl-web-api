@@ -129,7 +129,11 @@ const router = new Router().post(
           headers: {
             'Authorization': `Bearer ${cloudflareAPIToken}`,
             'Content-Type': 'application/json',
-          }
+          },
+          method: 'POST',
+          body: JSON.stringify({
+            ttl: 86400,
+          })
         })
         const data = await response.json() as { iceServers: Array<{ urls: string | string[], username: string, credential: string }> }
         if (response.ok) {
