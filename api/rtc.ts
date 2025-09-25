@@ -161,7 +161,7 @@ const router = new Router().post(
       }
     }
 
-    const cred = context.request.url.searchParams.get("type") === "cloudflare" ? await tryGetCredCloudflare() : await tryGetCred()
+    const cred = true && context.request.url.searchParams.get("type") === "cloudflare" ? await tryGetCredCloudflare() : await tryGetCred()
     if (cred) {
       context.response.body = {
         stuns,
