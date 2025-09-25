@@ -149,7 +149,7 @@ const router = new Router().post(
                 stuns,
               }
             } else {
-              stuns = Array.isArray(server.urls) ? server.urls : [server.urls];
+              stuns = (Array.isArray(server.urls) ? server.urls : [server.urls]).map(u => u.replace(/^stun:/, ''));
             }
           }
         } else {
