@@ -87,6 +87,8 @@ const stuns = [
 ]
 
 const secret = Deno.env.get("RTC_SECRET");
+const cloudflareAPIToken = Deno.env.get("CLOUDFLARE_API_TOKEN");
+const cloudflareAppId = Deno.env.get("CLOUDFLARE_APP_ID");
 const router = new Router().post(
   "/rtc/official",
   composeMiddleware<Partial<MinecraftAuthState> & MongoDbState>([
@@ -117,7 +119,37 @@ const router = new Router().post(
       }
     }
 
-    const cred = await tryGetCred()
+    const tryGetCredCloudflare = async () => {
+      if (!cloudflareAPIToken || !cloudflareAppId) {
+        console.warn("No CLOUDFLARE_API_TOKEN or CLOUDFLARE_APP_ID");
+        return undefined
+      }
+      try {
+        const response = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${cloudflareAppId}/credentials/generate-ice-servers`, {
+          headers: {
+            'Authorization': `Bearer ${cloudflareAPIToken}`,
+            'Content-Type': 'application/json',
+          }
+        })
+        const data = await response.json() as { iceServers: Array<{ urls: string | string[], username: string, credential: string }> }
+        if (response.ok) {
+          return data.iceServers[0] ? {
+            username: data.iceServers[0].username,
+            password: data.iceServers[0].credential,
+            uris: Array.isArray(data.iceServers[0].urls) ? data.iceServers[0].urls : [data.iceServers[0].urls],
+            ttl: 86400,
+            meta: {} as Record<string, string>,
+          } : undefined
+        } else {
+          console.error("Cloudflare API error:", data);
+          return undefined
+        }
+      } catch (e) {
+        console.error("Cloudflare API error:", e);
+      }
+    }
+
+    const cred = context.request.url.searchParams.get("type") === "cloudflare" ? await tryGetCredCloudflare() : await tryGetCred()
     if (cred) {
       context.response.body = {
         ...cred,
