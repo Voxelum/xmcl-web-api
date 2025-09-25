@@ -137,6 +137,7 @@ const router = new Router().post(
         })
         const data = await response.json() as { iceServers: Array<{ urls: string | string[], username: string, credential: string }> }
         if (response.ok) {
+          console.log(data)
           return data.iceServers[0] ? {
             username: data.iceServers[0].username,
             password: data.iceServers[0].credential,
