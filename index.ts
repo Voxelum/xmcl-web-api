@@ -33,7 +33,6 @@ router.use(mongoDbMiddleware)
   .use(modrinthAuth.routes())
   .use(flights.routes());
 
-
 router.get("/", ({ response }) => {
   response.body = JSON.stringify([...router.keys()]);
 });

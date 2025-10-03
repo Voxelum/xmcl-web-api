@@ -82,7 +82,6 @@ The API is implemented in multiple ways to ensure global availability and reliab
 
 - `GITHUB_PAT` - GitHub Personal Access Token for API access
 - `FUNCTIONS_CUSTOMHANDLER_PORT` - Port for Azure Functions custom handler (legacy)
-- `PORT` - Fallback port if Azure Functions port is not set (legacy)
 
 ### Mainland China Service (Go)
 
@@ -91,7 +90,6 @@ The API is implemented in multiple ways to ensure global availability and reliab
 - `CURSEFORGE_KEY` - API key for CurseForge integration
 - `RTC_SECRET` - Secret for WebRTC services
 - `TURNS` - TURN server configuration (format: "realm:ip,realm:ip") 
-- `PORT` - Server port (default: "8080")
 
 ## Development
 

@@ -50,4 +50,13 @@ jobs:
             --access default
 
       - name: Deploy to Alibaba Cloud Function
+        env:
+          MONGO_CONNECION_STRING: ${{ secrets.MONGO_CONNECION_STRING }}
+          MONGODB_NAME: ${{ secrets.MONGODB_NAME }}
+          GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          RTC_SECRET: ${{ secrets.RTC_SECRET }}
+          CURSEFORGE_KEY: ${{ secrets.CURSEFORGE_KEY }}
+          MODRINTH_SECRET: ${{ secrets.MODRINTH_SECRET }}
+          TURNS: ${{ secrets.TURNS }}
         run: s deploy --use-local -y
