@@ -57,6 +57,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           RTC_SECRET: ${{ secrets.RTC_SECRET }}
           CURSEFORGE_KEY: ${{ secrets.CURSEFORGE_KEY }}
+          QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
           MODRINTH_SECRET: ${{ secrets.MODRINTH_SECRET }}
           TURNS: ${{ secrets.TURNS }}
         run: s deploy --use-local -y

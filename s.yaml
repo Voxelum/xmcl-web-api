@@ -26,6 +26,7 @@ resources:
         OPENAI_API_KEY: ${env(OPENAI_API_KEY)}
         RTC_SECRET: ${env(RTC_SECRET)}
         CURSEFORGE_KEY: ${env(CURSEFORGE_KEY)}
+        QWEN_API_KEY: ${env(QWEN_API_KEY)}
         MODRINTH_SECRET: ${env(MODRINTH_SECRET)}
         TURNS: ${env(TURNS)}
       code: ./
