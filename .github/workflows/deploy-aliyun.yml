@@ -1,17 +1,17 @@
 name: Deploy to Alibaba Cloud Function
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'api/**'
-      - 'middlewares/**'
-      - 'shared/**'
-      - 'utils/**'
-      - 'index.ts'
-      - 'aliyun/**'
-      - 's.yaml'
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - 'api/**'
+  #     - 'middlewares/**'
+  #     - 'shared/**'
+  #     - 'utils/**'
+  #     - 'index.ts'
+  #     - 'aliyun/**'
+  #     - 's.yaml'
   workflow_dispatch:
 
 jobs:
