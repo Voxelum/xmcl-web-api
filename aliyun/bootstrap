@@ -1,0 +1,14 @@
+#!/bin/bash
+# Alibaba Cloud Function custom runtime bootstrap script
+# This script starts the Deno server with the required permissions
+
+# Install deno if not present
+if ! command -v deno &> /dev/null; then
+    echo "Installing Deno..."
+    curl -fsSL https://deno.land/x/install/install.sh | sh
+    export DENO_INSTALL="/root/.deno"
+    export PATH="$DENO_INSTALL/bin:$PATH"
+fi
+
+# Start the Deno application
+exec deno run --allow-net --allow-read --allow-env index.ts

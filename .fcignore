@@ -1,0 +1,37 @@
+# Ignore git files
+.git/
+.gitignore
+
+# Ignore build artifacts
+azure/
+*.js
+*.js.map
+*.exe
+
+# Ignore dependencies
+node_modules/
+
+# Ignore local configuration
+.env
+local.settings.json
+
+# Ignore documentation and development files
+README.md
+COTURN.md
+.vscode/
+
+# Ignore Go files (not needed for Deno runtime)
+main.go
+go.mod
+go.sum
+
+# Ignore Azure-specific files
+.funcignore
+host.json
+build.ts
+
+# Ignore GitHub workflows
+.github/
+
+# Ignore data files
+data/

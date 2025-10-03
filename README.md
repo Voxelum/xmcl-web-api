@@ -13,7 +13,7 @@ The XMCL Web API serves multiple functions:
 
 ## Architecture
 
-The API is implemented in three different ways to ensure global availability and reliability:
+The API is implemented in multiple ways to ensure global availability and reliability:
 
 1. **Primary Service (Deno)** - Hosted on Deno Deploy
    - Entry point: `index.ts`
@@ -25,7 +25,12 @@ The API is implemented in three different ways to ensure global availability and
    - Uses the Azure Functions JavaScript/TypeScript runtime
    - Provides fallback capabilities if the primary service is unavailable
 
-3. **Mainland China Service** - Specialized version in Go
+3. **Alibaba Cloud Function Service (Deno)** - Uses custom runtime
+   - Entry point: `index.ts` with custom bootstrap script
+   - Alternative deployment option for better access in mainland China
+   - Uses Deno with custom runtime via `aliyun/bootstrap`
+
+4. **Mainland China Service** - Specialized version in Go
    - Entry point: `main.go`
    - Optimized for access within mainland China
    - Contains adaptations for the Chinese network environment
@@ -125,6 +130,29 @@ For Azure Functions deployment, use the Azure CLI or Azure Portal:
 ```bash
 az functionapp deployment source config-zip -g myResourceGroup -n myFunctionApp --src ./azure.zip
 ```
+
+### Alibaba Cloud Function
+
+The Deno service can be deployed to Alibaba Cloud Function using Serverless Devs:
+
+```bash
+# Install Serverless Devs CLI
+npm install -g @serverless-devs/s
+
+# Configure your Alibaba Cloud credentials
+s config add
+
+# Deploy the function
+s deploy --use-local -y
+```
+
+The deployment uses a custom runtime with Deno and automatically deploys from the main branch via GitHub Actions.
+
+**Required Secrets for GitHub Actions:**
+- `ALIYUN_ACCOUNT_ID` - Alibaba Cloud Account ID
+- `ALIYUN_ACCESS_KEY_ID` - Alibaba Cloud Access Key ID
+- `ALIYUN_ACCESS_KEY_SECRET` - Alibaba Cloud Access Key Secret
+- Environment variables (same as Primary Service)
 
 ### Custom Server (China)
 
