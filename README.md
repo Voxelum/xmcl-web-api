@@ -25,10 +25,10 @@ The API is implemented in multiple ways to ensure global availability and reliab
    - Uses the Azure Functions JavaScript/TypeScript runtime
    - Provides fallback capabilities if the primary service is unavailable
 
-3. **Alibaba Cloud Function Service (Deno)** - Uses custom runtime
-   - Entry point: `index.ts` with custom bootstrap script
+3. **Alibaba Cloud Function Service (Deno)** - Uses compiled binary
+   - Entry point: Compiled Deno binary via `aliyun/bootstrap`
    - Alternative deployment option for better access in mainland China
-   - Uses Deno with custom runtime via `aliyun/bootstrap`
+   - Uses `deno compile` to create a standalone executable
 
 4. **Mainland China Service** - Specialized version in Go
    - Entry point: `main.go`
@@ -133,7 +133,7 @@ az functionapp deployment source config-zip -g myResourceGroup -n myFunctionApp 
 
 ### Alibaba Cloud Function
 
-The Deno service can be deployed to Alibaba Cloud Function using Serverless Devs:
+The Deno service can be deployed to Alibaba Cloud Function using Serverless Devs with a compiled binary:
 
 ```bash
 # Install Serverless Devs CLI
@@ -142,11 +142,16 @@ npm install -g @serverless-devs/s
 # Configure your Alibaba Cloud credentials
 s config add
 
+# Compile the Deno application
+deno compile --allow-net --allow-read --allow-env \
+  --output aliyun/xmcl-api \
+  index.ts
+
 # Deploy the function
 s deploy --use-local -y
 ```
 
-The deployment uses a custom runtime with Deno and automatically deploys from the main branch via GitHub Actions.
+The deployment uses a compiled Deno binary and automatically deploys from the main branch via GitHub Actions.
 
 **Required Secrets for GitHub Actions:**
 - `ALIYUN_ACCOUNT_ID` - Alibaba Cloud Account ID

@@ -12,7 +12,7 @@ resources:
     props:
       region: ${vars.region}
       functionName: ${vars.functionName}
-      description: XMCL Web API with Deno custom runtime
+      description: XMCL Web API with Deno compiled binary
       runtime: custom
       timeout: 60
       memorySize: 512

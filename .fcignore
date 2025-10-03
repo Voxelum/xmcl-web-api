@@ -35,3 +35,14 @@ build.ts
 
 # Ignore data files
 data/
+
+# Ignore source files (we deploy compiled binary)
+api/
+middlewares/
+shared/
+utils/
+index.ts
+type.ts
+eventsource.ts
+deno.json
+deno.lock
