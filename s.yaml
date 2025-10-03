@@ -1,0 +1,48 @@
+edition: 3.0.0
+name: xmcl-web-api
+access: "default"
+
+vars:
+  region: "cn-hangzhou"
+  functionName: "xmcl-api"
+
+resources:
+  framework:
+    component: fc3
+    props:
+      region: ${vars.region}
+      functionName: ${vars.functionName}
+      description: XMCL Web API with Deno compiled binary
+      runtime: custom
+      timeout: 60
+      memorySize: 512
+      cpu: 0.35
+      diskSize: 512
+      instanceConcurrency: 100
+      environmentVariables:
+        MONGO_CONNECION_STRING: ${env(MONGO_CONNECION_STRING)}
+        MONGODB_NAME: ${env(MONGODB_NAME)}
+        GITHUB_PAT: ${env(GITHUB_PAT)}
+        OPENAI_API_KEY: ${env(OPENAI_API_KEY)}
+        RTC_SECRET: ${env(RTC_SECRET)}
+        CURSEFORGE_KEY: ${env(CURSEFORGE_KEY)}
+        MODRINTH_SECRET: ${env(MODRINTH_SECRET)}
+        TURNS: ${env(TURNS)}
+      code: ./
+      customRuntimeConfig:
+        command:
+          - /code/aliyun/bootstrap
+        port: 8080
+      triggers:
+        - triggerName: httpTrigger
+          triggerType: http
+          triggerConfig:
+            authType: anonymous
+            disableURLInternet: false
+            methods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - HEAD
+              - OPTIONS

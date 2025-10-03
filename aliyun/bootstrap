@@ -1,0 +1,6 @@
+#!/bin/bash
+# Alibaba Cloud Function custom runtime bootstrap script
+# This script runs the pre-compiled Deno binary
+
+# Start the compiled Deno application
+exec /code/aliyun/xmcl-api
