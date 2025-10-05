@@ -101,25 +101,27 @@ app.get('appx', async (request: HttpRequest) => {
     }
   }
 
-  const proxies = [
-    'https://gh-proxy.com',
-    'https://gitproxy.click',
-    'https://github.moeyy.xyz',
-    'https://ghfile.geekertao.top',
-    'https://github.proxy.class3.fun',
-    'https://github-proxy.lixxing.top',
-    'https://github.tbedu.top',
-    'https://hub.gitmirror.com',
-    'https://gh-proxy.net',
-    'https://gh-proxy.cijhn.workers.dev',
-  ]
+  // const proxies = [
+  //   'https://gh-proxy.com',
+  //   'https://gitproxy.click',
+  //   'https://github.moeyy.xyz',
+  //   'https://ghfile.geekertao.top',
+  //   'https://github.proxy.class3.fun',
+  //   'https://github-proxy.lixxing.top',
+  //   'https://github.tbedu.top',
+  //   'https://hub.gitmirror.com',
+  //   'https://gh-proxy.net',
+  //   'https://gh-proxy.cijhn.workers.dev',
+  // ]
   // randomly select a proxy
-  const proxy = proxies[Math.floor(Math.random() * proxies.length)];
+  // const proxy = proxies[Math.floor(Math.random() * proxies.length)];
+  // const url = `${proxy}/${downloadUrl}`
+  const url = `http://cdn.xmcl.app/v${version}/xmcl-${version}-win32-x64.appx`
 
   return {
     status: 302,
     headers: {
-      "Location": `${proxy}/${downloadUrl}`,
+      "Location": url,
       "Content-Type": "text/plain",
     },
   }
