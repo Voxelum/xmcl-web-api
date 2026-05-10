@@ -14,6 +14,8 @@ import releases from "./api/releases.ts";
 import rtc from "./api/rtc.ts";
 import translation from "./api/translation.ts";
 import zulu from "./api/zulu.ts";
+import appx from "./api/appx.ts";
+import appinstaller from "./api/appinstaller.ts";
 import { mongoDbMiddleware } from "./middlewares/mongoDb.ts";
 
 const app = new Application();
@@ -31,6 +33,8 @@ router.use(mongoDbMiddleware)
   .use(zulu.routes())
   .use(releases.routes())
   .use(modrinthAuth.routes())
+  .use(appx.routes())
+  .use(appinstaller.routes())
   .use(flights.routes());
 
 router.get("/", ({ response }) => {

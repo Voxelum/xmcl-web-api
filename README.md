@@ -50,6 +50,10 @@ The API is implemented in multiple ways to ensure global availability and reliab
 - `/elyby/authlib` - Authentication library access
 - `/modrinth/auth` - Modrinth authentication integration
 - `/kook-badge` - Access to KOOK integration information
+- `/appx?version=<v>` - 302 to the Windows `.appx` on `cdn.xmcl.app`
+- `/appinstaller` - Dynamically-generated `.appinstaller` manifest pointing
+  at the latest stable release. Replaces the static
+  `xmcl.blob.core.windows.net/releases/xmcl.appinstaller` mirror.
 
 ### Backup Service (Azure Functions - Go)
 
