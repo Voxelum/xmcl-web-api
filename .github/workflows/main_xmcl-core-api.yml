@@ -1,7 +1,7 @@
 # Docs for the Azure Web Apps Deploy action: https://github.com/azure/functions-action
 # More GitHub Actions for Azure: https://github.com/Azure/actions
 
-name: Build and deploy Deno project to Azure Function App - xmcl-core-api
+name: Build and deploy Node project to Azure Function App - xmcl-core-api
 
 on:
   push:
@@ -10,50 +10,40 @@ on:
     paths:
       - 'azure/**'
       - 'shared/**'
-      - 'build.ts'
-      - 'deno.json'
-      - 'deno.lock'
+      - 'package.json'
+      - 'package-lock.json'
       - 'host.json'
       - '.github/workflows/main_xmcl-core-api.yml'
   workflow_dispatch:
 
 env:
   AZURE_FUNCTIONAPP_PACKAGE_PATH: '.' # set this to the path to your web app project, defaults to the repository root
-  DENO_VERSION: '2.3.1' # set this to the Deno version to use
+  NODE_VERSION: '20.x'
 
 jobs:
   build:
     runs-on: windows-latest
     permissions:
       contents: read #This is required for actions/checkout
-      
+
     steps:
       - name: 'Checkout GitHub Action'
         uses: actions/checkout@v4
 
-      - name: Setup Deno ${{ env.DENO_VERSION }}
-        uses: denoland/setup-deno@v2
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
         with:
-          deno-version: ${{ env.DENO_VERSION }}
-      - name: 'Build Azure Function with Deno'
-        shell: pwsh
-        run: |
-          deno run --allow-net --allow-env --allow-read --allow-run --allow-write build.ts
+          node-version: ${{ env.NODE_VERSION }}
 
-      - name: 'Install Azure Functions runtime deps'
-        # Azure Functions v4 Node programming model requires @azure/functions
-        # to be declared in package.json#dependencies AND installed in
-        # node_modules; otherwise the host loads azure/index.js but never
-        # discovers the app.get(...) registrations and reports
-        # "0 functions found (Custom)" on startup.
-        # Deno's npm: resolution only creates empty shells (esbuild bundles
-        # the contents) under node_modules/.deno/, which npm chokes on
-        # while reconciling against package.json -- so wipe node_modules
-        # before reinstalling from a clean slate.
+      - name: 'Install dependencies'
         shell: pwsh
         run: |
-          if (Test-Path node_modules) { Remove-Item -Recurse -Force node_modules }
-          npm install --omit=dev --no-package-lock
+          npm install --omit=optional --no-package-lock
+
+      - name: 'Build Azure Function bundle'
+        shell: pwsh
+        run: |
+          npm run build:azure
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
@@ -73,7 +63,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: app
-      
+
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -88,4 +78,3 @@ jobs:
           app-name: 'xmcl-core-api'
           slot-name: 'Production'
           package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
-          

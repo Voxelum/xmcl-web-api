@@ -1,6 +1,6 @@
-import { app, HttpRequest } from 'npm:@azure/functions';
-import geoip from 'npm:geoip-country';
-import { gte, lt, Range } from 'npm:semver';
+import { app, HttpRequest } from '@azure/functions';
+import geoip from 'geoip-country';
+import { gte, lt, Range } from 'semver';
 import { getLatest } from "../shared/latest.ts";
 import { getNofications } from "../shared/notifications.ts";
 import { getFlights } from "../shared/flights.ts";

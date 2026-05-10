@@ -1,4 +1,4 @@
-import geoip from "npm:geoip-country";
+import geoip from "geoip-country";
 
 // Returns true if the request appears to come from mainland China,
 // based on the proxy-forwarded client IP. Mirrors the Node-side check in
