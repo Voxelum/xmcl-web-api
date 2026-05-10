@@ -21,7 +21,15 @@ await build({
   platform: 'node',
   target: 'node20',
   format: 'cjs',
-  external: ['@azure/functions-core', '@azure/functions'],
+  external: [
+    '@azure/functions-core',
+    '@azure/functions',
+    // geoip-country reads its data files relative to its own package
+    // location at runtime; bundling it loses that path resolution and
+    // causes ENOENT for geoip-city.dat on require. Keep it external so
+    // the npm-installed copy with its bundled data/*.dat is used.
+    'geoip-country',
+  ],
   sourcemap: true,
   treeShaking: true,
   // Allow imports written as `from "npm:foo"` (Deno style) to also
@@ -43,13 +51,17 @@ await build({
   ],
 })
 
-// geoip-country ships its data files at runtime via fs reads relative to
-// the package; copy them into ./data/ so the bundled output finds them.
-const dataSrc = join(root, 'node_modules/geoip-country/data')
-const dataDst = join(root, 'data')
-if (existsSync(dataSrc)) {
-  mkdirSync(dataDst, { recursive: true })
-  for (const file of readdirSync(dataSrc)) {
-    copyFileSync(join(dataSrc, file), join(dataDst, file))
-  }
-}
+// geoip-country is external (see build.mjs); it reads its bundled
+// data/*.dat at runtime relative to node_modules/geoip-country, so the
+// previous step that copied the data files into ./data/ is no longer
+// needed. Left here as a comment in case we ever inline the package
+// again.
+//
+// const dataSrc = join(root, 'node_modules/geoip-country/data')
+// const dataDst = join(root, 'data')
+// if (existsSync(dataSrc)) {
+//   mkdirSync(dataDst, { recursive: true })
+//   for (const file of readdirSync(dataSrc)) {
+//     copyFileSync(join(dataSrc, file), join(dataDst, file))
+//   }
+// }
