@@ -1,3 +1,6 @@
 {
-  "main": "azure/index.js"
+  "main": "azure/index.js",
+  "dependencies": {
+    "@azure/functions": "^4.0.0"
+  }
 }

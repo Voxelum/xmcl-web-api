@@ -41,14 +41,16 @@ jobs:
           deno run --allow-net --allow-env --allow-read --allow-run --allow-write build.ts
 
       - name: 'Install Azure Functions runtime deps'
-        # Deno marks @azure/functions-core as external in build.ts and only
-        # creates an empty node_modules/@azure/functions/ shell, so the v4
-        # Functions host can't load the bundle. Run a real npm install so
-        # node_modules contains @azure/functions + @azure/functions-core,
-        # then they're packaged into the deploy zip.
+        # Azure Functions v4 Node programming model requires @azure/functions
+        # to be declared in package.json#dependencies AND installed in
+        # node_modules; otherwise the host loads azure/index.js but never
+        # discovers the app.get(...) registrations and reports
+        # "0 functions found (Custom)" on startup.
+        # Deno's npm: resolution only creates empty shells (esbuild bundles
+        # the contents), so we have to install for real here.
         shell: pwsh
         run: |
-          npm install --no-save --omit=dev --no-package-lock @azure/functions
+          npm install --omit=dev --no-package-lock
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
