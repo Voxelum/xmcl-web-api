@@ -6,7 +6,13 @@ await esbuild.build({
     ...denoPlugins({
     }),
   ],
-  external: ['@azure/functions-core'],
+  // Both must be external so the Azure Functions host resolves them from
+  // node_modules at runtime; the host injects @azure/functions-core into
+  // the worker, and @azure/functions has to be the npm-installed copy
+  // (not a second bundled copy) for v4-model app.get(...) registrations
+  // to actually reach the host. node_modules is populated by the
+  // 'Install Azure Functions runtime deps' step in CI.
+  external: ['@azure/functions-core', '@azure/functions'],
   platform: "node",
   entryPoints: ["./azure/index.ts"],
   outfile: "azure/index.js",
