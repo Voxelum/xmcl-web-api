@@ -47,9 +47,12 @@ jobs:
         # discovers the app.get(...) registrations and reports
         # "0 functions found (Custom)" on startup.
         # Deno's npm: resolution only creates empty shells (esbuild bundles
-        # the contents), so we have to install for real here.
+        # the contents) under node_modules/.deno/, which npm chokes on
+        # while reconciling against package.json -- so wipe node_modules
+        # before reinstalling from a clean slate.
         shell: pwsh
         run: |
+          if (Test-Path node_modules) { Remove-Item -Recurse -Force node_modules }
           npm install --omit=dev --no-package-lock
 
       - name: Upload artifact for deployment job
