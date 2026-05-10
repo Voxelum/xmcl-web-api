@@ -2,7 +2,7 @@
   "name": "xmcl-core-api",
   "version": "1.0.0",
   "private": true,
-  "main": "azure/index.js",
+  "main": "azure/{index.js,functions/*.js}",
   "scripts": {
     "build:azure": "node azure/build.mjs"
   },
