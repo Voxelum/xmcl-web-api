@@ -35,7 +35,7 @@ export default new Router().get("/appinstaller", async (ctx) => {
         Publisher="${PUBLISHER}"
         Version="${version}.0"
         ProcessorArchitecture="x64"
-        Uri="https://cdn.xmcl.app/v${version}/xmcl-${version}-win32-x64.appx" />
+        Uri="https://api.xmcl.app/appx?version=${version}" />
     <UpdateSettings>
     </UpdateSettings>
 </AppInstaller>`;

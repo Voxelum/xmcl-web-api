@@ -1,8 +1,11 @@
 import { Router } from "oak";
+import { isChineseIP } from "../shared/geo.ts";
 
-// Redirect Windows .appx downloads to the EdgeOne CDN (cdn.xmcl.app),
-// which mirrors GitHub Releases. Mirrors the Azure Functions /appx behaviour
-// in azure/index.ts.
+// Redirect Windows .appx downloads to the appropriate edge:
+//   - mainland-CN clients -> cdn.xmcl.app (EdgeOne, sponsored CDN)
+//   - everyone else       -> github.com releases (origin)
+//
+// Mirrors the Azure Functions /appx behaviour in azure/index.ts.
 //
 // Used by:
 //   - the AppInstaller manifest served by /appinstaller (MainPackage Uri)
@@ -17,7 +20,10 @@ export default new Router().get("/appx", (ctx) => {
     return;
   }
 
-  ctx.response.redirect(
-    `https://cdn.xmcl.app/v${version}/xmcl-${version}-win32-x64.appx`,
-  );
+  const target = isChineseIP(ctx.request.headers)
+    ? `https://cdn.xmcl.app/v${version}/xmcl-${version}-win32-x64.appx`
+    : `https://github.com/Voxelum/x-minecraft-launcher/releases/download/v${version}/xmcl-${version}-win32-x64.appx`;
+
+  ctx.response.redirect(target);
 });
+
