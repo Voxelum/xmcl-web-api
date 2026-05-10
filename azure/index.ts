@@ -76,6 +76,36 @@ function isChineseIP(request: HttpRequest) {
   return country === "CN";
 }
 
+app.get('appinstaller', async () => {
+  const latest = await getLatest(false, null, null, process.env.GITHUB_PAT, { gte, lt })
+  const tag = (latest as any)?.tag_name ?? "v0.0.0"
+  const version = tag.startsWith("v") ? tag.substring(1) : tag
+
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<AppInstaller
+    xmlns="http://schemas.microsoft.com/appx/appinstaller/2018"
+    Version="${version}.0"
+    Uri="https://api.xmcl.app/appinstaller" >
+    <MainPackage
+        Name="XMCL"
+        Publisher="CN=SignPath Foundation, O=SignPath Foundation, L=Lewes, S=Delaware, C=US"
+        Version="${version}.0"
+        ProcessorArchitecture="x64"
+        Uri="https://api.xmcl.app/appx?version=${version}" />
+    <UpdateSettings>
+    </UpdateSettings>
+</AppInstaller>`
+
+  return {
+    status: 200,
+    headers: {
+      "Content-Type": "application/appinstaller",
+      "Cache-Control": "public, max-age=300",
+    },
+    body: xml,
+  }
+})
+
 app.get('appx', async (request: HttpRequest) => {
   const version = request.query?.get("version");
 
