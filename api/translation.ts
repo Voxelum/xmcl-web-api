@@ -86,7 +86,6 @@ export default new Router().get(
     }
 
     const db = await ctx.state.getDatabase();
-    const coll = db.collection("translated");
 
     const body = type === 'curseforge' ? await getCurseforgeDescription(id) : await getModrinthDescrption(id);
     const contentType = type === 'curseforge' ? 'text/html' : 'text/markdown';
@@ -97,26 +96,52 @@ export default new Router().get(
       return
     }
 
-    const _id = ctx.state.hasher.hash(body + lang);
-    const founed = await coll.findOne({
-      _id: {
-        $eq: _id,
-      },
-    });
+    const bodyHash = ctx.state.hasher.hash(body);
+    const newColl = db.collection(`${lang}_translation`);
 
-    if (founed) {
+    function respond(content: string) {
       ctx.response.status = 200;
-      ctx.response.body = founed.content;
+      ctx.response.body = content;
       ctx.response.headers.set("content-language", lang);
       ctx.response.headers.set('content-type', contentType);
       ctx.response.headers.set("cache-control", "public, max-age=86400");
-      return;
+    }
+
+    // New way: lookup by id in `<locale>_translation`, validated by the body hash.
+    const newFound = await newColl.findOne({
+      _id: {
+        $eq: id,
+      },
+    });
+
+    if (newFound && newFound.bodyHash === bodyHash) {
+      return respond(newFound.content);
+    }
+
+    // Old way: lookup by hash(body + lang) in the legacy `translated` collection.
+    if (!newFound) {
+      const legacyId = ctx.state.hasher.hash(body + lang);
+      const legacyFound = await db.collection("translated").findOne({
+        _id: {
+          $eq: legacyId,
+        },
+      });
+
+      if (legacyFound) {
+        // Backfill the new collection with the legacy content.
+        await newColl.replaceOne(
+          { _id: id },
+          { _id: id, bodyHash, content: legacyFound.content, contentType, type },
+          { upsert: true },
+        );
+        return respond(legacyFound.content);
+      }
     }
 
     const enqueueResult = await ctx.state.kv.enqueue({
-      hash: _id,
       lang,
       body,
+      bodyHash,
       contentType,
       type,
       id,
@@ -135,20 +160,13 @@ export default new Router().get(
         );
       }
 
-      await coll.insertOne({
-        _id,
-        id,
-        content: result,
-        locale: lang,
-        contentType,
-        type,
-      });
+      await newColl.replaceOne(
+        { _id: id },
+        { _id: id, bodyHash, content: result, contentType, type },
+        { upsert: true },
+      );
 
-      ctx.response.status = 200;
-      ctx.response.body = result;
-      ctx.response.headers.set("content-language", lang);
-      ctx.response.headers.set('content-type', contentType);
-      ctx.response.headers.set("cache-control", "public, max-age=86400");
+      respond(result);
     } else {
       ctx.response.status = 202;
       ctx.response.body = '';

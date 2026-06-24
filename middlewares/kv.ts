@@ -21,28 +21,28 @@ Deno.cron("check-db-status", "0 0 * * *", () => {
 })
 
 const promise = Deno.openKv().then((kv) => {
-  kv.listenQueue(async ({ hash: _id, lang, body, contentType, type, id }: {
-    hash: string,
+  kv.listenQueue(async ({ lang, body, bodyHash, contentType, type, id }: {
     lang: string,
     body: string,
+    bodyHash: string,
     contentType: 'text/html' | 'text/markdown',
     type: string,
     id: string,
   }) => {
     const db = await getDatabase()
-    const coll = db.collection("translated");
+    const coll = db.collection(`${lang}_translation`);
 
     const founed = await coll.findOne({
       _id: {
-        $eq: _id,
+        $eq: id,
       },
     });
 
-    if (founed) {
+    if (founed && founed.bodyHash === bodyHash) {
       return
     }
 
-    const semaphore = await kv.get(['translate', _id])
+    const semaphore = await kv.get(['translate', lang, id])
 
     if (semaphore.value) {
       return
@@ -63,14 +63,16 @@ const promise = Deno.openKv().then((kv) => {
       const result = lang === 'ru' ? await translatev2(lang, body, contentType) : await translate(lang, body, contentType)
       console.timeLog(`translate:${id}:${contentType}`);
 
-      await coll.insertOne({
-        _id,
-        id,
-        content: result,
-        locale: lang,
-        contentType,
-        type,
-      });
+      if (typeof result === "object") {
+        console.error('Fail to translate', result.error)
+        return
+      }
+
+      await coll.replaceOne(
+        { _id: id },
+        { _id: id, bodyHash, content: result, contentType, type },
+        { upsert: true },
+      );
     } finally {
       // delete semaphore
       kv.delete(semaphore.key).catch((e) => {
