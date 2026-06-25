@@ -1,4 +1,3 @@
-import { hmac } from "hmac";
 import { Database } from "mongo";
 import {
   composeMiddleware,
@@ -9,6 +8,19 @@ import {
   MinecraftAuthState,
 } from "../middlewares/minecraftAuth.ts";
 import { mongoDbMiddleware, MongoDbState } from "../middlewares/mongoDb.ts";
+
+async function hmacSha1Base64(secret: string, message: string) {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-1" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(message));
+  return btoa(String.fromCharCode(...new Uint8Array(signature)));
+}
 
 function parseTurnsFromEnv() {
   try {
@@ -23,11 +35,11 @@ function parseTurnsFromEnv() {
 }
 const cached = parseTurnsFromEnv()
 
-function getTURNCredentials(name: string, secret: string) {
+async function getTURNCredentials(name: string, secret: string) {
   const unixTimeStamp = Math.floor(Date.now() / 1000) + 24 * 3600;
 
   const username = [unixTimeStamp, name].join(":");
-  const password = hmac("sha1", secret, username, "utf-8", "base64");
+  const password = await hmacSha1Base64(secret, username);
 
   const result = {
     username,
@@ -109,7 +121,7 @@ const router = new Router().post(
             id,
             "official",
           );
-          const creds = getTURNCredentials(id, secret);
+          const creds = await getTURNCredentials(id, secret);
           return creds
         }
         return undefined
