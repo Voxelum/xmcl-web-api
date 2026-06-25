@@ -121,19 +121,21 @@ export default new Router().get(
     // Old way: lookup by hash(body + lang) in the legacy `translated` collection.
     if (!newFound) {
       const legacyId = ctx.state.hasher.hash(body + lang);
-      const legacyFound = await db.collection("translated").findOne({
+      const legacyColl = db.collection("translated");
+      const legacyFound = await legacyColl.findOne({
         _id: {
           $eq: legacyId,
         },
       });
 
       if (legacyFound) {
-        // Backfill the new collection with the legacy content.
+        // Migrate the legacy content into the new collection and drop the old record.
         await newColl.replaceOne(
           { _id: id },
           { _id: id, bodyHash, content: legacyFound.content, contentType, type },
           { upsert: true },
         );
+        await legacyColl.deleteOne({ _id: legacyId });
         return respond(legacyFound.content);
       }
     }
