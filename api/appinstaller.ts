@@ -1,5 +1,5 @@
 import { Router } from "oak";
-import { gte, lt } from "https://deno.land/std@0.178.0/semver/mod.ts";
+import { gte, lt } from "semver";
 import { getLatest } from "../shared/latest.ts";
 
 // SignPath Foundation publisher used by the launcher's appx code-signing

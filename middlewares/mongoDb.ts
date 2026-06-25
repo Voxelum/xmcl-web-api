@@ -1,5 +1,4 @@
-import { Database } from "https://deno.land/x/mongo@v0.31.1/mod.ts";
-import { MongoClient } from "https://deno.land/x/mongo@v0.31.1/src/client.ts";
+import { Database, MongoClient } from "mongo";
 import { Middleware, Status } from "oak";
 
 export interface MongoDbState {

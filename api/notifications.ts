@@ -1,5 +1,5 @@
 import { Router } from "oak";
-import { Range } from "https://deno.land/std@0.178.0/semver/mod.ts";
+import { Range } from "semver";
 import { getNofications } from "../shared/notifications.ts";
 
 export interface Notification {

@@ -1,5 +1,5 @@
-import { hmac } from "https://deno.land/x/hmac@v2.0.1/mod.ts";
-import { Database } from "https://deno.land/x/mongo@v0.31.1/mod.ts";
+import { hmac } from "hmac";
+import { Database } from "mongo";
 import {
   composeMiddleware,
   Router,
