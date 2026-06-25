@@ -1,48 +1,34 @@
-import { oakCors } from "https://deno.land/x/cors/mod.ts";
-import "https://deno.land/x/dotenv@v3.1.0/load.ts";
-import { Application, Router } from "oak";
+import { createMiddleware } from "hono/factory";
+import { createApp } from "./src/app.ts";
+import { getConfig } from "./src/config.ts";
+import { geoipMiddleware } from "./src/middleware/geoip.ts";
+import { setupDenoTranslation } from "./src/platform/translation_deno.ts";
+import { upgradeGroupDeno } from "./src/realtime/group_deno.ts";
+import { matchGroupUpgrade } from "./src/realtime/match.ts";
+import type { AppEnv } from "./src/types.ts";
 
-import elyby from "./api/ely.by.ts";
-import flights from "./api/flights.ts";
-import group from "./api/group.ts";
-import kookBadge from "./api/kook-badge.ts";
-import prebuilds from "./api/prebuilds.ts";
-import latest from "./api/latest.ts";
-import modrinthAuth from "./api/modrinth.ts";
-import notifications from "./api/notifications.ts";
-import releases from "./api/releases.ts";
-import rtc from "./api/rtc.ts";
-import translation from "./api/translation.ts";
-import zulu from "./api/zulu.ts";
-import appx from "./api/appx.ts";
-import appinstaller from "./api/appinstaller.ts";
-import { mongoDbMiddleware } from "./middlewares/mongoDb.ts";
-
-const app = new Application();
-const router = new Router();
-
-router.use(mongoDbMiddleware)
-  .use(latest.routes())
-  .use(prebuilds.routes())
-  .use(kookBadge.routes())
-  .use(rtc.routes())
-  .use(group.routes())
-  .use(elyby.routes())
-  .use(notifications.routes())
-  .use(translation.routes())
-  .use(zulu.routes())
-  .use(releases.routes())
-  .use(modrinthAuth.routes())
-  .use(appx.routes())
-  .use(appinstaller.routes())
-  .use(flights.routes());
-
-router.get("/", ({ response }) => {
-  response.body = JSON.stringify([...router.keys()]);
+// Deno entry point. Injects the Deno-specific platform behaviour (geoip
+// country lookup, Deno.Kv translation queue) into the shared Hono app, and
+// intercepts realtime group upgrades before the app so CORS never touches the
+// immutable 101 WebSocket response.
+const platformMiddleware = createMiddleware<AppEnv>(async (c, next) => {
+  const config = getConfig(c);
+  c.set("enqueueTranslation", setupDenoTranslation(config).enqueue);
+  await next();
 });
 
-app.use(oakCors()); // Enable CORS for All Routes
-app.use(router.routes());
-app.use(router.allowedMethods());
+const app = createApp((a) => {
+  a.use("*", geoipMiddleware);
+  a.use("*", platformMiddleware);
+});
 
-app.listen({ port: 8080 });
+Deno.serve({ port: 8080 }, (request) => {
+  const group = matchGroupUpgrade(request);
+  if (group !== undefined) {
+    return upgradeGroupDeno(request, group);
+  }
+  return app.fetch(request);
+});
+
+export default app;
+

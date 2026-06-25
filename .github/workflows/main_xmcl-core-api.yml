@@ -9,7 +9,7 @@ on:
       - main
     paths:
       - 'azure/**'
-      - 'shared/**'
+      - 'src/**'
       - 'package.json'
       - 'package-lock.json'
       - 'host.json'

@@ -1,0 +1,25 @@
+{
+  "name": "xmcl-web-api-cloudflare",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Workers deployment of the shared Hono XMCL Web API",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mikro-orm/core": "^7.1.4",
+    "@mikro-orm/mongodb": "^7.1.4",
+    "hono": "^4.6.0",
+    "node-html-parser": "^6.1.13",
+    "semver": "^7.6.0",
+    "xxhash-wasm": "^1.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240909.0",
+    "typescript": "^5.5.0",
+    "wrangler": "^3.78.0"
+  }
+}

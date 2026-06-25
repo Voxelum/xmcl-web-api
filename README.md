@@ -13,31 +13,67 @@ The XMCL Web API serves multiple functions:
 
 ## Architecture
 
-The API is implemented in multiple ways to ensure global availability and reliability:
+The API is built as a **single shared [Hono](https://hono.dev) application** that
+runs unchanged on three runtimes via thin per-platform entry points. All HTTP
+routes live in [`src/`](src/) and are registered once in
+[`src/app.ts`](src/app.ts). Each platform entry only wires up runtime-specific
+behaviour (geo lookup, realtime transport, translation queue) through Hono
+context variables.
 
-1. **Primary Service (Deno)** - Hosted on Deno Deploy
-   - Entry point: `index.ts`
-   - Global availability outside mainland China
-   - Uses MongoDB for data storage
+```
+src/
+  app.ts            createApp(): the shared Hono app (all routes)
+  config.ts         getConfig(c): env vars via hono/adapter (Deno/Node/CF)
+  db.ts             MikroORM MongoDB connector (native collection access)
+  types.ts          AppEnv (bindings + context variables)
+  geo.ts            isChineseRequest(): CF country or geoip country var
+  proxy.ts          header forwarding helpers
+  routes/           one Hono sub-app per endpoint
+  middleware/       db, auth (minecraft/microsoft), geoip (Deno/Azure only)
+  lib/              html splitting, translation (DeepSeek/Qwen), xxhash hasher
+  realtime/         group_deno.ts (native WS + BroadcastChannel), match.ts
+  platform/         translation_deno.ts (Deno.Kv queue)
+  translation_service.ts  runTranslation(): shared translate + cache logic
 
-2. **Backup Service (Azure Functions)** - Written in TypeScript
-   - Entry point: `azure/index.ts`
-   - Uses the Azure Functions JavaScript/TypeScript runtime
-   - Provides fallback capabilities if the primary service is unavailable
+index.ts            Deno entry      → Deno.serve
+cloudflare/worker.ts  Cloudflare entry → fetch/queue/scheduled + GroupRoom DO
+azure/index.ts      Azure entry     → @azure/functions HTTP trigger
+```
 
-3. **Alibaba Cloud Function Service (Deno)** - Uses compiled binary
-   - Entry point: Compiled Deno binary via `aliyun/bootstrap`
-   - Alternative deployment option for better access in mainland China
-   - Uses `deno compile` to create a standalone executable
+Storage uses [`@mikro-orm/mongodb`](https://jsr.io/@mikro-orm/mongodb) purely as
+a **cross-runtime MongoDB connector** (Node, Deno, Cloudflare Workers). No
+entities are registered — the code accesses raw collections via
+`orm.em.getConnection().getCollection(name)` so the existing document shapes are
+untouched and `new Function`/JIT (forbidden on `workerd`) is avoided.
 
-4. **Mainland China Service** - Specialized version in Go
-   - Entry point: `main.go`
-   - Optimized for access within mainland China
-   - Contains adaptations for the Chinese network environment
+### Platform-specific behaviour
+
+| Concern        | Deno                              | Cloudflare Workers                  | Azure Functions          |
+| -------------- | --------------------------------- | ----------------------------------- | ------------------------ |
+| HTTP server    | `Deno.serve(app.fetch)`           | `export default { fetch }`          | HTTP trigger → `app.fetch` |
+| Geo            | `geoip-country` (forwarded IP)    | `request.cf.country` (native)       | `geoip-country`          |
+| `/group/:id`   | native WS + `BroadcastChannel`    | `GroupRoom` Durable Object          | not supported → `501`    |
+| `/translation` | `Deno.Kv` queue                   | Cloudflare Queue + KV semaphore     | inline (no queue)        |
+
+WebSocket upgrades for `/group/:id` are intercepted in each entry **before**
+the Hono app runs, so the CORS middleware never touches the immutable `101`
+response.
+
+### Other deployments
+
+- **Alibaba Cloud Function (Deno)** — runs the same `index.ts` via a compiled
+  Deno binary (`aliyun/bootstrap`) for better access in mainland China.
+
+> **Cloudflare + MikroORM caveat:** if entities are ever added, run
+> `mikro-orm compile` and load metadata with `GeneratedCacheAdapter`, because
+> `workerd` forbids the runtime metadata discovery (`new Function`) MikroORM
+> uses by default. With the current entity-less native-collection approach this
+> is not needed.
+
 
 ## API Endpoints
 
-### Primary Service (Deno)
+All runtimes serve the same routes (defined once in [`src/app.ts`](src/app.ts)):
 
 - `/latest` - Provides information about the latest launcher releases
 - `/releases/:filename` - Access to launcher release files with redirection to GitHub
@@ -45,79 +81,80 @@ The API is implemented in multiple ways to ensure global availability and reliab
 - `/flights` - Feature flight information for gradual rollouts
 - `/translation` - Translation services for mod descriptions (Modrinth and CurseForge)
 - `/group/:id` - Real-time WebSocket communication for launcher user groups
+  (Deno: native WS + `BroadcastChannel`; Cloudflare: `GroupRoom` Durable Object;
+  Azure: returns `501`)
 - `/rtc/official` - WebRTC signaling for peer connections
-- `/zulu` - Custom endpoint for specific launcher functionality
+- `/zulu` - Proxies the Zulu JRE manifest from xmcl-static-resource
 - `/elyby/authlib` - Authentication library access
 - `/modrinth/auth` - Modrinth authentication integration
 - `/kook-badge` - Access to KOOK integration information
-- `/appx?version=<v>` - 302 to the Windows `.appx` on `cdn.xmcl.app`
+- `/appx?version=<v>` - 302 to the Windows `.appx` (geo-aware: `cdn.xmcl.app`
+  for mainland China, GitHub otherwise)
 - `/appinstaller` - Dynamically-generated `.appinstaller` manifest pointing
   at the latest stable release. Replaces the static
   `xmcl.blob.core.windows.net/releases/xmcl.appinstaller` mirror.
+- `/prebuilds` - GitHub Actions prebuild workflow runs and artifacts
 
-### Backup Service (Azure Functions - Go)
-
-- `/latest` - Similar to Deno service, provides launcher release information
-- `/notifications` - Provides notifications from GitHub issues
-- `/flights` - Feature flight configuration
-- `/zulu` - Proxies to xmcl-static-resource repository
-- `/appx` - Handles Windows appx file distribution with proxy support for Chinese users
-
-### Mainland China Service (Go)
-
-- `/group/:id` - Real-time WebSocket communication for groups
-- `/translation` - Translation services for mod descriptions
-- `/rtc/official` - WebRTC signaling service
 
 ## Environment Variables
 
-### Primary Service (Deno)
+The same variables are used across every runtime (read via `hono/adapter`:
+`Deno.env` on Deno, `process.env` on Azure/Node, bindings on Cloudflare).
 
-- `MONGO_CONNECION_STRING` - Alternative name for MongoDB connection string
+- `MONGO_CONNECION_STRING` - MongoDB connection string (note the original spelling)
 - `MONGODB_NAME` - Database name (default: "xmcl-api")
 - `GITHUB_PAT` - GitHub Personal Access Token for API access
-- `OPENAI_API_KEY` - API key for translation services using DeepSeek API
-- `RTC_SECRET` - Secret for WebRTC services
+- `OPENAI_API_KEY` - API key for translation (DeepSeek API)
+- `QWEN_API_KEY` - API key for Russian translation (Qwen API)
+- `RTC_SECRET` - Secret for WebRTC TURN credential signing
 - `CURSEFORGE_KEY` - API key for CurseForge integration
 - `MODRINTH_SECRET` - Secret for Modrinth authentication integration
 - `TURNS` - TURN server configuration (format: "realm:ip,realm:ip")
+- `CLOUDFLARE_API_TOKEN` - Cloudflare TURN API token (optional, `/rtc?type=cloudflare`)
+- `CLOUDFLARE_APP_ID` - Cloudflare TURN app id (optional)
 
-### Backup Service (Azure Functions - TypeScript)
+### Cloudflare-only bindings (wrangler.toml)
 
-- `GITHUB_PAT` - GitHub Personal Access Token for API access
-- `FUNCTIONS_CUSTOMHANDLER_PORT` - Port for Azure Functions custom handler (legacy)
+- `GROUP_ROOM` - Durable Object namespace (class `GroupRoom`) for `/group/:id`
+- `TRANSLATION_KV` - KV namespace for the translation semaphore
+- `TRANSLATION_QUEUE` - Queue for offloading `/translation` work (optional)
 
-### Mainland China Service (Go)
-
-- `MONGO_CONNECION_STRING` - MongoDB connection string
-- `MONGODB_NAME` - Database name (default: "xmcl-api")
-- `CURSEFORGE_KEY` - API key for CurseForge integration
-- `RTC_SECRET` - Secret for WebRTC services
-- `TURNS` - TURN server configuration (format: "realm:ip,realm:ip") 
 
 ## Development
 
 ### Prerequisites
 
 - [Deno](https://deno.land/) for the primary service
-- [Go](https://golang.org/) for the Azure Functions and China service
+- [Node.js](https://nodejs.org/) for the Azure Functions and Cloudflare builds
 - [MongoDB](https://www.mongodb.com/) for data storage
 - Azure Functions Core Tools (for local Azure Functions testing)
+- [Wrangler](https://developers.cloudflare.com/workers/wrangler/) (for Cloudflare)
 
 ### Local Development
 
 ```bash
-# Run the Deno service locally
-deno run --allow-net --allow-read --allow-env index.ts
+# Deno (primary). Serves the shared app on http://localhost:8080
+deno task start
 
-# Build and run the Go service for China
-go build main.go
-./main
+# Cloudflare Workers. Copy cloudflare/.dev.vars.example -> cloudflare/.dev.vars first
+cd cloudflare && npm install && npm run dev
 
-# Run the Azure Functions service locally
-deno run build:fn
+# Azure Functions. Builds the shared app into azure/index.js, then runs the host
+npm install
+npm run build:azure
 func start
 ```
+
+### Type checking
+
+```bash
+deno check index.ts              # Deno entry + all shared src
+deno check cloudflare/worker.ts  # Cloudflare entry + all shared src
+```
+
+> `azure/index.ts` is a Node-only entry and is validated by its esbuild build
+> (`npm run build:azure`), not by `deno check`.
+
 
 ## Deployment
 
@@ -132,6 +169,34 @@ For Azure Functions deployment, use the Azure CLI or Azure Portal:
 ```bash
 az functionapp deployment source config-zip -g myResourceGroup -n myFunctionApp --src ./azure.zip
 ```
+
+### Cloudflare Workers
+
+The shared app also runs on Cloudflare Workers. From the [`cloudflare/`](cloudflare/)
+folder:
+
+```bash
+cd cloudflare
+npm install
+
+# Create the KV namespace and put its id into wrangler.toml, then the queue
+wrangler kv namespace create TRANSLATION_KV
+wrangler queues create xmcl-translation
+
+# Set secrets (see .dev.vars.example for the full list)
+wrangler secret put MONGO_CONNECION_STRING
+wrangler secret put GITHUB_PAT
+# ...RTC_SECRET, OPENAI_API_KEY, QWEN_API_KEY, CURSEFORGE_KEY,
+#    MODRINTH_SECRET, CLOUDFLARE_API_TOKEN, CLOUDFLARE_APP_ID
+
+wrangler deploy
+```
+
+The `GroupRoom` Durable Object backs `/group/:id` (replacing the Deno
+`BroadcastChannel` fan-out), the Queue + KV pair handle `/translation`, and geo
+is resolved natively from `request.cf.country`. `nodejs_compat` is enabled so the
+MongoDB driver works on `workerd`; a MongoDB Atlas connection string is required.
+
 
 ### Alibaba Cloud Function
 

@@ -1,0 +1,17 @@
+# Local development secrets for `wrangler dev`.
+# Copy to `.dev.vars` and fill in real values.
+# In production set these with `wrangler secret put <NAME>`.
+
+GITHUB_PAT=""
+
+# MongoDB connection string (mongodb+srv://...). The mongodb driver runs on
+# workerd via the nodejs_compat flag.
+MONGO_CONNECION_STRING=""
+
+RTC_SECRET=""
+CLOUDFLARE_API_TOKEN=""
+CLOUDFLARE_APP_ID=""
+OPENAI_API_KEY=""
+QWEN_API_KEY=""
+CURSEFORGE_KEY=""
+MODRINTH_SECRET=""

@@ -4,7 +4,19 @@
         "mongo": "https://deno.land/x/mongo@v0.31.1/mod.ts",
         "@azure/functions": "npm:@azure/functions@^4.0.0",
         "geoip-country": "npm:geoip-country@^5.0.0",
-        "semver": "npm:semver@^7.0.0"
+        "semver": "npm:semver@^7.0.0",
+        "hono": "npm:hono@^4.6.0",
+        "hono/": "npm:/hono@^4.12.27/",
+        "@mikro-orm/core": "npm:@mikro-orm/core@^7.1.4",
+        "@mikro-orm/mongodb": "npm:@mikro-orm/mongodb@^7.1.4",
+        "xxhash-wasm": "npm:xxhash-wasm@^1.1.0",
+        "node-html-parser": "npm:node-html-parser@^6.1.13"
     },
-    "nodeModulesDir": "auto"
+    "nodeModulesDir": "auto",
+    "compilerOptions": {
+        "lib": ["deno.window", "dom", "dom.iterable"]
+    },
+    "tasks": {
+        "start": "deno run --allow-net --allow-read --allow-env --allow-sys index.ts"
+    }
 }

@@ -1,158 +1,57 @@
-import { app, HttpRequest } from '@azure/functions';
-import geoip from 'geoip-country';
-import { gte, lt, Range } from 'semver';
-import { getLatest } from "../shared/latest.ts";
-import { getNofications } from "../shared/notifications.ts";
-import { getFlights } from "../shared/flights.ts";
+import {
+  app as azureApp,
+  HttpRequest,
+  HttpResponseInit,
+  InvocationContext,
+} from "@azure/functions";
+import { createApp } from "../src/app.ts";
+import { geoipMiddleware } from "../src/middleware/geoip.ts";
 
-app.get('flights', (request: HttpRequest) => {
-  const version = request.query?.get('version');
-  const locale = request.query?.get('locale');
-  const build = request.query?.get('build');
+// Azure Functions entry point. Reuses the shared Hono app and injects the
+// Azure-specific platform behaviour:
+//  - geo is resolved from the proxy-forwarded IP via geoip-country.
+//  - there is no translation queue, so /translation translates inline.
+//  - there is no realtime support, so /group/:id returns 501.
+const hono = createApp((a) => {
+  a.use("*", geoipMiddleware);
+});
 
-  const body = getFlights(version, locale, build);
-  return {
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    jsonBody: body
-  }
-})
-
-app.get('latest', async (request: HttpRequest) => {
-  const includePrerelease = request.query?.has("prerelease");
-  const version = request.query?.get("version");
-  const langs = request.headers.get("Accept-Language");
-
-  const result = await getLatest(includePrerelease, version, langs, process.env.GITHUB_PAT, {
-    gte,
-    lt
-  })
-
-  return {
-    jsonBody: result
-  }
-})
-
-app.get('notifications', async (request: HttpRequest) => {
-  const version = request.query?.get("version");
-  const osRelease = request.query?.get("osRelease");
-  const os = request.query?.get("os");
-  const arch = request.query?.get("arch");
-  const env = request.query?.get("env");
-  const build = request.query?.get("build");
-  const locale = request.query?.get("locale");
-  const result = await getNofications(os, arch, env, locale, version, process.env.GITHUB_PAT, {
-    inRange(version, range) {
-      const r = new Range(range);
-      return r.test(version);
-    }
-  })
-
-  return {
-    jsonBody: result
-  }
-})
-
-function isChineseIP(request: HttpRequest) {
-  const ip = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip");
-
-  if (!ip) {
-    return false;
-  }
-
-  const ipWithoutPort = ip.split(":")[0].trim();
-  const geo = geoip.lookup(ipWithoutPort);
-
-  if (!geo) {
-    return false;
-  }
-
-  const country = geo.country;
-  if (!country) {
-    return false;
-  }
-
-  return country === "CN";
+async function toRequest(req: HttpRequest): Promise<Request> {
+  const method = req.method;
+  const headers = new Headers();
+  req.headers.forEach((value, key) => headers.set(key, value));
+  const hasBody = method !== "GET" && method !== "HEAD";
+  const body = hasBody ? await req.arrayBuffer() : undefined;
+  return new Request(req.url, { method, headers, body });
 }
 
-app.get('appinstaller', async () => {
-  const latest = await getLatest(false, null, null, process.env.GITHUB_PAT, { gte, lt })
-  const tag = (latest as any)?.tag_name ?? "v0.0.0"
-  const version = tag.startsWith("v") ? tag.substring(1) : tag
-
-  const xml = `<?xml version="1.0" encoding="utf-8"?>
-<AppInstaller
-    xmlns="http://schemas.microsoft.com/appx/appinstaller/2018"
-    Version="${version}.0"
-    Uri="https://api.xmcl.app/appinstaller" >
-    <MainPackage
-        Name="XMCL"
-        Publisher="CN=SignPath Foundation, O=SignPath Foundation, L=Lewes, S=Delaware, C=US"
-        Version="${version}.0"
-        ProcessorArchitecture="x64"
-        Uri="https://api.xmcl.app/appx?version=${version}" />
-    <UpdateSettings>
-    </UpdateSettings>
-</AppInstaller>`
-
+function toAzure(res: Response): HttpResponseInit {
+  const headers: Record<string, string> = {};
+  res.headers.forEach((value, key) => {
+    headers[key] = value;
+  });
   return {
-    status: 200,
-    headers: {
-      "Content-Type": "application/appinstaller",
-      "Cache-Control": "public, max-age=300",
-    },
-    body: xml,
-  }
-})
+    status: res.status,
+    headers,
+    body: res.body ?? undefined,
+  };
+}
 
-app.get('appx', async (request: HttpRequest) => {
-  const version = request.query?.get("version");
-
-  if (!version) {
-    return {
-      status: 400,
-      headers: {
-        "Content-Type": "text/plain",
-      },
-      body: "Missing version query parameter",
+azureApp.http("api", {
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "{*proxy}",
+  handler: async (request: HttpRequest, ctx: InvocationContext) => {
+    try {
+      const webRequest = await toRequest(request);
+      const response = await hono.fetch(
+        webRequest,
+        process.env as Record<string, string>,
+      );
+      return toAzure(response);
+    } catch (e) {
+      ctx.error(e);
+      return { status: 500, jsonBody: { error: "Internal Server Error" } };
     }
-  }
-
-  const downloadUrl = `https://github.com/Voxelum/x-minecraft-launcher/releases/download/v${version}/xmcl-${version}-win32-x64.appx`
-
-  if (!isChineseIP(request)) {
-    return {
-      status: 302,
-      headers: {
-        "Location": downloadUrl,
-        "Content-Type": "text/plain",
-      },
-    }
-  }
-
-  // const proxies = [
-  //   'https://gh-proxy.com',
-  //   'https://gitproxy.click',
-  //   'https://github.moeyy.xyz',
-  //   'https://ghfile.geekertao.top',
-  //   'https://github.proxy.class3.fun',
-  //   'https://github-proxy.lixxing.top',
-  //   'https://github.tbedu.top',
-  //   'https://hub.gitmirror.com',
-  //   'https://gh-proxy.net',
-  //   'https://gh-proxy.cijhn.workers.dev',
-  // ]
-  // randomly select a proxy
-  // const proxy = proxies[Math.floor(Math.random() * proxies.length)];
-  // const url = `${proxy}/${downloadUrl}`
-  const url = `http://cdn.xmcl.app/v${version}/xmcl-${version}-win32-x64.appx`
-
-  return {
-    status: 302,
-    headers: {
-      "Location": url,
-      "Content-Type": "text/plain",
-    },
-  }
-})
+  },
+});
