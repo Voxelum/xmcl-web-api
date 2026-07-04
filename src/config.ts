@@ -14,8 +14,7 @@ export interface AppConfig {
   RTC_SECRET?: string;
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_APP_ID?: string;
-  OPENAI_API_KEY?: string;
-  QWEN_API_KEY?: string;
+  AGNES_API_KEY?: string;
   CURSEFORGE_KEY?: string;
   MODRINTH_SECRET?: string;
   TURNS?: string;

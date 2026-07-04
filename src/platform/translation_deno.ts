@@ -34,8 +34,7 @@ export function setupDenoTranslation(config: AppConfig): {
 
         try {
           const result = await runTranslation(db, job, {
-            openai: config.OPENAI_API_KEY,
-            qwen: config.QWEN_API_KEY,
+            agnes: config.AGNES_API_KEY,
           });
           if (typeof result === "object") {
             console.error("Failed to translate", result.error);

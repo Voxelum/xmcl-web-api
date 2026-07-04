@@ -112,8 +112,7 @@ export default new Hono<AppEnv>().get("/translation", dbMiddleware, async (c) =>
   }
 
   const result = await runTranslation(db, job, {
-    openai: config.OPENAI_API_KEY,
-    qwen: config.QWEN_API_KEY,
+    agnes: config.AGNES_API_KEY,
   });
   if (typeof result === "object") {
     throw new HTTPException(500, { message: result.error.message });

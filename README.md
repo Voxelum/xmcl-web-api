@@ -30,7 +30,7 @@ src/
   proxy.ts          header forwarding helpers
   routes/           one Hono sub-app per endpoint
   middleware/       db, auth (minecraft/microsoft), geoip (Deno/Azure only)
-  lib/              html splitting, translation (DeepSeek/Qwen), xxhash hasher
+  lib/              html splitting, translation (Agnes), xxhash hasher
   realtime/         group_deno.ts (native WS + BroadcastChannel), match.ts
   platform/         translation_deno.ts (Deno.Kv queue)
   translation_service.ts  runTranslation(): shared translate + cache logic
@@ -104,8 +104,7 @@ The same variables are used across every runtime (read via `hono/adapter`:
 - `MONGO_CONNECION_STRING` - MongoDB connection string (note the original spelling)
 - `MONGODB_NAME` - Database name (default: "xmcl-api")
 - `GITHUB_PAT` - GitHub Personal Access Token for API access
-- `OPENAI_API_KEY` - API key for translation (DeepSeek API)
-- `QWEN_API_KEY` - API key for Russian translation (Qwen API)
+- `AGNES_API_KEY` - API key for translation (Agnes API)
 - `RTC_SECRET` - Secret for WebRTC TURN credential signing
 - `CURSEFORGE_KEY` - API key for CurseForge integration
 - `MODRINTH_SECRET` - Secret for Modrinth authentication integration
@@ -186,7 +185,7 @@ wrangler queues create xmcl-translation
 # Set secrets (see .dev.vars.example for the full list)
 wrangler secret put MONGO_CONNECION_STRING
 wrangler secret put GITHUB_PAT
-# ...RTC_SECRET, OPENAI_API_KEY, QWEN_API_KEY, CURSEFORGE_KEY,
+# ...RTC_SECRET, AGNES_API_KEY, CURSEFORGE_KEY,
 #    MODRINTH_SECRET, CLOUDFLARE_API_TOKEN, CLOUDFLARE_APP_ID
 
 wrangler deploy

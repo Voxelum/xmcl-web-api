@@ -45,15 +45,15 @@ export interface ChatOptions {
 export const chat = ({ messages, api, model, key, ...rest }: ChatOptions) => {
   // console.log('APIKey:' + key?.substring(0, 5) + '...' + key?.substring(key.length - 5))
   return fetch(
-    api ?? 'https://api.deepseek.com/chat/completions',
+    api ?? 'https://apihub.agnes-ai.com/v1/chat/completions',
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${key ?? Deno.env.get("OPENAI_API_KEY")!}`,
+        "Authorization": `Bearer ${key ?? Deno.env.get("AGNES_API_KEY")!}`,
       },
       body: JSON.stringify(Object.assign({
-        model: model ?? "deepseek-chat",
+        model: model ?? "agnes-2.0-flash",
         messages,
       }, rest)),
     },

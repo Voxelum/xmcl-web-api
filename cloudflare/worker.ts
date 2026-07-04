@@ -62,8 +62,7 @@ async function processJob(env: any, job: TranslationJob): Promise<void> {
     if (found && found.bodyHash === job.bodyHash) return;
 
     const result = await runTranslation(db, job, {
-      openai: config.OPENAI_API_KEY,
-      qwen: config.QWEN_API_KEY,
+      agnes: config.AGNES_API_KEY,
     });
     if (typeof result === "object") {
       console.error("Failed to translate", result.error);

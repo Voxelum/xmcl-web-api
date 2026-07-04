@@ -1,5 +1,5 @@
 import type { Db } from "./db.ts";
-import { translate, translatev2 } from "./lib/translation.ts";
+import { translate } from "./lib/translation.ts";
 
 export interface TranslationJob {
   lang: string;
@@ -11,8 +11,7 @@ export interface TranslationJob {
 }
 
 export interface TranslationKeys {
-  openai?: string;
-  qwen?: string;
+  agnes?: string;
 }
 
 interface ChatError {
@@ -33,9 +32,7 @@ export async function runTranslation(
   job: TranslationJob,
   keys: TranslationKeys,
 ): Promise<string | ChatError> {
-  const result = job.lang === "ru"
-    ? await translatev2(job.lang, job.body, job.contentType, keys.qwen)
-    : await translate(job.lang, job.body, job.contentType, keys.openai);
+  const result = await translate(job.lang, job.body, job.contentType, keys.agnes);
 
   if (typeof result === "object") {
     return result as ChatError;

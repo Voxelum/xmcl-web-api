@@ -4,7 +4,7 @@ compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
 # Non-secret defaults. Secrets (GITHUB_PAT, MONGO_CONNECION_STRING, RTC_SECRET,
-# OPENAI_API_KEY, QWEN_API_KEY, CURSEFORGE_KEY, MODRINTH_SECRET,
+# AGNES_API_KEY, CURSEFORGE_KEY, MODRINTH_SECRET,
 # CLOUDFLARE_API_TOKEN, CLOUDFLARE_APP_ID) must be set with
 # `wrangler secret put <NAME>` or via the dashboard. See .dev.vars.example.
 [vars]
