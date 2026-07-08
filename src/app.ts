@@ -60,22 +60,35 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
     let driverVersion = "unknown";
     let debugUrl = "";
     try {
-      const mongodb = await import("npm:mongodb");
-      const { MongoClient, version } = mongodb;
-      driverVersion = version || "n/a";
+      // Test with Deno native mongo driver (deno.land/x/mongo) which the
+      // original service used successfully with Cosmos DB
+      const { MongoClient } = await import("mongo");
+      driverVersion = "deno.land/x/mongo@v0.31.1";
 
-      // Parse connection string into components
+      const client = new MongoClient();
+      await client.connect(connStr);
+      const db = client.database(config.MONGODB_NAME || "xmcl-api");
+      await db.listCollectionNames();
+      connectResult = "success (deno native)";
+    } catch (e: unknown) {
+      connectResult = `deno-native-error: ${(e as Error).message}`;
+    }
+
+    // Also try npm mongodb driver for comparison
+    let npmResult = "not attempted";
+    try {
+      const mongodb = await import("npm:mongodb");
+      const { MongoClient: NpmClient } = mongodb;
       const m = connStr.match(/^(mongodb(?:\+srv)?:\/\/)([^:]+):([^@]+)@([^/?]+)(\/[^?]*)?\??(.*)$/);
-      if (!m) throw new Error("Cannot parse connection string");
+      if (!m) throw new Error("Cannot parse");
       const [, scheme, user, pass, host, , queryStr] = m;
-      // Remove appName (contains @ which confuses parsers) and authMechanism from query
       const params = (queryStr || "").split("&").filter(
         (p) => !p.startsWith("appName=") && !p.startsWith("authMechanism=")
       );
       const cleanQuery = params.length > 0 ? "?" + params.join("&") : "";
+      debugUrl = `${scheme}${encodeURIComponent(user)}:***@${host}/${cleanQuery}`;
       const url = `${scheme}${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${host}/${cleanQuery}`;
-      debugUrl = url.replace(/:([^@]+)@/, ":***@"); // redact password for debug
-      const client = new MongoClient(url, {
+      const client = new NpmClient(url, {
         authMechanism: "SCRAM-SHA-1",
         appName: "xmcl-mongo",
         serverSelectionTimeoutMS: 5000,
@@ -83,10 +96,10 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
       });
       await client.connect();
       await client.db(config.MONGODB_NAME || "xmcl-api").command({ ping: 1 });
-      connectResult = "success";
+      npmResult = "success (npm)";
       await client.close();
     } catch (e: unknown) {
-      connectResult = `error: ${(e as Error).message}`;
+      npmResult = `npm-error: ${(e as Error).message}`;
     }
 
     return c.json({
@@ -98,6 +111,7 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
       driverVersion,
       debugUrl,
       connectResult,
+      npmResult,
     });
   });
 
