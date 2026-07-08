@@ -46,6 +46,10 @@ function getOrm(config: AppConfig): Promise<MikroORM> {
       dbName: config.MONGODB_NAME || "xmcl-api",
       entities: [],
       discovery: { warnWhenNoEntities: false },
+      driverOptions: {
+        authMechanism: "SCRAM-SHA-1",
+        retryWrites: false,
+      },
     }).catch((e) => {
       // Allow a later request to retry if the first connection failed.
       ormPromise = undefined;
