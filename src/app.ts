@@ -54,12 +54,34 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
     const { getConfig } = await import("./config.ts");
     const config = getConfig(c);
     const connStr = config.MONGO_CONNECION_STRING || "";
+    
+    // Try raw MongoClient connection to isolate the issue
+    let connectResult = "not attempted";
+    try {
+      const { MongoClient } = await import("npm:mongodb");
+      let url = connStr;
+      if (!url.includes("authMechanism=")) {
+        url += (url.includes("?") ? "&" : "?") + "authMechanism=SCRAM-SHA-1";
+      }
+      const client = new MongoClient(url, {
+        serverSelectionTimeoutMS: 5000,
+        connectTimeoutMS: 5000,
+      });
+      await client.connect();
+      await client.db(config.MONGODB_NAME || "xmcl-api").command({ ping: 1 });
+      connectResult = "success";
+      await client.close();
+    } catch (e: unknown) {
+      connectResult = `error: ${(e as Error).message}`;
+    }
+
     return c.json({
       hasConnStr: !!connStr,
       connStrLen: connStr.length,
       hasAuthMechanism: connStr.includes("authMechanism="),
       startsWithMongo: connStr.startsWith("mongodb://"),
       dbName: config.MONGODB_NAME || "xmcl-api",
+      connectResult,
     });
   });
 
