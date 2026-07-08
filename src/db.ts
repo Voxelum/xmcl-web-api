@@ -35,6 +35,19 @@ export interface Db {
  */
 let ormPromise: Promise<MikroORM> | undefined;
 
+/**
+ * Ensures the MongoDB connection string has properly URL-encoded credentials.
+ * Cosmos DB keys contain `=`, `/`, `+` which must be percent-encoded per the
+ * MongoDB connection string spec. Some driver versions (e.g. on Deno Deploy)
+ * enforce this strictly.
+ */
+function sanitizeConnectionString(url: string): string {
+  const m = url.match(/^(mongodb(?:\+srv)?:\/\/)([^:]+):([^@]+)@(.+)$/);
+  if (!m) return url;
+  const [, scheme, user, pass, rest] = m;
+  return `${scheme}${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${rest}`;
+}
+
 function getOrm(config: AppConfig): Promise<MikroORM> {
   if (!ormPromise) {
     let clientUrl = config.MONGO_CONNECION_STRING || Deno.env.get("MONGO_CONNECION_STRING");
@@ -47,6 +60,7 @@ function getOrm(config: AppConfig): Promise<MikroORM> {
       clientUrl += (clientUrl.includes("?") ? "&" : "?") +
         "authMechanism=SCRAM-SHA-1";
     }
+    clientUrl = sanitizeConnectionString(clientUrl);
     ormPromise = MikroORM.init({
       clientUrl,
       dbName: config.MONGODB_NAME || "xmcl-api",

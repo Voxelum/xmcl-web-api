@@ -63,17 +63,17 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
       const { MongoClient, version } = mongodb;
       driverVersion = version || "n/a";
 
-      // Extract credentials and build URL without them, pass auth explicitly
-      const m = connStr.match(/^mongodb:\/\/([^:]+):([^@]+)@(.+)$/);
-      if (!m) throw new Error("Cannot parse connection string");
-      const [, user, pass, hostAndOpts] = m;
-      const bareUrl = `mongodb://${hostAndOpts}`;
-      // Ensure authMechanism is in the URL
-      const finalUrl = bareUrl.includes("authMechanism=") ? bareUrl
-        : bareUrl + (bareUrl.includes("?") ? "&" : "?") + "authMechanism=SCRAM-SHA-1";
-
-      const client = new MongoClient(finalUrl, {
-        auth: { username: user, password: pass },
+      // URL-encode credentials and add authMechanism
+      let url = connStr;
+      if (!url.includes("authMechanism=")) {
+        url += (url.includes("?") ? "&" : "?") + "authMechanism=SCRAM-SHA-1";
+      }
+      const m = url.match(/^(mongodb(?:\+srv)?:\/\/)([^:]+):([^@]+)@(.+)$/);
+      if (m) {
+        const [, scheme, user, pass, rest] = m;
+        url = `${scheme}${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${rest}`;
+      }
+      const client = new MongoClient(url, {
         serverSelectionTimeoutMS: 5000,
         connectTimeoutMS: 5000,
       });
