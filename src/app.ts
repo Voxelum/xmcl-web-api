@@ -63,6 +63,12 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
       if (!url.includes("authMechanism=")) {
         url += (url.includes("?") ? "&" : "?") + "authMechanism=SCRAM-SHA-1";
       }
+      // URL-encode the password (Cosmos DB keys contain = and / which must be encoded)
+      const match = url.match(/^(mongodb:\/\/)([^:]+):([^@]+)@(.+)$/);
+      if (match) {
+        const [, scheme, user, pass, rest] = match;
+        url = `${scheme}${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${rest}`;
+      }
       const client = new MongoClient(url, {
         serverSelectionTimeoutMS: 5000,
         connectTimeoutMS: 5000,
