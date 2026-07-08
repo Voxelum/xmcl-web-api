@@ -37,6 +37,15 @@ export async function translate(
     if ("error" in resp) {
       return resp;
     }
+    if (!resp.choices || resp.choices.length === 0 || !resp.choices[0].message) {
+      return {
+        error: {
+          code: "invalid_response",
+          message: `Unexpected chat response: ${JSON.stringify(resp)}`,
+          type: "invalid_response",
+        },
+      };
+    }
     let content = resp.choices[0].message.content;
     if (content.startsWith("```" + locale)) {
       content = content.substring(("```" + locale).length);

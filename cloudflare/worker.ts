@@ -2,7 +2,8 @@
 import { createMiddleware } from "hono/factory";
 import { createApp } from "../src/app.ts";
 import type { AppConfig } from "../src/config.ts";
-import { getDb } from "../src/db.ts";
+import { createDbMiddleware } from "../src/middleware/db.ts";
+import { getDb } from "../src/platform/db_npm.ts";
 import { matchGroupUpgrade } from "../src/realtime/match.ts";
 import { runTranslation, type TranslationJob } from "../src/translation_service.ts";
 import type { AppEnv } from "../src/types.ts";
@@ -41,6 +42,7 @@ const platformMiddleware = createMiddleware<AppEnv>(async (c, next) => {
 });
 
 const app = createApp((a) => {
+  a.use("*", createDbMiddleware(getDb));
   a.use("*", platformMiddleware);
 });
 

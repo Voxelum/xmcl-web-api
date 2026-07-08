@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { getConfig } from "../config.ts";
 import type { Db } from "../db.ts";
 import { minecraftAuth } from "../middleware/auth.ts";
-import { dbMiddleware } from "../middleware/db.ts";
+
 import type { AppEnv } from "../types.ts";
 
 async function hmacSha1Base64(secret: string, message: string): Promise<string> {
@@ -86,7 +86,7 @@ const stuns = [
   "stun.qq.com:3478",
 ];
 
-export default new Hono<AppEnv>().post("/rtc/official", minecraftAuth(false), dbMiddleware, async (c) => {
+export default new Hono<AppEnv>().post("/rtc/official", minecraftAuth(false), async (c) => {
   const config = getConfig(c);
   const turns = parseTurns(config.TURNS);
 

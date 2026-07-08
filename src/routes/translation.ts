@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { getConfig } from "../config.ts";
 import { getHasher } from "../lib/hasher.ts";
-import { dbMiddleware } from "../middleware/db.ts";
 import { forwardHeaders } from "../proxy.ts";
 import { runTranslation, type TranslationJob } from "../translation_service.ts";
 import type { AppEnv } from "../types.ts";
@@ -17,7 +16,7 @@ function firstLanguage(header: string | undefined): string | undefined {
   return first || undefined;
 }
 
-export default new Hono<AppEnv>().get("/translation", dbMiddleware, async (c) => {
+export default new Hono<AppEnv>().get("/translation", async (c) => {
   const config = getConfig(c);
 
   const type = c.req.query("type");

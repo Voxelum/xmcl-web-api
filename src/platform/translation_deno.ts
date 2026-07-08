@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import type { AppConfig } from "../config.ts";
-import { getDb } from "../db.ts";
+import { getDb } from "./db_deno.ts";
 import { runTranslation, type TranslationJob } from "../translation_service.ts";
 
 /**

@@ -5,15 +5,19 @@ import {
   InvocationContext,
 } from "@azure/functions";
 import { createApp } from "../src/app.ts";
+import { createDbMiddleware } from "../src/middleware/db.ts";
 import { geoipMiddleware } from "../src/middleware/geoip.ts";
+import { getDb } from "../src/platform/db_npm.ts";
 
 // Azure Functions entry point. Reuses the shared Hono app and injects the
 // Azure-specific platform behaviour:
 //  - geo is resolved from the proxy-forwarded IP via geoip-country.
+//  - MongoDB is accessed via the npm driver (MikroORM).
 //  - there is no translation queue, so /translation translates inline.
 //  - there is no realtime support, so /group/:id returns 501.
 const hono = createApp((a) => {
   a.use("*", geoipMiddleware);
+  a.use("*", createDbMiddleware(getDb));
 });
 
 async function toRequest(req: HttpRequest): Promise<Request> {
