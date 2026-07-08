@@ -17,6 +17,6 @@
         "lib": ["deno.window", "dom", "dom.iterable"]
     },
     "tasks": {
-        "start": "deno run --allow-net --allow-read --allow-env --allow-sys index.ts"
+        "start": "deno run --allow-net --allow-read --allow-env --allow-sys --unstable-kv --env index.ts"
     }
 }

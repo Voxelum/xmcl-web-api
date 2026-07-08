@@ -37,7 +37,7 @@ let ormPromise: Promise<MikroORM> | undefined;
 
 function getOrm(config: AppConfig): Promise<MikroORM> {
   if (!ormPromise) {
-    const clientUrl = config.MONGO_CONNECION_STRING;
+    const clientUrl = config.MONGO_CONNECION_STRING || Deno.env.get("MONGO_CONNECION_STRING");
     if (!clientUrl) {
       throw new Error("MONGO_CONNECION_STRING is not set");
     }
