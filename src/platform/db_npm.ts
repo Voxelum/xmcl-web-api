@@ -27,7 +27,7 @@ function connect(config: AppConfig): Promise<Db> {
   }
   return MikroORM.init({
     clientUrl,
-    dbName: config.MONGODB_NAME || "xmcl-api",
+    dbName: config.MONGODB_NAME || "coturn",
     entities: [],
     discovery: { warnWhenNoEntities: false },
     driverOptions: { retryWrites: false },

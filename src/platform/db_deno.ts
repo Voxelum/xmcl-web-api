@@ -16,7 +16,7 @@ function connect(config: AppConfig): Promise<Db> {
   }
   const client = new MongoClient();
   return client.connect(connStr).then(() => {
-    const db = client.database(config.MONGODB_NAME || "xmcl-api");
+    const db = client.database(config.MONGODB_NAME || "coturn");
     return {
       collection(name: string): MongoCollection {
         const coll = db.collection(name);
