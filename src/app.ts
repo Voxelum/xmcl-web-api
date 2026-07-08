@@ -49,6 +49,20 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
   app.route("/", appinstaller);
   app.route("/", prebuilds);
 
+  // Temporary debug endpoint for diagnosing Cosmos DB auth on Deno Deploy
+  app.get("/debug/db", async (c) => {
+    const { getConfig } = await import("./config.ts");
+    const config = getConfig(c);
+    const connStr = config.MONGO_CONNECION_STRING || "";
+    return c.json({
+      hasConnStr: !!connStr,
+      connStrLen: connStr.length,
+      hasAuthMechanism: connStr.includes("authMechanism="),
+      startsWithMongo: connStr.startsWith("mongodb://"),
+      dbName: config.MONGODB_NAME || "xmcl-api",
+    });
+  });
+
   // Index: list the registered routes (mirrors the original `/`).
   app.get("/", (c) => {
     const seen = new Set<string>();
