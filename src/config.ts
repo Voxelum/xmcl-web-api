@@ -20,6 +20,12 @@ export interface AppConfig {
   TURNS?: string;
   MONGO_CONNECION_STRING?: string;
   MONGODB_NAME?: string;
+  /**
+   * Base URL of the community content i18n repo served as raw files, laid out
+   * as `<base>/<locale>/<id>.json`. Checked before the Mongo caches. Defaults
+   * to the public `Voxelum/xmcl-community-content-i18n-extra` repo.
+   */
+  TRANSLATION_I18N_BASE?: string;
 }
 
 export function getConfig(c: Context): AppConfig {
