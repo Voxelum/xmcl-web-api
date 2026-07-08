@@ -57,19 +57,23 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
     
     // Try raw MongoClient connection to isolate the issue
     let connectResult = "not attempted";
+    let driverVersion = "unknown";
     try {
-      const { MongoClient } = await import("npm:mongodb");
-      let url = connStr;
-      if (!url.includes("authMechanism=")) {
-        url += (url.includes("?") ? "&" : "?") + "authMechanism=SCRAM-SHA-1";
-      }
-      // URL-encode the password (Cosmos DB keys contain = and / which must be encoded)
-      const match = url.match(/^(mongodb:\/\/)([^:]+):([^@]+)@(.+)$/);
-      if (match) {
-        const [, scheme, user, pass, rest] = match;
-        url = `${scheme}${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${rest}`;
-      }
-      const client = new MongoClient(url, {
+      const mongodb = await import("npm:mongodb");
+      const { MongoClient, version } = mongodb;
+      driverVersion = version || "n/a";
+
+      // Extract credentials and build URL without them, pass auth explicitly
+      const m = connStr.match(/^mongodb:\/\/([^:]+):([^@]+)@(.+)$/);
+      if (!m) throw new Error("Cannot parse connection string");
+      const [, user, pass, hostAndOpts] = m;
+      const bareUrl = `mongodb://${hostAndOpts}`;
+      // Ensure authMechanism is in the URL
+      const finalUrl = bareUrl.includes("authMechanism=") ? bareUrl
+        : bareUrl + (bareUrl.includes("?") ? "&" : "?") + "authMechanism=SCRAM-SHA-1";
+
+      const client = new MongoClient(finalUrl, {
+        auth: { username: user, password: pass },
         serverSelectionTimeoutMS: 5000,
         connectTimeoutMS: 5000,
       });
@@ -87,6 +91,7 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
       hasAuthMechanism: connStr.includes("authMechanism="),
       startsWithMongo: connStr.startsWith("mongodb://"),
       dbName: config.MONGODB_NAME || "xmcl-api",
+      driverVersion,
       connectResult,
     });
   });
