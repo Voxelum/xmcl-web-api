@@ -58,22 +58,26 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
     // Try raw MongoClient connection to isolate the issue
     let connectResult = "not attempted";
     let driverVersion = "unknown";
+    let debugUrl = "";
     try {
       const mongodb = await import("npm:mongodb");
       const { MongoClient, version } = mongodb;
       driverVersion = version || "n/a";
 
-      // URL-encode credentials and add authMechanism
-      let url = connStr;
-      if (!url.includes("authMechanism=")) {
-        url += (url.includes("?") ? "&" : "?") + "authMechanism=SCRAM-SHA-1";
-      }
-      const m = url.match(/^(mongodb(?:\+srv)?:\/\/)([^:]+):([^@]+)@(.+)$/);
-      if (m) {
-        const [, scheme, user, pass, rest] = m;
-        url = `${scheme}${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${rest}`;
-      }
+      // Parse connection string into components
+      const m = connStr.match(/^(mongodb(?:\+srv)?:\/\/)([^:]+):([^@]+)@([^/?]+)(\/[^?]*)?\??(.*)$/);
+      if (!m) throw new Error("Cannot parse connection string");
+      const [, scheme, user, pass, host, , queryStr] = m;
+      // Remove appName (contains @ which confuses parsers) and authMechanism from query
+      const params = (queryStr || "").split("&").filter(
+        (p) => !p.startsWith("appName=") && !p.startsWith("authMechanism=")
+      );
+      const cleanQuery = params.length > 0 ? "?" + params.join("&") : "";
+      const url = `${scheme}${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${host}/${cleanQuery}`;
+      debugUrl = url.replace(/:([^@]+)@/, ":***@"); // redact password for debug
       const client = new MongoClient(url, {
+        authMechanism: "SCRAM-SHA-1",
+        appName: "xmcl-mongo",
         serverSelectionTimeoutMS: 5000,
         connectTimeoutMS: 5000,
       });
@@ -92,6 +96,7 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
       startsWithMongo: connStr.startsWith("mongodb://"),
       dbName: config.MONGODB_NAME || "xmcl-api",
       driverVersion,
+      debugUrl,
       connectResult,
     });
   });
