@@ -37,9 +37,15 @@ let ormPromise: Promise<MikroORM> | undefined;
 
 function getOrm(config: AppConfig): Promise<MikroORM> {
   if (!ormPromise) {
-    const clientUrl = config.MONGO_CONNECION_STRING || Deno.env.get("MONGO_CONNECION_STRING");
+    let clientUrl = config.MONGO_CONNECION_STRING || Deno.env.get("MONGO_CONNECION_STRING");
     if (!clientUrl) {
       throw new Error("MONGO_CONNECION_STRING is not set");
+    }
+    // Cosmos DB requires SCRAM-SHA-1; ensure it's in the connection string URL
+    // so the driver respects it regardless of how driverOptions are handled.
+    if (!clientUrl.includes("authMechanism=")) {
+      clientUrl += (clientUrl.includes("?") ? "&" : "?") +
+        "authMechanism=SCRAM-SHA-1";
     }
     ormPromise = MikroORM.init({
       clientUrl,
@@ -47,7 +53,6 @@ function getOrm(config: AppConfig): Promise<MikroORM> {
       entities: [],
       discovery: { warnWhenNoEntities: false },
       driverOptions: {
-        authMechanism: "SCRAM-SHA-1",
         retryWrites: false,
       },
     }).catch((e) => {
