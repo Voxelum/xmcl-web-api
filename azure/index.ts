@@ -26,7 +26,20 @@ async function toRequest(req: HttpRequest): Promise<Request> {
   req.headers.forEach((value, key) => headers.set(key, value));
   const hasBody = method !== "GET" && method !== "HEAD";
   const body = hasBody ? await req.arrayBuffer() : undefined;
-  return new Request(req.url, { method, headers, body });
+
+  // Azure serves HTTP functions under the `api` route prefix, so the incoming
+  // path is `/api/<route>`. The shared Hono routes are registered without that
+  // prefix (they run identically on Deno/Cloudflare), so strip a leading `/api`
+  // segment before matching. This keeps `https://.../api/appx` reaching the
+  // `/appx` route instead of 404ing.
+  const url = new URL(req.url);
+  if (url.pathname === "/api" || url.pathname === "/api/") {
+    url.pathname = "/";
+  } else if (url.pathname.startsWith("/api/")) {
+    url.pathname = url.pathname.slice("/api".length);
+  }
+
+  return new Request(url, { method, headers, body });
 }
 
 function toAzure(res: Response): HttpResponseInit {
