@@ -79,6 +79,10 @@ export async function getLatest(
       // Upgrade electron version to >= 30
       latest.assets = latest.assets.filter((r) => !r.name.endsWith("asar"));
     }
+    if (lt(version, "0.62.0")) {
+      // Upgrade electron version to >= 43
+      latest.assets = latest.assets.filter((r) => !r.name.endsWith("asar") && !r.name.endsWith("asar.gz"));
+    }
     // reset body
     const changelogs: string[] = [];
 
