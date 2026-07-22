@@ -1,0 +1,181 @@
+openapi: 3.1.0
+info:
+  title: XMCL M9 modpack deployment API
+  version: 1.0.0
+  description: User-scoped modpack validation and immutable deployment API.
+paths:
+  /v1/servers/{serverId}/modpack-imports:
+    post:
+      security: [{ xmclSession: [modpack:write] }]
+      parameters: [
+        { $ref: "#/components/parameters/ServerId" },
+        { $ref: "#/components/parameters/IdempotencyKey" },
+      ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [sourceFormat, expectedSha256, expectedSizeBytes]
+              properties:
+                sourceFormat: { enum: [mrpack, curseforge_zip] }
+                expectedSha256: { type: string, pattern: "^[a-f0-9]{64}$" }
+                expectedSizeBytes: { type: integer, minimum: 1 }
+      responses:
+        "201": { description: Import created }
+        "401": { $ref: "#/components/responses/ApiError" }
+        "403": { $ref: "#/components/responses/ApiError" }
+        "409": { $ref: "#/components/responses/ApiError" }
+        "503": { $ref: "#/components/responses/ApiError" }
+  /v1/modpack-imports/{importId}/validation:
+    get:
+      security: [{ xmclSession: [modpack:read] }]
+      parameters: [{ $ref: "#/components/parameters/ImportId" }]
+      responses:
+        "200":
+          description: Server-owned complete validation report
+          content: {
+            application/json: {
+              schema: { $ref: ./schemas/modpack-validation-report.schema.json },
+            },
+          }
+        "403": { $ref: "#/components/responses/ApiError" }
+  /v1/modpack-imports/{importId}:
+    get:
+      security: [{ xmclSession: [modpack:read] }]
+      parameters: [{ $ref: "#/components/parameters/ImportId" }]
+      responses: { "200": { description: Account-owned import state } }
+  /v1/modpack-imports/{importId}/upload-url:
+    post:
+      security: [{ xmclSession: [modpack:write] }]
+      parameters: [
+        { $ref: "#/components/parameters/ImportId" },
+        { $ref: "#/components/parameters/IdempotencyKey" },
+      ]
+      responses: {
+        "200": { description: Restricted signed archive upload URL },
+      }
+  /v1/modpack-imports/{importId}/complete:
+    post:
+      security: [{ xmclSession: [modpack:write] }]
+      parameters: [
+        { $ref: "#/components/parameters/ImportId" },
+        { $ref: "#/components/parameters/IdempotencyKey" },
+      ]
+      responses: { "202": { description: ZIP validation task } }
+  /v1/servers/{serverId}/modpack-deployments:
+    post:
+      security: [{ xmclSession: [modpack:write] }]
+      parameters: [
+        { $ref: "#/components/parameters/ServerId" },
+        { $ref: "#/components/parameters/IdempotencyKey" },
+      ]
+      responses: { "202": { description: Immutable-manifest preparation task } }
+    get:
+      security: [{ xmclSession: [modpack:read] }]
+      parameters: [{ $ref: "#/components/parameters/ServerId" }]
+      responses: { "200": { description: Account-owned deployment history } }
+  /v1/modpack-deployments/{deploymentId}/preview:
+    post:
+      security: [{ xmclSession: [modpack:write] }]
+      parameters: [
+        { $ref: "#/components/parameters/DeploymentId" },
+        { $ref: "#/components/parameters/IdempotencyKey" },
+      ]
+      responses: {
+        "202": {
+          description: Preview task freezes the manifest and rollback snapshot,
+        },
+      }
+  /v1/modpack-deployments/{deploymentId}:
+    get:
+      security: [{ xmclSession: [modpack:read] }]
+      parameters: [{ $ref: "#/components/parameters/DeploymentId" }]
+      responses: {
+        "200": { description: Account-owned deployment and immutable manifest },
+      }
+  /v1/modpack-deployments/{deploymentId}/apply:
+    post:
+      security: [{ xmclSession: [modpack:write] }]
+      parameters: [
+        { $ref: "#/components/parameters/DeploymentId" },
+        { $ref: "#/components/parameters/IdempotencyKey" },
+      ]
+      responses:
+        "202": { description: M5 staging and atomic-switch task }
+        "409": {
+          description: Includes D5 stopped target,
+          manifest,
+          or lifecycle conflict,
+        }
+        "503": { $ref: "#/components/responses/ApiError" }
+  /v1/modpack-deployments/{deploymentId}/rollback:
+    post:
+      security: [{ xmclSession: [modpack:write] }]
+      parameters: [
+        { $ref: "#/components/parameters/DeploymentId" },
+        { $ref: "#/components/parameters/IdempotencyKey" },
+      ]
+      responses: { "202": { description: Snapshot restore task } }
+  /v1/modpack-tasks/{taskId}:
+    get:
+      security: [{ xmclSession: [modpack:read] }]
+      parameters: [{ $ref: "#/components/parameters/TaskId" }]
+      responses:
+        "200":
+          description: Current task state
+          content: {
+            application/json: {
+              schema: { $ref: ./schemas/async-task.schema.json },
+            },
+          }
+components:
+  securitySchemes:
+    xmclSession: { type: http, scheme: bearer, bearerFormat: XMCL session }
+  parameters:
+    IdempotencyKey: {
+      name: Idempotency-Key,
+      in: header,
+      required: true,
+      schema: { type: string, minLength: 1, maxLength: 255 },
+    }
+    ServerId: {
+      name: serverId,
+      in: path,
+      required: true,
+      schema: { type: string, minLength: 1 },
+    }
+    ImportId: {
+      name: importId,
+      in: path,
+      required: true,
+      schema: { type: string, minLength: 1 },
+    }
+    DeploymentId: {
+      name: deploymentId,
+      in: path,
+      required: true,
+      schema: { type: string, minLength: 1 },
+    }
+    TaskId: {
+      name: taskId,
+      in: path,
+      required: true,
+      schema: { type: string, minLength: 1 },
+    }
+  responses:
+    ApiError:
+      description: Structured API error
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [error, message, requestId]
+            properties:
+              error: { type: string }
+              message: { type: string }
+              requestId: { type: string }
+              details: {}

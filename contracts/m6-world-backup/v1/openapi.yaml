@@ -1,0 +1,321 @@
+openapi: 3.1.0
+info:
+  title: XMCL M6 manual world-backup API
+  version: 1.0.0
+  description: All public operations are explicit manual user actions.
+paths:
+  /v1/backup-sources/{sourceType}/{sourceId}/backups:
+    parameters:
+      - $ref: '#/components/parameters/SourceType'
+      - $ref: '#/components/parameters/SourceId'
+    get:
+      operationId: listWorldBackups
+      security: [{ xmclSession: [account:read] }]
+      responses:
+        '200':
+          description: Backup chain owned by the authenticated account.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/BackupResource' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/SourceForbidden' }
+        '503': { $ref: '#/components/responses/AdapterUnavailable' }
+    post:
+      operationId: createWorldBackup
+      security: [{ xmclSession: [account:write] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateBackupRequest' }
+      responses:
+        '202':
+          description: Explicit manual creation accepted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateBackupResponse' }
+        '400': { $ref: '#/components/responses/InvalidBackup' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/SourceForbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/AdapterUnavailable' }
+  /v1/world-backups/{backupId}:
+    parameters: [{ $ref: '#/components/parameters/BackupId' }]
+    get:
+      operationId: getWorldBackup
+      security: [{ xmclSession: [account:read] }]
+      responses:
+        '200':
+          description: Backup metadata without internal authorization or upload-grant fields.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackupResource' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/SourceForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/AdapterUnavailable' }
+    delete:
+      operationId: deleteWorldBackup
+      security: [{ xmclSession: [account:write] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses:
+        '202':
+          description: Deletion task accepted after settling old storage state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskResponse' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/SourceForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/AdapterUnavailable' }
+  /v1/world-backups/{backupId}/upload-url:
+    parameters: [{ $ref: '#/components/parameters/BackupId' }]
+    post:
+      operationId: issueWorldBackupUploadGrant
+      security: [{ xmclSession: [account:write] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses:
+        '200':
+          description: One-use grant bound to the compressed object's metadata.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadGrantResponse' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/SourceForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/AuthorizationRejected' }
+        '503': { $ref: '#/components/responses/ProviderUnavailable' }
+  /v1/world-backups/{backupId}/complete:
+    parameters: [{ $ref: '#/components/parameters/BackupId' }]
+    post:
+      operationId: completeWorldBackupUpload
+      security: [{ xmclSession: [account:write] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses:
+        '202':
+          description: Object metadata and compressed-format verification succeeded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackupTaskResponse' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/SourceForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/VerificationFailed' }
+        '503': { $ref: '#/components/responses/AdapterUnavailable' }
+  /v1/world-backups/{backupId}/restore:
+    parameters: [{ $ref: '#/components/parameters/BackupId' }]
+    post:
+      operationId: restoreWorldBackup
+      security: [{ xmclSession: [account:write] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses:
+        '202':
+          description: Explicit restore task accepted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskResponse' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/SourceForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/AdapterUnavailable' }
+  /v1/internal/world-backups/{backupId}/events:
+    parameters: [{ $ref: '#/components/parameters/BackupId' }]
+    post:
+      operationId: recordWorldBackupRestoreEvent
+      security: [{ m6RestoreWorker: [world_backups:restore] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RestoreEvent' }
+      responses:
+        '202':
+          description: Ordered restore event accepted or deduplicated.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [duplicate]
+                properties:
+                  duplicate: { type: boolean }
+        '401': { $ref: '#/components/responses/WorkerAuthenticationRequired' }
+        '403': { $ref: '#/components/responses/SourceForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/WorkerAuthenticatorUnavailable' }
+components:
+  securitySchemes:
+    xmclSession:
+      type: http
+      scheme: bearer
+      bearerFormat: XMCL session
+    m6RestoreWorker:
+      type: http
+      scheme: bearer
+      bearerFormat: Signed worker/service credential
+  parameters:
+    BackupId:
+      name: backupId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1 }
+    SourceId:
+      name: sourceId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1 }
+    SourceType:
+      name: sourceType
+      in: path
+      required: true
+      schema: { enum: [client_world, hosted_server_world] }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 255 }
+  responses:
+    AuthenticationRequired:
+      description: Valid XMCL session with the required account scope is required.
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    WorkerAuthenticationRequired:
+      description: A verified M6 restore worker/service credential is required.
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    SourceForbidden:
+      description: The source, backup, or worker server is not owned by the principal.
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    NotFound:
+      description: The backup does not exist.
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    Conflict:
+      description: Incompatible status, layer reference, event ordering, or idempotency retry.
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    InvalidBackup:
+      description: The request is not an explicit compressed Linear backup declaration.
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    AuthorizationRejected:
+      description: M3 rejected an overage-retention authorization.
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    VerificationFailed:
+      description: The uploaded object is missing, expired, or mismatches its bound metadata.
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    AdapterUnavailable:
+      description: The M6 adapter is not injected by platform composition.
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    WorkerAuthenticatorUnavailable:
+      description: The M6 internal worker/service authenticator is not injected.
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    ProviderUnavailable:
+      description: M3 authorization or storage-provider integration is unavailable.
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+  schemas:
+    BackupResource:
+      $ref: './backup-resource.schema.json'
+    BackupUploadGrant:
+      $ref: './backup-upload-grant.schema.json'
+    StorageAccounting:
+      $ref: './storage-accounting.schema.json'
+    StorageRetentionUsage:
+      $ref: './storage-retention-usage.event.schema.json'
+    CreateBackupRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - worldId
+        - format
+        - formatVersion
+        - contentLength
+        - sha256
+        - contentType
+        - compression
+        - explicitManual
+      properties:
+        worldId: { type: string, minLength: 1 }
+        format: { enum: [linear, layered_linear] }
+        formatVersion: { type: integer, minimum: 1 }
+        parentBackupId: { type: string, minLength: 1 }
+        contentLength: { type: integer, minimum: 1 }
+        sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        contentType: { const: application/vnd.xmcl.linear }
+        compression: { const: xmcl_linear }
+        explicitManual: { const: true }
+    RestoreEvent:
+      type: object
+      additionalProperties: false
+      required: [eventId, sequence, type, occurredAt]
+      properties:
+        eventId: { type: string, minLength: 1 }
+        sequence: { type: integer, minimum: 1 }
+        type: { enum: [restore_started, restore_succeeded, restore_failed] }
+        occurredAt: { type: string, format: date-time }
+    AsyncTask:
+      type: object
+      additionalProperties: false
+      required: [taskId, requestId, status, resource, createdAt, updatedAt]
+      properties:
+        taskId: { type: string, minLength: 1 }
+        requestId: { type: string, minLength: 1 }
+        status: { enum: [queued, running, succeeded, failed, cancelled] }
+        resource:
+          type: object
+          additionalProperties: false
+          required: [type, id]
+          properties:
+            type: { const: world_backup }
+            id: { type: string, minLength: 1 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CreateBackupResponse:
+      type: object
+      additionalProperties: false
+      required: [backupId, taskId, task]
+      properties:
+        backupId: { type: string, minLength: 1 }
+        taskId: { type: string, minLength: 1 }
+        task: { $ref: '#/components/schemas/AsyncTask' }
+    TaskResponse:
+      type: object
+      additionalProperties: false
+      required: [taskId, task]
+      properties:
+        taskId: { type: string, minLength: 1 }
+        task: { $ref: '#/components/schemas/AsyncTask' }
+    BackupTaskResponse:
+      type: object
+      additionalProperties: false
+      required: [taskId, task, backup]
+      properties:
+        taskId: { type: string, minLength: 1 }
+        task: { $ref: '#/components/schemas/AsyncTask' }
+        backup: { $ref: '#/components/schemas/BackupResource' }
+    UploadGrantResponse:
+      type: object
+      additionalProperties: false
+      required: [backupId, url, expiresAt, contentLength, sha256, requiredHeaders, taskId, task]
+      properties:
+        backupId: { type: string, minLength: 1 }
+        url: { type: string, format: uri }
+        expiresAt: { type: string, format: date-time }
+        contentLength: { type: integer, minimum: 1 }
+        sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        requiredHeaders:
+          type: object
+          additionalProperties: { type: string }
+        taskId: { type: string, minLength: 1 }
+        task: { $ref: '#/components/schemas/AsyncTask' }
+    ApiError:
+      type: object
+      additionalProperties: false
+      required: [error, message, requestId]
+      properties:
+        error: { type: string }
+        message: { type: string }
+        requestId: { type: string }

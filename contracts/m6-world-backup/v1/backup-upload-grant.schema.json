@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m6-world-backup/v1/backup-upload-grant.schema.json",
+  "title": "M6 BackupUploadGrant v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "backupId",
+    "url",
+    "expiresAt",
+    "contentLength",
+    "sha256",
+    "requiredHeaders"
+  ],
+  "properties": {
+    "backupId": { "type": "string", "minLength": 1 },
+    "url": { "type": "string", "format": "uri" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "contentLength": { "type": "integer", "minimum": 1 },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "requiredHeaders": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}

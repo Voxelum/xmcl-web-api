@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m4-vultr-control/v1/events/server-lease-changed.schema.json",
+  "title": "M4 server lease changed v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventType", "eventId", "schemaVersion", "accountId", "serverId", "leaseId", "status", "occurredAt"],
+  "properties": {
+    "eventType": { "const": "server.lease.changed.v1" },
+    "eventId": { "type": "string", "minLength": 1 },
+    "schemaVersion": { "const": 1 },
+    "accountId": { "type": "string", "minLength": 1 },
+    "serverId": { "type": "string", "minLength": 1 },
+    "leaseId": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["reserved", "active", "settled", "released"] },
+    "authorizationId": { "type": "string", "minLength": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" }
+  }
+}

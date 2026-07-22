@@ -111,6 +111,10 @@ The same variables are used across every runtime (read via `hono/adapter`:
 - `TURNS` - TURN server configuration (format: "realm:ip,realm:ip")
 - `CLOUDFLARE_API_TOKEN` - Cloudflare TURN API token (optional, `/rtc?type=cloudflare`)
 - `CLOUDFLARE_APP_ID` - Cloudflare TURN app id (optional)
+- `XMCL_COMMERCIAL_ENABLED` - defaults to disabled. Setting it to `true`
+  currently stops startup with a configuration error because this repository
+  does not yet provide complete durable production adapters for the commercial
+  routes (AI, modpack deployment, billing, server control, and worker).
 
 ### Cloudflare-only bindings (wrangler.toml)
 
@@ -144,6 +148,14 @@ npm run build:azure
 func start
 ```
 
+### Local demo (in-memory only)
+
+For a loopback-only, non-production server that exercises the account,
+billing, server, backup, worker, AI, modpack, and admin route families without
+any real provider credentials, see [LOCAL_DEMO.md](LOCAL_DEMO.md). Start it
+with `deno task local-demo` and run its HTTP coverage with
+`deno task local-demo:smoke`.
+
 ### Type checking
 
 ```bash
@@ -156,6 +168,10 @@ deno check cloudflare/worker.ts  # Cloudflare entry + all shared src
 
 
 ## Deployment
+
+For an isolated deployment of the `mot` branch to Deno Deploy, an Azure
+Function deployment slot, or Cloudflare Workers, see
+[PREVIEW_DEPLOYMENT.md](PREVIEW_DEPLOYMENT.md).
 
 ### Deno Deploy
 

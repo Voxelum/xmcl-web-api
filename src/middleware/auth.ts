@@ -16,7 +16,9 @@ export function minecraftAuth(strict = true) {
 
     if (!authorization || !authorization.startsWith("Bearer ")) {
       if (strict) {
-        throw new HTTPException(400, { message: "Require authorization header" });
+        throw new HTTPException(400, {
+          message: "Require authorization header",
+        });
       }
     }
 

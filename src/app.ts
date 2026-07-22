@@ -4,18 +4,30 @@ import { HTTPException } from "hono/http-exception";
 
 import appinstaller from "./routes/appinstaller.ts";
 import appx from "./routes/appx.ts";
+import backupStoragePolicy from "./routes/backupStoragePolicy.ts";
 import elyby from "./routes/elyby.ts";
 import flights from "./routes/flights.ts";
 import group from "./routes/group.ts";
 import kookBadge from "./routes/kookBadge.ts";
 import latest from "./routes/latest.ts";
 import modrinth from "./routes/modrinth.ts";
+import worldBackups from "./routes/worldBackups.ts";
 import notifications from "./routes/notifications.ts";
 import prebuilds from "./routes/prebuilds.ts";
 import releases from "./routes/releases.ts";
 import rtc from "./routes/rtc.ts";
 import translation from "./routes/translation.ts";
+import operations from "./routes/operations.ts";
 import zulu from "./routes/zulu.ts";
+import account from "./routes/account.ts";
+import session from "./routes/session.ts";
+import servers from "./routes/servers.ts";
+import billing from "./routes/billing.ts";
+import paypal from "./routes/paypal.ts";
+import usageSettlement from "./routes/usageSettlement.ts";
+import worker from "./routes/worker.ts";
+import ai from "./routes/ai.ts";
+import modpackDeployments from "./routes/modpackDeployments.ts";
 import type { AppEnv } from "./types.ts";
 
 /**
@@ -25,7 +37,18 @@ import type { AppEnv } from "./types.ts";
  * upgrade, translation queue, geo) is injected via context variables set in
  * per-platform middleware.
  */
-export function createApp(register?: (app: Hono<AppEnv>) => void) {
+export interface CreateAppOptions {
+  /**
+   * Test composition can mount routes with injected fakes. Production only
+   * enables these routes once its complete durable composition is available.
+   */
+  commercialRoutes?: boolean;
+}
+
+export function createApp(
+  register?: (app: Hono<AppEnv>) => void,
+  options: CreateAppOptions = {},
+) {
   const app = new Hono<AppEnv>();
 
   app.use("*", cors());
@@ -48,6 +71,20 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
   app.route("/", appx);
   app.route("/", appinstaller);
   app.route("/", prebuilds);
+  app.route("/", backupStoragePolicy);
+  app.route("/", session);
+  app.route("/", account);
+  if (options.commercialRoutes !== false) {
+    app.route("/", worldBackups);
+    app.route("/", servers);
+    app.route("/", operations);
+    app.route("/", billing);
+    app.route("/", paypal);
+    app.route("/", usageSettlement);
+    app.route("/", worker);
+    app.route("/", ai);
+    app.route("/", modpackDeployments);
+  }
 
   // Index: list the registered routes (mirrors the original `/`).
   app.get("/", (c) => {
@@ -67,7 +104,10 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
       return err.getResponse();
     }
     console.error(err);
-    return c.json({ error: "Internal Server Error", message: err.message }, 500);
+    return c.json(
+      { error: "Internal Server Error", message: err.message },
+      500,
+    );
   });
 
   return app;

@@ -1,0 +1,28 @@
+{
+
+  "scenario": "shared D3 settlement requires D5 stop",
+  "sharedCanonicalUsageFixture": "../../../shared/v1/fixtures/canonical-server-time.json",
+  "sharedStoppedEventSchema": "../../../shared/v1/balance-exhaustion.schema.json",
+  "workerUsage": {
+    "eventId": "usage-001",
+    "serverId": "server-001",
+    "leaseId": "lease-001",
+    "sequence": 1,
+    "quantity": 60,
+    "intervalStart": "2026-07-22T10:00:00.000Z",
+    "intervalEnd": "2026-07-22T10:01:00.000Z",
+    "occurredAt": "2026-07-22T10:01:00.000Z",
+    "idempotencyKey": "m5:lease-001:1"
+  },
+  "m3Settlement": {
+    "settlementId": "settlement-001",
+    "usageEventId": "usage-001",
+    "status": "rejected",
+    "action": "stop_required"
+  },
+  "workerResponse": {
+    "status": 200,
+    "body": { "status": "accepted", "action": "stop_required" }
+  },
+  "nextWorkerAction": "stop_minecraft_then_publish_runtime_stopped"
+}

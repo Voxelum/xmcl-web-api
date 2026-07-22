@@ -11,7 +11,9 @@ let hasherPromise: Promise<(input: string) => string> | undefined;
 
 export function getHasher(): Promise<(input: string) => string> {
   if (!hasherPromise) {
-    hasherPromise = xxhash().then((api) => (input: string) => api.h64ToString(input));
+    hasherPromise = xxhash().then((api) => (input: string) =>
+      api.h64ToString(input)
+    );
   }
   return hasherPromise;
 }

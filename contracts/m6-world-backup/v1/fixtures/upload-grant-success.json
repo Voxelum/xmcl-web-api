@@ -1,0 +1,29 @@
+{
+
+  "response": {
+    "status": 200,
+    "body": {
+      "backupId": "backup_001",
+      "url": "https://storage.example.invalid/world-backups/account_001/backup_001.linear",
+      "expiresAt": "2026-07-22T10:15:00Z",
+      "contentLength": 1024,
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "requiredHeaders": {
+        "content-length": "1024",
+        "content-type": "application/vnd.xmcl.linear",
+        "x-amz-meta-backup-id": "backup_001",
+        "x-amz-meta-sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "x-amz-meta-format-version": "1"
+      },
+      "taskId": "task_upload_backup_001",
+      "task": {
+        "taskId": "task_upload_backup_001",
+        "requestId": "request_002",
+        "status": "succeeded",
+        "resource": { "type": "world_backup", "id": "backup_001" },
+        "createdAt": "2026-07-22T10:00:00Z",
+        "updatedAt": "2026-07-22T10:00:00Z"
+      }
+    }
+  }
+}

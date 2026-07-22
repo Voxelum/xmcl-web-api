@@ -17,13 +17,16 @@ function connect(config: AppConfig): Promise<Db> {
   }
   // Cosmos DB requires SCRAM-SHA-1
   if (!clientUrl.includes("authMechanism=")) {
-    clientUrl += (clientUrl.includes("?") ? "&" : "?") + "authMechanism=SCRAM-SHA-1";
+    clientUrl += (clientUrl.includes("?") ? "&" : "?") +
+      "authMechanism=SCRAM-SHA-1";
   }
   // URL-encode credentials for strict drivers
   const m = clientUrl.match(/^(mongodb(?:\+srv)?:\/\/)([^:]+):([^@]+)@(.+)$/);
   if (m) {
     const [, scheme, user, pass, rest] = m;
-    clientUrl = `${scheme}${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${rest}`;
+    clientUrl = `${scheme}${encodeURIComponent(user)}:${
+      encodeURIComponent(pass)
+    }@${rest}`;
   }
   return MikroORM.init({
     clientUrl,

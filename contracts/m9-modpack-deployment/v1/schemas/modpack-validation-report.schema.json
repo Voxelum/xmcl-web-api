@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m9-modpack-deployment/v1/schemas/modpack-validation-report.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "importId",
+    "sourceFormat",
+    "status",
+    "configFiles",
+    "dataFiles",
+    "mods",
+    "rejectedFiles"
+  ],
+  "properties": {
+    "importId": { "type": "string", "minLength": 1 },
+    "sourceFormat": { "enum": ["mrpack", "curseforge_zip"] },
+    "status": { "enum": ["pending", "valid", "invalid"] },
+    "configFiles": { "type": "array", "items": { "type": "string" } },
+    "dataFiles": { "type": "array", "items": { "type": "string" } },
+    "mods": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["provider", "projectId", "fileId", "filename"],
+        "properties": {
+          "provider": { "enum": ["modrinth", "curseforge"] },
+          "projectId": { "type": "string", "minLength": 1 },
+          "fileId": { "type": "string", "minLength": 1 },
+          "filename": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "rejectedFiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "reason"],
+        "properties": {
+          "path": { "type": "string" },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

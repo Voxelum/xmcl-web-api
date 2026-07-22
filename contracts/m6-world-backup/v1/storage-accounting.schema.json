@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m6-world-backup/v1/storage-accounting.schema.json",
+  "title": "M6 StorageAccountingV1 binding",
+  "$ref": "../../shared/v1/storage-accounting.schema.json"
+}

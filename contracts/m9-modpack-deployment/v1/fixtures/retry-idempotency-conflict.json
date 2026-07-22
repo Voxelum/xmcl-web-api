@@ -1,0 +1,7 @@
+{
+
+  "error": "idempotency_conflict",
+  "message": "The Idempotency-Key was reused with a different payload.",
+  "requestId": "req_retry_123",
+  "details": { "idempotencyKey": "apply:mpd_123:1" }
+}

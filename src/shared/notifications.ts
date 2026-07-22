@@ -1,18 +1,28 @@
 export interface Notification {
-  created_at: Date
-  updated_at: Date
-  id: string
-  title: string
-  body: string
-  tags: string[]
+  created_at: Date;
+  updated_at: Date;
+  id: string;
+  title: string;
+  body: string;
+  tags: string[];
 }
 
-export async function getNofications(os: string | null, arch: string | null, env: string | null, locale: string | null, version: string | null, pat: string | undefined, {
-  inRange
-}: {
-  inRange: (version: string, range: string) => boolean,
-}) {
-  const labels = `os:${os || ''},arch:${arch || ''},env:${env || ''},l:${locale || ''}`;
+export async function getNofications(
+  os: string | null,
+  arch: string | null,
+  env: string | null,
+  locale: string | null,
+  version: string | null,
+  pat: string | undefined,
+  {
+    inRange,
+  }: {
+    inRange: (version: string, range: string) => boolean;
+  },
+) {
+  const labels = `os:${os || ""},arch:${arch || ""},env:${env || ""},l:${
+    locale || ""
+  }`;
 
   const response = await fetch(
     `https://api.github.com/repos/voxelum/xmcl-static-resource/issues?labels=${labels}&per_page=5&creator=ci010`,
@@ -29,14 +39,19 @@ export async function getNofications(os: string | null, arch: string | null, env
   }
 
   function parseLabels(label: { name: string }[]) {
-    const tags = label.filter(l => l.name.startsWith('t:')).map(l => l.name.substring(2));
-    const versionCriteria = label.filter(l => l.name.startsWith('v:')).map(l => l.name.substring(2))[0];
+    const tags = label.filter((l) => l.name.startsWith("t:")).map((l) =>
+      l.name.substring(2)
+    );
+    const versionCriteria =
+      label.filter((l) => l.name.startsWith("v:")).map((l) =>
+        l.name.substring(2)
+      )[0];
     if (versionCriteria && version) {
       if (!inRange(version, versionCriteria)) {
-        return false
+        return false;
       }
     }
-    return tags
+    return tags;
   }
   const issues: any[] = await response.json();
   const notifications: Notification[] = issues.map((issue) => {
@@ -49,9 +64,9 @@ export async function getNofications(os: string | null, arch: string | null, env
         id: issue.id,
         title: issue.title,
         body: issue.body,
-      }
+      };
     }
-    return undefined
+    return undefined;
   }).filter((issue) => issue !== undefined) as Notification[];
 
   return notifications;

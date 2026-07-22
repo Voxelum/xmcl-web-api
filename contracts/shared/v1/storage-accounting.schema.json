@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/shared/v1/storage-accounting.schema.json",
+  "title": "Backup storage policy and accounting v1",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["freeBytes", "policyVersion"],
+      "properties": {
+        "freeBytes": { "const": 1073741824 },
+        "policyVersion": { "const": 1 }
+      }
+    },
+    "physicalObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "objectId",
+        "storageOwnerAccountId",
+        "physicalBytes",
+        "activeReferenceCount",
+        "verified"
+      ],
+      "properties": {
+        "objectId": { "type": "string", "minLength": 1 },
+        "storageOwnerAccountId": { "type": "string", "minLength": 1 },
+        "physicalBytes": { "type": "integer", "minimum": 0 },
+        "activeReferenceCount": { "type": "integer", "minimum": 0 },
+        "verified": { "const": true }
+      }
+    }
+  },
+  "required": [
+    "accountId",
+    "policy",
+    "usedBytes",
+    "overageBytes",
+    "lastSettledAt",
+    "settlementIntervalSeconds"
+  ],
+  "properties": {
+    "accountId": { "type": "string", "minLength": 1 },
+    "policy": { "$ref": "#/$defs/policy" },
+    "usedBytes": { "type": "integer", "minimum": 0 },
+    "overageBytes": { "type": "integer", "minimum": 0 },
+    "lastSettledAt": { "type": "string", "format": "date-time" },
+    "settlementIntervalSeconds": { "const": 3600 },
+    "countedObjects": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/physicalObject" }
+    }
+  }
+}

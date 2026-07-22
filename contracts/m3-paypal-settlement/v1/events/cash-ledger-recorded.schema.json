@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m3-paypal-settlement/v1/events/cash-ledger-recorded.schema.json",
+  "title": "M3 cash ledger recorded event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventType",
+    "eventId",
+    "schemaVersion",
+    "ledgerEntryId",
+    "accountId",
+    "kind",
+    "amount",
+    "occurredAt"
+  ],
+  "properties": {
+    "eventType": { "const": "cash.ledger.recorded.v1" },
+    "eventId": { "type": "string", "minLength": 1 },
+    "schemaVersion": { "const": 1 },
+    "ledgerEntryId": { "type": "string", "minLength": 1 },
+    "accountId": { "type": "string", "minLength": 1 },
+    "kind": {
+      "enum": [
+        "paypal_credit",
+        "reservation",
+        "reservation_release",
+        "usage_charge",
+        "refund",
+        "balance_adjust"
+      ]
+    },
+    "amount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currency", "amountMinor"],
+      "properties": {
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "amountMinor": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "occurredAt": { "type": "string", "format": "date-time" }
+  }
+}

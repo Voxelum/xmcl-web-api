@@ -1,0 +1,13 @@
+{
+
+  "case": "M3 rejects an authorization before an upload would add overage retention.",
+  "response": {
+    "status": 422,
+    "body": {
+      "error": "insufficient_balance",
+      "message": "insufficient_balance",
+      "requestId": "request_authorization_001"
+    }
+  },
+  "unchangedBackupStatus": "creating"
+}

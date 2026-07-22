@@ -1,0 +1,198 @@
+openapi: 3.1.0
+info:
+  title: XMCL commercialization shared internal API
+  version: 1.0.0
+paths:
+  /v1/backup-storage-policy:
+    get:
+      operationId: getBackupStoragePolicy
+      security:
+        - xmclSession: []
+      responses:
+        '200':
+          description: The immutable free backup storage policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupStoragePolicy'
+  /v1/internal/usage/authorize:
+    post:
+      operationId: authorizeUsage
+      security:
+        - internalUsageWriter: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UsageAuthorizationRequest'
+      responses:
+        '200':
+          description: Existing or newly-created authorization.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageAuthorization'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Rejected'
+  /v1/internal/usage/settle:
+    post:
+      operationId: settleUsage
+      security:
+        - internalUsageWriter: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CanonicalUsageEvent'
+      responses:
+        '200':
+          description: Existing or newly-created settlement.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageSettlementResult'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Rejected'
+  /v1/internal/usage/release:
+    post:
+      operationId: releaseUsageAuthorization
+      security:
+        - internalUsageWriter: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [authorizationId]
+              properties:
+                authorizationId:
+                  type: string
+      responses:
+        '200':
+          description: Authorization released or already released.
+        '409':
+          $ref: '#/components/responses/Conflict'
+components:
+  securitySchemes:
+    xmclSession:
+      type: http
+      scheme: bearer
+      bearerFormat: XMCL session
+    internalUsageWriter:
+      type: http
+      scheme: bearer
+      bearerFormat: Internal service token
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+  responses:
+    Conflict:
+      description: A reused idempotency key has a different request payload.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    Rejected:
+      description: The request is syntactically valid but cannot be authorized.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+  schemas:
+    ApiError:
+      type: object
+      additionalProperties: false
+      required: [error, message, requestId]
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        requestId:
+          type: string
+        details: {}
+    BackupStoragePolicy:
+      type: object
+      additionalProperties: false
+      required: [freeBytes, policyVersion]
+      properties:
+        freeBytes:
+          const: 1073741824
+        policyVersion:
+          const: 1
+    UsageAuthorizationRequest:
+      $ref: ./usage-authorization.schema.json
+    CanonicalUsageEvent:
+      $ref: ./canonical-usage-event.schema.json
+    UsageAuthorization:
+      type: object
+      additionalProperties: false
+      required:
+        - authorizationId
+        - accountId
+        - resource
+        - sourceId
+        - status
+        - rateVersion
+        - expiresAt
+        - actionOnExhaustion
+      properties:
+        authorizationId:
+          type: string
+        accountId:
+          type: string
+        resource:
+          enum: [server_time, ai_request, ai_tokens, storage_retention]
+        sourceId:
+          type: string
+        status:
+          enum: [authorized, rejected, expired, released]
+        rateVersion:
+          type: integer
+          minimum: 1
+        expiresAt:
+          type: string
+          format: date-time
+        actionOnExhaustion:
+          const: stop_required
+    UsageSettlementResult:
+      type: object
+      additionalProperties: false
+      required:
+        - settlementId
+        - usageEventId
+        - action
+        - status
+        - rateVersion
+      properties:
+        settlementId:
+          type: string
+        usageEventId:
+          type: string
+        action:
+          enum: [continue, stop_required]
+        status:
+          enum: [settled, rejected, pending]
+        rateVersion:
+          type: integer
+          minimum: 1

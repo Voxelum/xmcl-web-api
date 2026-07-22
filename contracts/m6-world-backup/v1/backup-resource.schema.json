@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m6-world-backup/v1/backup-resource.schema.json",
+  "title": "M6 BackupResource v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "backupId",
+    "accountId",
+    "sourceType",
+    "sourceId",
+    "worldId",
+    "format",
+    "formatVersion",
+    "status",
+    "sizeBytes",
+    "sha256",
+    "contentType",
+    "objectId",
+    "storageOwnerAccountId",
+    "verified",
+    "referenceCount",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "backupId": { "type": "string", "minLength": 1 },
+    "accountId": { "type": "string", "minLength": 1 },
+    "sourceType": { "enum": ["client_world", "hosted_server_world"] },
+    "sourceId": { "type": "string", "minLength": 1 },
+    "worldId": { "type": "string", "minLength": 1 },
+    "format": { "enum": ["linear", "layered_linear"] },
+    "formatVersion": { "type": "integer", "minimum": 1 },
+    "parentBackupId": { "type": "string", "minLength": 1 },
+    "status": {
+      "enum": ["creating", "uploading", "ready", "restoring", "failed", "deleted"]
+    },
+    "sizeBytes": { "type": "integer", "minimum": 1 },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "contentType": { "const": "application/vnd.xmcl.linear" },
+    "objectId": { "type": "string", "minLength": 1 },
+    "storageOwnerAccountId": { "type": "string", "minLength": 1 },
+    "verified": { "type": "boolean" },
+    "referenceCount": { "type": "integer", "minimum": 0 },
+    "uploadExpiresAt": { "type": "string", "format": "date-time" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "format": { "const": "layered_linear" } } },
+      "then": { "required": ["parentBackupId"] }
+    },
+    {
+      "if": { "properties": { "format": { "const": "linear" } } },
+      "then": { "not": { "required": ["parentBackupId"] } }
+    }
+  ]
+}

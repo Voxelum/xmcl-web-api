@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/shared/v1/admin-operation-requested.schema.json",
+  "title": "Administrator operation requested v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventType",
+    "eventId",
+    "schemaVersion",
+    "operationId",
+    "action",
+    "target",
+    "requestedBy",
+    "reason",
+    "occurredAt"
+  ],
+  "properties": {
+    "eventType": { "const": "admin.operation.requested.v1" },
+    "eventId": { "type": "string", "minLength": 1 },
+    "schemaVersion": { "const": 1 },
+    "operationId": { "type": "string", "minLength": 1 },
+    "action": {
+      "enum": ["refund", "balance_adjust", "server_suspend", "server_restore"]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resourceType", "resourceId"],
+      "properties": {
+        "resourceType": { "type": "string", "minLength": 1 },
+        "resourceId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "requestedBy": { "type": "string", "minLength": 1 },
+    "reason": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "ticketId": { "type": "string", "minLength": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" }
+  }
+}

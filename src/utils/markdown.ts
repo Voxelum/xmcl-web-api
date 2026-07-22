@@ -5,7 +5,7 @@ export function splitMarkdowntoSections(markdownText: string): string[] {
 
 export function splitMarkdownIfLengthLargerThanWindow(
   markdownText: string,
-  windowSize = 15_000
+  windowSize = 15_000,
 ): string[] {
   const sections = splitMarkdowntoSections(markdownText);
   const result: string[] = [];

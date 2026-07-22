@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/shared/v1/usage-authorization.schema.json",
+  "title": "Usage authorization v1",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "resource": {
+      "enum": ["server_time", "ai_request", "ai_tokens", "storage_retention"]
+    },
+    "unit": {
+      "enum": ["second", "request", "token", "byte_second"]
+    },
+    "money": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currency", "amountMinor"],
+      "properties": {
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "amountMinor": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "required": [
+    "accountId",
+    "resource",
+    "sourceId",
+    "expectedQuantity",
+    "unit",
+    "settlementIntervalSeconds",
+    "rateVersion",
+    "idempotencyKey",
+    "expiresAt"
+  ],
+  "properties": {
+    "accountId": { "type": "string", "minLength": 1 },
+    "resource": { "$ref": "#/$defs/resource" },
+    "sourceId": { "type": "string", "minLength": 1 },
+    "expectedQuantity": { "type": "integer", "minimum": 1 },
+    "unit": { "$ref": "#/$defs/unit" },
+    "settlementIntervalSeconds": { "type": "integer", "minimum": 1 },
+    "rateVersion": { "type": "integer", "minimum": 1 },
+    "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 255 },
+    "expiresAt": { "type": "string", "format": "date-time" }
+  }
+}

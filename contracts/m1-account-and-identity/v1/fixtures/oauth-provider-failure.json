@@ -1,0 +1,22 @@
+{
+
+  "request": {
+    "method": "POST",
+    "path": "/v1/auth/microsoft/launcher-exchange",
+    "body": {
+      "loginTransactionId": "launcher_tx_123",
+      "completedAt": "2026-07-22T14:00:00Z",
+      "credential": "<redacted-provider-credential>"
+    }
+  },
+  "response": {
+    "status": 503,
+    "error": "provider_unavailable",
+    "message": "provider_unavailable",
+    "requestId": "req_m1_provider_failure"
+  },
+  "expected": {
+    "responseContainsCredential": false,
+    "ordinaryLogContainsCredential": false
+  }
+}

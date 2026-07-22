@@ -1,0 +1,13 @@
+{
+  "eventType": "cash.ledger.recorded.v1",
+  "eventId": "ledger_event_123",
+  "schemaVersion": 1,
+  "ledgerEntryId": "ledger_123",
+  "accountId": "acct_123",
+  "kind": "usage_charge",
+  "amount": {
+    "currency": "USD",
+    "amountMinor": 125
+  },
+  "occurredAt": "2026-07-23T00:00:00Z"
+}

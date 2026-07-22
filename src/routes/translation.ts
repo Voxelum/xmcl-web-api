@@ -102,7 +102,9 @@ export default new Hono<AppEnv>().get("/translation", async (c) => {
       { headers },
     );
     if (!response.ok) {
-      throw new HTTPException(response.status as 400, { message: await response.text() });
+      throw new HTTPException(response.status as 400, {
+        message: await response.text(),
+      });
     }
     return ((await response.json()) as { data: string }).data;
   };
@@ -113,7 +115,9 @@ export default new Hono<AppEnv>().get("/translation", async (c) => {
       { headers: forwardHeaders(c.req.raw) },
     );
     if (!response.ok) {
-      throw new HTTPException(response.status as 400, { message: await response.text() });
+      throw new HTTPException(response.status as 400, {
+        message: await response.text(),
+      });
     }
     return ((await response.json()) as ModrinthResponseBody).body;
   };
@@ -145,8 +149,9 @@ export default new Hono<AppEnv>().get("/translation", async (c) => {
       : getModrinthDescription(id),
     recordRequest,
   ]);
-  const contentType: "text/html" | "text/markdown" =
-    type === "curseforge" ? "text/html" : "text/markdown";
+  const contentType: "text/html" | "text/markdown" = type === "curseforge"
+    ? "text/html"
+    : "text/markdown";
 
   const hash = await getHasher();
   const bodyHash = hash(body);

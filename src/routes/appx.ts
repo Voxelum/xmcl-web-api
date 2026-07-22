@@ -17,4 +17,3 @@ export default new Hono<AppEnv>().get("/appx", (c) => {
 
   return c.redirect(target);
 });
-

@@ -9,4 +9,3 @@ export default new Hono<AppEnv>().get("/elyby/authlib", async (c) => {
   );
   return proxyResponse(upstream);
 });
-

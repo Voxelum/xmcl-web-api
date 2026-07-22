@@ -1,0 +1,89 @@
+openapi: 3.1.0
+info:
+  title: XMCL M8 AI service API
+  version: 1.0.0
+paths:
+  /v1/ai/models:
+    get:
+      security: [{ xmclSession: [ai:invoke] }]
+      responses:
+        '200':
+          description: Models available to the authenticated account.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AiModel'
+  /v1/ai/{capability}:
+    post:
+      security: [{ xmclSession: [ai:invoke] }]
+      parameters:
+        - name: capability
+          in: path
+          required: true
+          schema: { type: string, minLength: 1 }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [input]
+              properties:
+                input: { type: string, minLength: 1 }
+                model: { type: string, minLength: 1 }
+      responses:
+        '200':
+          description: Provider result and metered usage.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiResult'
+        '409': { description: Idempotency or authorization conflict }
+        '422': { description: Insufficient cash balance or invalid key }
+        '502': { description: Provider failure; authorizations were released }
+        '503': { description: AI or usage adapter is not configured }
+components:
+  securitySchemes:
+    xmclSession:
+      type: http
+      scheme: bearer
+      bearerFormat: XMCL session
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 255 }
+  schemas:
+    AiModel:
+      type: object
+      additionalProperties: false
+      required: [capability, model, usageResources]
+      properties:
+        capability: { type: string }
+        model: { type: string }
+        usageResources:
+          type: array
+          items: { enum: [ai_request, ai_tokens] }
+    AiResult:
+      type: object
+      additionalProperties: false
+      required: [requestId, providerRequestId, output, usage]
+      properties:
+        requestId: { type: string }
+        providerRequestId: { type: string }
+        output: { type: string }
+        usage:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [resource, quantity, unit]
+            properties:
+              resource: { enum: [ai_request, ai_tokens] }
+              quantity: { type: integer, minimum: 1 }
+              unit: { enum: [request, token] }

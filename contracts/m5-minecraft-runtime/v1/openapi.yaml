@@ -1,0 +1,295 @@
+openapi: 3.1.0
+info:
+  title: XMCL M5 Minecraft runtime worker API
+  version: 1.0.0
+  description: Mounted internal worker API; shared v1 remains authoritative for D2, D3, and D5.
+paths:
+  /v1/internal/servers/{serverId}/worker/register:
+    post:
+      operationId: registerWorker
+      security: [{ workerBootstrap: [] }]
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+        - $ref: "#/components/parameters/WorkerTimestamp"
+        - $ref: "#/components/parameters/WorkerNonce"
+        - $ref: "#/components/parameters/WorkerSignature"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkerRegistration"
+      responses:
+        "201":
+          description: A short-lived lease-bound worker token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkerToken"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/RuntimeUnavailable" }
+  /v1/internal/servers/{serverId}/worker/heartbeat:
+    post:
+      operationId: receiveWorkerHeartbeat
+      security: [{ workerToken: [] }]
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+        - $ref: "#/components/parameters/WorkerTimestamp"
+        - $ref: "#/components/parameters/WorkerNonce"
+        - $ref: "#/components/parameters/WorkerSignature"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkerHeartbeat"
+      responses:
+        "200":
+          description: Accepted or duplicate heartbeat.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Accepted" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/RuntimeUnavailable" }
+  /v1/internal/servers/{serverId}/worker/events:
+    post:
+      operationId: receiveWorkerRuntimeEvent
+      security: [{ workerToken: [] }]
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+        - $ref: "#/components/parameters/WorkerTimestamp"
+        - $ref: "#/components/parameters/WorkerNonce"
+        - $ref: "#/components/parameters/WorkerSignature"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RuntimeEvent" }
+      responses:
+        "202":
+          description: Accepted or duplicate runtime observation.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Accepted" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/RuntimeUnavailable" }
+  /v1/internal/servers/{serverId}/worker/usage:
+    post:
+      operationId: settleWorkerServerTimeUsage
+      security: [{ workerToken: [] }]
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+        - $ref: "#/components/parameters/WorkerTimestamp"
+        - $ref: "#/components/parameters/WorkerNonce"
+        - $ref: "#/components/parameters/WorkerSignature"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkerUsage" }
+      responses:
+        "200":
+          description: M5 mapped usage to the shared canonical event and M3 settled it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UsageAccepted" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/RuntimeUnavailable" }
+  /v1/internal/servers/{serverId}/worker/logs:
+    post:
+      operationId: receiveWorkerLogs
+      security: [{ workerToken: [] }]
+      parameters: &workerParameters
+        - $ref: "#/components/parameters/ServerId"
+        - $ref: "#/components/parameters/WorkerTimestamp"
+        - $ref: "#/components/parameters/WorkerNonce"
+        - $ref: "#/components/parameters/WorkerSignature"
+      requestBody: &operationRequest
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkerOperation" }
+      responses: &operationResponses
+        "202":
+          description: The operation was accepted or deduplicated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationAccepted" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/RuntimeUnavailable" }
+  /v1/internal/servers/{serverId}/worker/backup/export:
+    post: {
+      operationId: exportWorkerBackup,
+      security: [{ workerToken: [] }],
+      parameters: *workerParameters,
+      requestBody: *operationRequest,
+      responses: *operationResponses,
+    }
+  /v1/internal/servers/{serverId}/worker/backup/restore:
+    post: {
+      operationId: restoreWorkerBackup,
+      security: [{ workerToken: [] }],
+      parameters: *workerParameters,
+      requestBody: *operationRequest,
+      responses: *operationResponses,
+    }
+  /v1/internal/servers/{serverId}/worker/backup/events:
+    post: {
+      operationId: receiveWorkerBackupEvent,
+      security: [{ workerToken: [] }],
+      parameters: *workerParameters,
+      requestBody: *operationRequest,
+      responses: *operationResponses,
+    }
+  /v1/internal/servers/{serverId}/worker/modpack/prepare:
+    post: {
+      operationId: prepareWorkerModpack,
+      security: [{ workerToken: [] }],
+      parameters: *workerParameters,
+      requestBody: *operationRequest,
+      responses: *operationResponses,
+    }
+  /v1/internal/servers/{serverId}/worker/modpack/apply:
+    post: {
+      operationId: applyWorkerModpack,
+      security: [{ workerToken: [] }],
+      parameters: *workerParameters,
+      requestBody: *operationRequest,
+      responses: *operationResponses,
+    }
+  /v1/internal/servers/{serverId}/worker/modpack/events:
+    post: {
+      operationId: receiveWorkerModpackEvent,
+      security: [{ workerToken: [] }],
+      parameters: *workerParameters,
+      requestBody: *operationRequest,
+      responses: *operationResponses,
+    }
+components:
+  securitySchemes:
+    workerBootstrap:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Worker-Bootstrap credential; signed by the timestamp, nonce, and request body headers.
+    workerToken:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Short-lived `Worker <tokenId.secret>` credential bound to one server and lease.
+  parameters:
+    ServerId:
+      name: serverId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1 }
+    WorkerTimestamp:
+      name: X-Worker-Timestamp
+      in: header
+      required: true
+      schema: { type: string, pattern: "^[0-9]+$" }
+    WorkerNonce:
+      name: X-Worker-Nonce
+      in: header
+      required: true
+      schema: { type: string, minLength: 1 }
+    WorkerSignature:
+      name: X-Worker-Signature
+      in: header
+      required: true
+      schema: { type: string, pattern: "^[a-f0-9]{64}$" }
+  responses:
+    InvalidRequest:
+      description: The worker payload is invalid.
+      content: {
+        application/json: { schema: { $ref: "#/components/schemas/ApiError" } },
+      }
+    Unauthorized:
+      description: Token, signature, timestamp, nonce, or lease binding is invalid.
+      content: {
+        application/json: {
+          schema: { $ref: "#/components/schemas/WorkerAuthError" },
+        },
+      }
+    Conflict:
+      description: Replay, duplicate-with-different-payload, out-of-order, or lifecycle conflict.
+      content: {
+        application/json: {
+          schema: { $ref: "#/components/schemas/WorkerAuthError" },
+        },
+      }
+    RuntimeUnavailable:
+      description: M4/M3 composition or a downstream provider is unavailable.
+      content: {
+        application/json: { schema: { $ref: "#/components/schemas/ApiError" } },
+      }
+  schemas:
+    WorkerRegistration:
+      type: object
+      additionalProperties: false
+      required: [leaseId, workerId]
+      properties:
+        leaseId: { type: string, minLength: 1 }
+        workerId: { type: string, minLength: 1 }
+    WorkerToken:
+      $ref: ./schemas/worker-token.schema.json
+    WorkerHeartbeat:
+      $ref: ./schemas/worker-heartbeat.schema.json
+    RuntimeEvent:
+      $ref: ./schemas/runtime-event.schema.json
+    WorkerUsage:
+      $ref: ./schemas/worker-usage.schema.json
+    CanonicalServerTimeUsage:
+      $ref: ../../shared/v1/canonical-usage-event.schema.json
+    BalanceExhaustionRuntimeStopped:
+      $ref: ../../shared/v1/balance-exhaustion.schema.json
+    WorkerOperation:
+      type: object
+      required: [serverId, leaseId, operationId]
+      properties:
+        serverId: { type: string, minLength: 1 }
+        leaseId: { type: string, minLength: 1 }
+        operationId: { type: string, minLength: 1 }
+        metadata: { type: object, additionalProperties: true }
+      additionalProperties: true
+    Accepted:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { enum: [accepted, duplicate] }
+    UsageAccepted:
+      type: object
+      additionalProperties: false
+      required: [status, action]
+      properties:
+        status: { enum: [accepted, duplicate] }
+        action: { enum: [continue, stop_required] }
+    OperationAccepted:
+      type: object
+      additionalProperties: false
+      required: [status, operationId]
+      properties:
+        status: { enum: [accepted, duplicate] }
+        operationId: { type: string, minLength: 1 }
+    ApiError:
+      type: object
+      additionalProperties: false
+      required: [error, message, requestId]
+      properties:
+        error: { type: string }
+        message: { type: string }
+        requestId: { type: string }
+    WorkerAuthError:
+      allOf:
+        - $ref: "#/components/schemas/ApiError"
+        - type: object
+          properties:
+            action: { const: registration_required }

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/shared/v1/admin-operation-completed.schema.json",
+  "title": "Administrator operation completed v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventType",
+    "eventId",
+    "schemaVersion",
+    "operationId",
+    "owner",
+    "status",
+    "completedAt"
+  ],
+  "properties": {
+    "eventType": { "const": "admin.operation.completed.v1" },
+    "eventId": { "type": "string", "minLength": 1 },
+    "schemaVersion": { "const": 1 },
+    "operationId": { "type": "string", "minLength": 1 },
+    "owner": { "enum": ["m3", "m4"] },
+    "status": { "enum": ["succeeded", "rejected", "failed"] },
+    "result": { "type": "object" },
+    "error": { "type": "object" },
+    "completedAt": { "type": "string", "format": "date-time" }
+  }
+}

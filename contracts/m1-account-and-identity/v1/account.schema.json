@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m1-account-and-identity/v1/account.schema.json",
+  "title": "XMCL Account v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["accountId", "status", "createdAt"],
+  "properties": {
+    "accountId": { "type": "string", "minLength": 1 },
+    "status": {
+      "enum": ["active", "merged", "deletion_pending", "deleted"]
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "deletionEffectiveAt": { "type": "string", "format": "date-time" }
+  }
+}

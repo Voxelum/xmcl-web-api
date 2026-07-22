@@ -45,7 +45,7 @@ export interface ChatOptions {
 export const chat = ({ messages, api, model, key, ...rest }: ChatOptions) => {
   // console.log('APIKey:' + key?.substring(0, 5) + '...' + key?.substring(key.length - 5))
   return fetch(
-    api ?? 'https://apihub.agnes-ai.com/v1/chat/completions',
+    api ?? "https://apihub.agnes-ai.com/v1/chat/completions",
     {
       method: "POST",
       headers: {
@@ -60,4 +60,4 @@ export const chat = ({ messages, api, model, key, ...rest }: ChatOptions) => {
   )
     .then((resp) => resp.json())
     .then((s) => s as ChatGPTChatBody | ChatGPTError);
-}
+};

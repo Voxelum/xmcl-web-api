@@ -1,0 +1,43 @@
+{
+  "d5": {
+    "settlementObservation": {
+      "serverId": "server_123",
+      "leaseId": "lease_123",
+      "settlementId": "settlement_123",
+      "occurredAt": "2026-07-22T14:00:00Z"
+    },
+    "runtimeStopped": {
+      "eventType": "runtime.stopped.v1",
+      "eventId": "runtime_123",
+      "schemaVersion": 1,
+      "serverId": "server_123",
+      "leaseId": "lease_123",
+      "settlementId": "settlement_123",
+      "reason": "balance_exhausted",
+      "occurredAt": "2026-07-22T14:00:05Z"
+    },
+    "timeout": { "seconds": 300, "statusReason": "worker_unresponsive" }
+  },
+  "d6": {
+    "requested": {
+      "eventType": "admin.operation.requested.v1",
+      "eventId": "admin_123",
+      "schemaVersion": 1,
+      "operationId": "operation_123",
+      "action": "server_suspend",
+      "target": { "resourceType": "server", "resourceId": "server_123" },
+      "requestedBy": "admin_123",
+      "reason": "Risk review",
+      "occurredAt": "2026-07-22T14:00:00Z"
+    },
+    "completed": {
+      "eventType": "admin.operation.completed.v1",
+      "eventId": "admin-completed:operation_123",
+      "schemaVersion": 1,
+      "operationId": "operation_123",
+      "owner": "m4",
+      "status": "succeeded",
+      "completedAt": "2026-07-22T14:00:01Z"
+    }
+  }
+}

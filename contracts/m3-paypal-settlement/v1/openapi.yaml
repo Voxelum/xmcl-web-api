@@ -1,0 +1,83 @@
+openapi: 3.1.0
+info:
+  title: XMCL M3 billing API
+  version: 1.0.0
+paths:
+  /v1/billing/paypal/orders:
+    post:
+      security: [{ xmclSession: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [amountMinor]
+              properties:
+                amountMinor: { type: integer, minimum: 1 }
+      responses:
+        '201': { description: Pending PayPal order }
+        '409': { description: Idempotency conflict }
+  /v1/billing/orders:
+    get:
+      security: [{ xmclSession: [] }]
+      responses: { '200': { description: Account orders } }
+  /v1/billing/orders/{orderId}:
+    get:
+      security: [{ xmclSession: [] }]
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, minLength: 1 }
+      responses:
+        '200': { description: Server-confirmed account order }
+        '404': { description: Order is not owned by the authenticated account }
+  /v1/billing/balance:
+    get:
+      security: [{ xmclSession: [] }]
+      responses: { '200': { description: Cash balance with available and reserved money } }
+  /v1/billing/rates:
+    get:
+      security: [{ xmclSession: [] }]
+      responses: { '200': { description: Published cash rates } }
+  /v1/billing/ledger:
+    get:
+      security: [{ xmclSession: [] }]
+      responses: { '200': { description: Immutable account ledger entries } }
+  /v1/billing/usage:
+    get:
+      security: [{ xmclSession: [] }]
+      responses: { '200': { description: Account settlement outcomes } }
+  /v1/billing/paypal/orders/{orderId}/capture:
+    post:
+      security: [{ xmclSession: [] }]
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Capture requested; webhook remains the credit authority }
+  /v1/webhooks/paypal:
+    post:
+      requestBody:
+        required: true
+        content: { application/json: { schema: {} } }
+      responses:
+        '202': { description: Raw body verified and accepted }
+        '401': { description: Invalid webhook signature }
+components:
+  securitySchemes:
+    xmclSession:
+      type: http
+      scheme: bearer
+      bearerFormat: XMCL session
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 255 }

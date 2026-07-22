@@ -1,0 +1,33 @@
+{
+
+  "request": {
+    "method": "POST",
+    "path": "/v1/backup-sources/client_world/world-source_001/backups",
+    "headers": { "Idempotency-Key": "m6:create:world-source_001:1" },
+    "body": {
+      "worldId": "world_001",
+      "format": "linear",
+      "formatVersion": 1,
+      "contentLength": 1024,
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "contentType": "application/vnd.xmcl.linear",
+      "compression": "xmcl_linear",
+      "explicitManual": true
+    }
+  },
+  "response": {
+    "status": 202,
+    "body": {
+      "backupId": "backup_001",
+      "taskId": "task_create_backup_001",
+      "task": {
+        "taskId": "task_create_backup_001",
+        "requestId": "request_001",
+        "status": "succeeded",
+        "resource": { "type": "world_backup", "id": "backup_001" },
+        "createdAt": "2026-07-22T10:00:00Z",
+        "updatedAt": "2026-07-22T10:00:00Z"
+      }
+    }
+  }
+}

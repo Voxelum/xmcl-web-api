@@ -1,0 +1,42 @@
+{
+  "unauthenticated": {
+    "request": {
+      "authorization": null,
+      "operationId": "operation_401"
+    },
+    "response": {
+      "status": 401,
+      "error": "admin_authentication_required"
+    }
+  },
+  "insufficientScope": {
+    "request": {
+      "principal": {
+        "id": "admin_support_123",
+        "scopes": ["support"],
+        "mfaVerified": true
+      },
+      "action": "refund",
+      "operationId": "operation_403"
+    },
+    "response": {
+      "status": 403,
+      "error": "forbidden"
+    }
+  },
+  "staleMfa": {
+    "request": {
+      "principal": {
+        "id": "admin_billing_123",
+        "scopes": ["billing_operator"],
+        "mfaVerified": false
+      },
+      "action": "balance_adjust",
+      "operationId": "operation_mfa"
+    },
+    "response": {
+      "status": 401,
+      "error": "mfa_required"
+    }
+  }
+}

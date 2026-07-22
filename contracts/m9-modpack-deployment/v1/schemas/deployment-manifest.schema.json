@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m9-modpack-deployment/v1/schemas/deployment-manifest.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifestVersion",
+    "deploymentId",
+    "serverId",
+    "sourceFormat",
+    "compatibility",
+    "configFiles",
+    "dataFiles",
+    "mods",
+    "rollbackSnapshotId",
+    "createdAt"
+  ],
+  "properties": {
+    "manifestVersion": { "const": 1 },
+    "deploymentId": { "type": "string", "minLength": 1 },
+    "serverId": { "type": "string", "minLength": 1 },
+    "sourceFormat": { "enum": ["mrpack", "curseforge_zip"] },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minecraftVersion", "loader", "javaMajor", "templateId"],
+      "properties": {
+        "minecraftVersion": { "type": "string", "minLength": 1 },
+        "loader": {
+          "enum": ["vanilla", "forge", "fabric", "quilt", "neoforge"]
+        },
+        "loaderVersion": { "type": "string", "minLength": 1 },
+        "javaMajor": { "type": "integer", "minimum": 1 },
+        "templateId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "configFiles": { "$ref": "#/$defs/files" },
+    "dataFiles": { "$ref": "#/$defs/files" },
+    "mods": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["provider", "projectId", "fileId", "sha256"],
+        "properties": {
+          "provider": { "enum": ["modrinth", "curseforge"] },
+          "projectId": { "type": "string", "minLength": 1 },
+          "fileId": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      }
+    },
+    "rollbackSnapshotId": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256", "sizeBytes"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "sizeBytes": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

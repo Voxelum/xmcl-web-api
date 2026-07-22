@@ -1,0 +1,10 @@
+{
+  "eventType": "runtime.stopped.v1",
+  "eventId": "runtime_123",
+  "schemaVersion": 1,
+  "serverId": "server_123",
+  "leaseId": "lease_123",
+  "settlementId": "settlement_123",
+  "reason": "balance_exhausted",
+  "occurredAt": "2026-07-23T00:00:05Z"
+}

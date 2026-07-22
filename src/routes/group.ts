@@ -12,5 +12,7 @@ export default new Hono<AppEnv>().get("/group/:id", (c) => {
   if (upgrade?.toLowerCase() !== "websocket") {
     throw new HTTPException(501, { message: "Expected websocket upgrade" });
   }
-  throw new HTTPException(501, { message: "Realtime is not supported on this platform" });
+  throw new HTTPException(501, {
+    message: "Realtime is not supported on this platform",
+  });
 });

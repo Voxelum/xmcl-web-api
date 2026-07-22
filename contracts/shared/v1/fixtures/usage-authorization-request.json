@@ -1,0 +1,11 @@
+{
+  "accountId": "acct_123",
+  "resource": "server_time",
+  "sourceId": "lease_123",
+  "expectedQuantity": 3600,
+  "unit": "second",
+  "settlementIntervalSeconds": 3600,
+  "rateVersion": 1,
+  "idempotencyKey": "m4:start:server_123:1",
+  "expiresAt": "2026-07-23T00:00:00Z"
+}

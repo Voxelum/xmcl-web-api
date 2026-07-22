@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m4-vultr-control/v1/server-resource.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["serverId", "accountId", "provider", "region", "status", "desiredStatus", "statusVersion"],
+  "properties": {
+    "serverId": { "type": "string", "minLength": 1 },
+    "accountId": { "type": "string", "minLength": 1 },
+    "provider": { "const": "vultr" },
+    "region": { "const": "taipei" },
+    "status": { "enum": ["creating", "stopped", "starting", "running", "stopping", "suspended", "billing_blocked", "failed", "deleting", "deleted"] },
+    "desiredStatus": { "enum": ["running", "stopped", "deleted"] },
+    "statusVersion": { "type": "integer", "minimum": 0 },
+    "statusReason": { "type": "string" },
+    "address": { "type": "string" },
+    "leaseId": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  }
+}

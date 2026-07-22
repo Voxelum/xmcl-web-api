@@ -1,15 +1,15 @@
 export function getFlights(
   version: string | null,
   locale: string | null,
-  build: string | null
+  build: string | null,
 ) {
   if (!version || !locale) {
-    return {}
+    return {};
   }
   if (build && Number(build) > 1002) {
     return {
-      i18nSearch: ['zh-CN', 'zh-TW', 'ru']
+      i18nSearch: ["zh-CN", "zh-TW", "ru"],
     };
   }
-  return {}
+  return {};
 }

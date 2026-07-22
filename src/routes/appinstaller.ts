@@ -40,4 +40,3 @@ export default new Hono<AppEnv>().get("/appinstaller", async (c) => {
     "Cache-Control": "public, max-age=300",
   });
 });
-

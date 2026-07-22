@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/shared/v1/canonical-usage-event.schema.json",
+  "title": "Canonical usage event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventType",
+    "eventId",
+    "schemaVersion",
+    "accountId",
+    "authorizationId",
+    "resource",
+    "sourceId",
+    "quantity",
+    "unit",
+    "rateVersion",
+    "intervalStart",
+    "intervalEnd",
+    "occurredAt",
+    "idempotencyKey"
+  ],
+  "properties": {
+    "eventType": { "const": "usage.recorded.v1" },
+    "eventId": { "type": "string", "minLength": 1 },
+    "schemaVersion": { "const": 1 },
+    "accountId": { "type": "string", "minLength": 1 },
+    "authorizationId": { "type": "string", "minLength": 1 },
+    "resource": {
+      "enum": ["server_time", "ai_request", "ai_tokens", "storage_retention"]
+    },
+    "sourceId": { "type": "string", "minLength": 1 },
+    "quantity": { "type": "integer", "minimum": 1 },
+    "unit": { "enum": ["second", "request", "token", "byte_second"] },
+    "rateVersion": { "type": "integer", "minimum": 1 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "intervalStart": { "type": "string", "format": "date-time" },
+    "intervalEnd": { "type": "string", "format": "date-time" },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 255 }
+  }
+}

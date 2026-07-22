@@ -1,0 +1,27 @@
+{
+
+  "scenario": "out-of-order lifecycle event",
+  "accepted": {
+    "eventId": "runtime-healthy-001",
+    "serverId": "server-001",
+    "leaseId": "lease-001",
+    "type": "healthy",
+    "occurredAt": "2026-07-22T10:01:00.000Z"
+  },
+  "rejected": {
+    "eventId": "runtime-started-stale-001",
+    "serverId": "server-001",
+    "leaseId": "lease-001",
+    "type": "started",
+    "occurredAt": "2026-07-22T10:00:00.000Z"
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "error": "out_of_order",
+      "message": "out_of_order",
+      "requestId": "request-002",
+      "action": "registration_required"
+    }
+  }
+}

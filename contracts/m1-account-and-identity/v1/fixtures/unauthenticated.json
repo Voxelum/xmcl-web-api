@@ -1,0 +1,14 @@
+{
+
+  "request": {
+    "method": "GET",
+    "path": "/v1/account",
+    "authorization": null
+  },
+  "response": {
+    "status": 401,
+    "error": "authentication_required",
+    "message": "authentication_required",
+    "requestId": "req_m1_unauthenticated"
+  }
+}

@@ -1,0 +1,57 @@
+openapi: 3.1.0
+info:
+  title: XMCL M4 server control API
+  version: 1.0.0
+paths:
+  /v1/servers:
+    get:
+      security: [{ xmclSession: [] }]
+      responses:
+        '200': { description: Account servers, content: { application/json: { schema: { type: array, items: { $ref: ./server-resource.schema.json } } } } }
+    post:
+      security: [{ xmclSession: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: false, required: [plan], properties: { plan: { type: string, minLength: 1 } } } } }
+      responses: { '202': { $ref: '#/components/responses/Task' } }
+  /v1/servers/{serverId}:
+    parameters: [{ name: serverId, in: path, required: true, schema: { type: string } }]
+    get:
+      security: [{ xmclSession: [] }]
+      responses: { '200': { description: Server, content: { application/json: { schema: { $ref: ./server-resource.schema.json } } } }, '404': { $ref: '#/components/responses/Error' } }
+    delete:
+      security: [{ xmclSession: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '202': { $ref: '#/components/responses/Task' } }
+  /v1/servers/{serverId}/{operation}:
+    parameters:
+      - { name: serverId, in: path, required: true, schema: { type: string } }
+      - { name: operation, in: path, required: true, schema: { enum: [start, stop, restart] } }
+      - { $ref: '#/components/parameters/IdempotencyKey' }
+    post:
+      security: [{ xmclSession: [] }]
+      responses: { '202': { $ref: '#/components/responses/Task' } }
+  /v1/tasks/{taskId}:
+    parameters: [{ name: taskId, in: path, required: true, schema: { type: string } }]
+    get:
+      security: [{ xmclSession: [] }]
+      responses: { '200': { $ref: '#/components/responses/Task' }, '404': { $ref: '#/components/responses/Error' } }
+components:
+  securitySchemes:
+    xmclSession: { type: http, scheme: bearer, bearerFormat: XMCL session }
+  parameters:
+    IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+  responses:
+    Task: { description: Async task, content: { application/json: { schema: { $ref: ./async-task.schema.json } } } }
+    Error: { description: API error, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  schemas:
+    ApiError:
+      type: object
+      additionalProperties: false
+      required: [error, message, requestId]
+      properties:
+        error: { type: string }
+        message: { type: string }
+        requestId: { type: string }
+        details: {}

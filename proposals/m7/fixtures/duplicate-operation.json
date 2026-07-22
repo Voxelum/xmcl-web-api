@@ -1,0 +1,25 @@
+{
+  "request": {
+    "operationId": "operation_replay_123",
+    "action": "refund",
+    "target": {
+      "resourceType": "account",
+      "resourceId": "account_123"
+    },
+    "requestedBy": "admin_billing_123",
+    "reason": "Duplicate charge review",
+    "ticketId": "ticket_123"
+  },
+  "firstResponse": {
+    "status": 202,
+    "taskId": "operation_replay_123"
+  },
+  "retryResponse": {
+    "status": 202,
+    "taskId": "operation_replay_123"
+  },
+  "expected": {
+    "m3RequestedEvents": 1,
+    "operationIdDeduped": true
+  }
+}

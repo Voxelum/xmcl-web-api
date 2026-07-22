@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m5-minecraft-runtime/v1/schemas/runtime-event.schema.json",
+  "title": "M5 worker runtime event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventId", "serverId", "leaseId", "type", "occurredAt"],
+  "properties": {
+    "eventId": { "type": "string", "minLength": 1 },
+    "serverId": { "type": "string", "minLength": 1 },
+    "leaseId": { "type": "string", "minLength": 1 },
+    "type": { "enum": ["started", "healthy", "stopped", "crashed"] },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "details": { "type": "object", "additionalProperties": true }
+  }
+}

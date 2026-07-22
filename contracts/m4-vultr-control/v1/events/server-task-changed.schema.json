@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m4-vultr-control/v1/events/server-task-changed.schema.json",
+  "title": "M4 server task changed v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventType", "eventId", "schemaVersion", "accountId", "taskId", "serverId", "status", "operation", "occurredAt"],
+  "properties": {
+    "eventType": { "const": "server.task.changed.v1" },
+    "eventId": { "type": "string", "minLength": 1 },
+    "schemaVersion": { "const": 1 },
+    "accountId": { "type": "string", "minLength": 1 },
+    "taskId": { "type": "string", "minLength": 1 },
+    "serverId": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["queued", "running", "succeeded", "failed", "cancelled"] },
+    "operation": { "enum": ["create", "start", "stop", "restart", "delete", "forced_stop"] },
+    "error": { "type": "object" },
+    "occurredAt": { "type": "string", "format": "date-time" }
+  }
+}

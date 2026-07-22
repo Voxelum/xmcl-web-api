@@ -1,0 +1,10 @@
+{
+
+  "taskId": "task_apply_123",
+  "requestId": "req_123",
+  "status": "succeeded",
+  "resource": { "type": "modpack_deployment", "id": "mpd_123" },
+  "result": { "deploymentId": "mpd_123", "status": "applied" },
+  "createdAt": "2026-07-23T00:00:00Z",
+  "updatedAt": "2026-07-23T00:00:03Z"
+}

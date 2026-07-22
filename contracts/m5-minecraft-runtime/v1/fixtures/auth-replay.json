@@ -1,0 +1,27 @@
+{
+
+  "scenario": "authentication and replay protection",
+  "request": {
+    "authorization": "Worker token-id.placeholder",
+    "xWorkerTimestamp": "1784714520000",
+    "xWorkerNonce": "heartbeat-nonce-001",
+    "xWorkerSignature": "0000000000000000000000000000000000000000000000000000000000000000",
+    "body": {
+      "eventId": "heartbeat-001",
+      "serverId": "server-001",
+      "leaseId": "lease-001",
+      "status": "running",
+      "observedAt": "2026-07-22T10:02:00.000Z"
+    }
+  },
+  "firstResponse": { "status": 200, "body": { "status": "accepted" } },
+  "replayResponse": {
+    "status": 409,
+    "body": {
+      "error": "replay_detected",
+      "message": "replay_detected",
+      "requestId": "request-001",
+      "action": "registration_required"
+    }
+  }
+}

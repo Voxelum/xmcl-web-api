@@ -1,5 +1,33 @@
 import type { Db } from "./db.ts";
+import type { AuditEvent, AuditLog } from "./lib/audit.ts";
+import type { MetricsReader } from "./lib/observability.ts";
+import type {
+  AdminOperationRepository,
+  AdminOperationService,
+  AdminPrincipal,
+  AdminPrincipalAuthenticator,
+  BillingAdminOperationCommandAdapter,
+  ServerControlAdminOperationCommandAdapter,
+} from "./lib/operations.ts";
+import type { ReconciliationRepository } from "./lib/reconciliation.ts";
+import type {
+  WorldBackupRestoreWorkerPrincipal,
+  WorldBackupService,
+} from "./lib/worldBackupService.ts";
 import type { TranslationJob } from "./translation_service.ts";
+import type { AccountRuntime } from "./lib/accountRuntime.ts";
+import type { WorkerRuntime } from "./lib/worker/runtime.ts";
+import type { XmclPrincipal } from "./lib/session.ts";
+import type { BillingService } from "./lib/billing.ts";
+import type { PayPalService } from "./lib/paypal.ts";
+import type { UsageSettlementService } from "./lib/usageSettlement.ts";
+import type { AiServiceDependencies } from "./lib/ai/service.ts";
+import type { ServerControlRuntime } from "./lib/serverControlRuntime.ts";
+import type {
+  ServerCompatibilityGateway,
+  WorkerDeploymentGateway,
+} from "./lib/deploymentTasks.ts";
+import type { ModpackDeploymentRuntime } from "./lib/modpackDeploymentRuntime.ts";
 
 export interface MicrosoftMinecraftProfile {
   id: string;
@@ -27,6 +55,59 @@ export interface AppVariables {
    * route translates inline. Azure has no queue and always translates inline.
    */
   enqueueTranslation?: (job: TranslationJob) => Promise<boolean>;
+  /** Optional Account test/platform override; production builds it from DB + env. */
+  accountRuntime?: AccountRuntime;
+  xmclPrincipal?: XmclPrincipal;
+  /** Independent admin-session verifier; never accepts normal user sessions. */
+  adminOperationAuthenticator?: AdminPrincipalAuthenticator;
+  /** Set only by the AdminOperation admin middleware after the independent verification. */
+  adminPrincipal?: AdminPrincipal;
+  /** Fully composed AdminOperation service override for tests or platform composition. */
+  adminOperationService?: AdminOperationService;
+  /** Durable AdminOperation command dependencies for the mounted route composition. */
+  adminOperationRepository?: AdminOperationRepository;
+  adminOperationAuditLog?: AuditLog;
+  billingAdminOperationAdapter?: BillingAdminOperationCommandAdapter;
+  serverControlAdminOperationAdapter?:
+    ServerControlAdminOperationCommandAdapter;
+  adminOperationNow?: () => string;
+  adminOperationAuditEvents?: () => Promise<
+    { items: AuditEvent[]; nextCursor?: string }
+  >;
+  adminOperationMetrics?: MetricsReader;
+  adminOperationReconciliation?: Pick<ReconciliationRepository, "latest">;
+  /** Read-only account projection supplied by the account owner. */
+  adminOperationAccountReader?: { read(accountId: string): Promise<unknown> };
+  /** WorldBackup platform composition injects its owned backup adapter. */
+  worldBackupService?: WorldBackupService;
+  /** Dedicated Worker/internal-service authenticator for WorldBackup restore event callbacks. */
+  worldBackupRestoreWorkerAuthenticator?: {
+    authenticate(input: {
+      authorization?: string;
+      method: string;
+      path: string;
+      body: string;
+      timestamp?: string;
+      nonce?: string;
+      signature?: string;
+    }): Promise<WorldBackupRestoreWorkerPrincipal | undefined>;
+  };
+  /** Billing dependencies are injected by platform composition; never browser supplied. */
+  billingService?: BillingService;
+  paypalService?: PayPalService;
+  usageSettlementService?: UsageSettlementService;
+  /** Complete ServerControl composition; absent routes and scheduled work fail explicitly. */
+  serverControlRuntime?: ServerControlRuntime;
+  /** Platform composition injects ServerControl/Billing-backed Worker worker adapters here. */
+  workerRuntime?: WorkerRuntime;
+  /** Ai platform composition supplies server-only provider, Billing gateway, and durable request store. */
+  aiServiceDependencies?: AiServiceDependencies;
+  /** ModpackDeployment-owned durable composition; it receives only these external ServerControl/Worker adapters. */
+  modpackDeploymentRuntime?: ModpackDeploymentRuntime;
+  /** ServerControl's account-owned server/template lifecycle projection for ModpackDeployment. */
+  modpackDeploymentServerControlTarget?: ServerCompatibilityGateway;
+  /** Worker's staging, atomic-switch, and snapshot-restore adapter for ModpackDeployment. */
+  modpackDeploymentWorkerStaging?: WorkerDeploymentGateway;
 }
 
 /**

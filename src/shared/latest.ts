@@ -17,7 +17,7 @@ export async function getLatest(
   { gte, lt }: {
     gte: (a: string, b: string) => boolean;
     lt: (a: string, b: string) => boolean;
-  }
+  },
 ) {
   const response = await fetch(
     "https://api.github.com/repos/voxelum/x-minecraft-launcher/releases?per_page=5",
@@ -50,9 +50,9 @@ export async function getLatest(
 
   const releases: GithubReleaseItem[] = await response.json();
   if (version) {
-    let latest: GithubReleaseItem | undefined
-    let recent: GithubReleaseItem[]
-    if (version === 'v1.0.7') {
+    let latest: GithubReleaseItem | undefined;
+    let recent: GithubReleaseItem[];
+    if (version === "v1.0.7") {
       // Strange user who is using v1.0.7. Not sure who is using this version and why.
       // We just gives the latest version for them
       latest = releases[0];
@@ -64,7 +64,7 @@ export async function getLatest(
       latest = recent[0];
     }
     if (!latest) {
-      throw new Error('Cannot find the compatible version');
+      throw new Error("Cannot find the compatible version");
       // ctx.throw(Status.NotFound, 'Cannot find the compatible version');
     }
     if (lt(version, "0.30.0")) {
@@ -81,7 +81,9 @@ export async function getLatest(
     }
     if (lt(version, "0.62.0")) {
       // Upgrade electron version to >= 43
-      latest.assets = latest.assets.filter((r) => !r.name.endsWith("asar") && !r.name.endsWith("asar.gz"));
+      latest.assets = latest.assets.filter((r) =>
+        !r.name.endsWith("asar") && !r.name.endsWith("asar.gz")
+      );
     }
     // reset body
     const changelogs: string[] = [];
@@ -109,30 +111,31 @@ export async function getLatest(
     // Hint Winodws appx user won't have update soon and suggest user to use zip
     // The reason is the code sign certificate is outdated for appx and developer team need to renew it
     if (lt(version, "0.40.0")) {
-      if (lang === 'zh') {
+      if (lang === "zh") {
         changelogs.unshift(
           `# 注意 (Windows 用户)`,
           `如果您是通过 Appx 或 AppInstaller 安装的启动器，请注意：`,
           `由于证书过期，您将不会很快收到最新更新。建议您下载 zip 包并手动安装。`,
           `点击[这个链接](https://docs.xmcl.app/zh/guide/appx-migrate)查看如何迁移数据。`,
-        )
+        );
       } else {
         changelogs.unshift(
           `# Notice (Windows User)`,
           `If you installed the launcher via Appx or AppInstaller, please be aware:`,
           `You won't receive the latest updates soon due to the certificate expiration. It's suggested to download the zip package and install it manually.`,
           `Click [this link](https://docs.xmcl.app/en/guide/appx-migrate) to see how to migrate your data.`,
-        )
+        );
       }
     }
 
     latest.body = changelogs.join("\n\n");
 
-    return latest
+    return latest;
   }
 
-  const filtered = releases.filter((v) =>
-    (includePrerelease ? true : !v.prerelease) && !v.draft
-  )[0];
+  const filtered =
+    releases.filter((v) =>
+      (includePrerelease ? true : !v.prerelease) && !v.draft
+    )[0];
   return filtered;
 }

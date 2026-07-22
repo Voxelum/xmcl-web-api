@@ -9,10 +9,16 @@ export default new Hono<AppEnv>().get("/latest", async (c) => {
   const version = c.req.query("version") ?? null;
   const langs = c.req.header("Accept-Language") ?? null;
 
-  const result = await getLatest(includePrerelease, version, langs, getConfig(c).GITHUB_PAT, {
-    gte,
-    lt,
-  });
+  const result = await getLatest(
+    includePrerelease,
+    version,
+    langs,
+    getConfig(c).GITHUB_PAT,
+    {
+      gte,
+      lt,
+    },
+  );
 
   return c.json(result);
 });

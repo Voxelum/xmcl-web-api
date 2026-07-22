@@ -1,0 +1,18 @@
+{
+
+  "eventType": "usage.recorded.v1",
+  "eventId": "storage-retention:account_001:2026-07-22T10:00:00.000Z:2026-07-22T11:00:00.000Z",
+  "schemaVersion": 1,
+  "accountId": "account_001",
+  "authorizationId": "authorization_001",
+  "resource": "storage_retention",
+  "sourceId": "storage:account_001",
+  "quantity": 360000,
+  "unit": "byte_second",
+  "rateVersion": 1,
+  "sequence": 1,
+  "intervalStart": "2026-07-22T10:00:00.000Z",
+  "intervalEnd": "2026-07-22T11:00:00.000Z",
+  "occurredAt": "2026-07-22T11:00:00.000Z",
+  "idempotencyKey": "storage-retention:account_001:2026-07-22T10:00:00.000Z:2026-07-22T11:00:00.000Z"
+}

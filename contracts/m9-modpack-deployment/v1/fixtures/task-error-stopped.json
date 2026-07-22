@@ -1,0 +1,15 @@
+{
+
+  "taskId": "task_apply_124",
+  "requestId": "req_124",
+  "status": "failed",
+  "resource": { "type": "modpack_deployment", "id": "mpd_124" },
+  "error": {
+    "error": "server_not_ready",
+    "message": "Apply was rejected after runtime.stopped.v1 balance exhaustion.",
+    "requestId": "req_124",
+    "details": { "serverState": "stopped", "reason": "balance_exhausted" }
+  },
+  "createdAt": "2026-07-23T00:00:00Z",
+  "updatedAt": "2026-07-23T00:00:01Z"
+}

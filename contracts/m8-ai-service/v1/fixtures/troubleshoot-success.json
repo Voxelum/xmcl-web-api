@@ -1,0 +1,9 @@
+{
+  "requestId": "request_123",
+  "providerRequestId": "provider_123",
+  "output": "Check the launcher log.",
+  "usage": [
+    { "resource": "ai_request", "quantity": 1, "unit": "request" },
+    { "resource": "ai_tokens", "quantity": 42, "unit": "token" }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m5-minecraft-runtime/v1/schemas/worker-token.schema.json",
+  "title": "M5 lease-bound worker token response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["token", "tokenType", "serverId", "leaseId", "expiresAt"],
+  "properties": {
+    "token": { "type": "string", "minLength": 1, "writeOnly": true },
+    "tokenType": { "const": "Worker" },
+    "serverId": { "type": "string", "minLength": 1 },
+    "leaseId": { "type": "string", "minLength": 1 },
+    "expiresAt": { "type": "string", "format": "date-time" }
+  }
+}

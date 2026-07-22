@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m5-minecraft-runtime/v1/schemas/worker-heartbeat.schema.json",
+  "title": "M5 worker heartbeat",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventId", "serverId", "leaseId", "status", "observedAt"],
+  "properties": {
+    "eventId": { "type": "string", "minLength": 1 },
+    "serverId": { "type": "string", "minLength": 1 },
+    "leaseId": { "type": "string", "minLength": 1 },
+    "status": {
+      "enum": ["starting", "running", "stopping", "stopped", "failed"]
+    },
+    "observedAt": { "type": "string", "format": "date-time" }
+  }
+}

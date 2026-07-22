@@ -1,0 +1,13 @@
+{
+
+  "case": "M3 authorization or a required M6 adapter is unavailable.",
+  "response": {
+    "status": 503,
+    "body": {
+      "error": "authorization_unavailable",
+      "message": "authorization unavailable",
+      "requestId": "request_provider_001"
+    }
+  },
+  "unchangedBackupStatus": "creating"
+}

@@ -1,0 +1,220 @@
+openapi: 3.1.0
+info:
+  title: XMCL M7 compliance and operations API
+  version: 1.0.0
+  description: Independently authenticated MFA administrator operations.
+paths:
+  /v1/admin/audit-events:
+    get:
+      operationId: listAdminAuditEvents
+      security: [{ adminMfaBearer: [] }]
+      responses:
+        '200':
+          description: Paginated, sanitized audit events.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventPage'
+        '401': { $ref: '#/components/responses/AdminAuthenticationRequired' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/admin/metrics:
+    get:
+      operationId: getAdminMetrics
+      security: [{ adminMfaBearer: [] }]
+      responses:
+        '200':
+          description: Read-only operational metric snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricsSnapshot'
+        '401': { $ref: '#/components/responses/AdminAuthenticationRequired' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/admin/reconciliation:
+    get:
+      operationId: getAdminReconciliation
+      security: [{ adminMfaBearer: [] }]
+      responses:
+        '200':
+          description: Latest reconciliation report, or an empty item list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationReport'
+        '401': { $ref: '#/components/responses/AdminAuthenticationRequired' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/admin/accounts/{accountId}:
+    get:
+      operationId: getAdminAccountProjection
+      security: [{ adminMfaBearer: [] }]
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      responses:
+        '200': { description: Read-only account-owner projection. }
+        '401': { $ref: '#/components/responses/AdminAuthenticationRequired' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/admin/accounts/{accountId}/refunds:
+    post:
+      operationId: requestAdminRefund
+      security: [{ adminMfaBearer: [] }]
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody: { $ref: '#/components/requestBodies/OperationRequest' }
+      responses: { '202': { $ref: '#/components/responses/Accepted' }, '401': { $ref: '#/components/responses/AdminAuthenticationRequired' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '422': { $ref: '#/components/responses/Invalid' }, '503': { $ref: '#/components/responses/Unavailable' } }
+  /v1/admin/accounts/{accountId}/balance/adjust:
+    post:
+      operationId: requestAdminBalanceAdjustment
+      security: [{ adminMfaBearer: [] }]
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody: { $ref: '#/components/requestBodies/OperationRequest' }
+      responses: { '202': { $ref: '#/components/responses/Accepted' }, '401': { $ref: '#/components/responses/AdminAuthenticationRequired' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '422': { $ref: '#/components/responses/Invalid' }, '503': { $ref: '#/components/responses/Unavailable' } }
+  /v1/admin/servers/{serverId}/suspend:
+    post:
+      operationId: requestAdminServerSuspend
+      security: [{ adminMfaBearer: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ServerId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody: { $ref: '#/components/requestBodies/OperationRequest' }
+      responses: { '202': { $ref: '#/components/responses/Accepted' }, '401': { $ref: '#/components/responses/AdminAuthenticationRequired' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '422': { $ref: '#/components/responses/Invalid' }, '503': { $ref: '#/components/responses/Unavailable' } }
+  /v1/admin/servers/{serverId}/restore:
+    post:
+      operationId: requestAdminServerRestore
+      security: [{ adminMfaBearer: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ServerId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody: { $ref: '#/components/requestBodies/OperationRequest' }
+      responses: { '202': { $ref: '#/components/responses/Accepted' }, '401': { $ref: '#/components/responses/AdminAuthenticationRequired' }, '403': { $ref: '#/components/responses/Forbidden' }, '409': { $ref: '#/components/responses/Conflict' }, '422': { $ref: '#/components/responses/Invalid' }, '503': { $ref: '#/components/responses/Unavailable' } }
+  /v1/admin/operations/{operationId}/resolve:
+    post:
+      operationId: resolveAdminOperation
+      security: [{ adminMfaBearer: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OperationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody: { $ref: '#/components/requestBodies/OperationRequest' }
+      responses:
+        '200':
+          description: Idempotent manual-resolution status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOperation'
+        '401': { $ref: '#/components/responses/AdminAuthenticationRequired' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Invalid' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+components:
+  securitySchemes:
+    adminMfaBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: Independently verified M7 administrator session
+  parameters:
+    AccountId: { name: accountId, in: path, required: true, schema: { type: string, minLength: 1 } }
+    ServerId: { name: serverId, in: path, required: true, schema: { type: string, minLength: 1 } }
+    OperationId: { name: operationId, in: path, required: true, schema: { type: string, minLength: 1 } }
+    IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+  requestBodies:
+    OperationRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [reason]
+            properties:
+              reason: { type: string, minLength: 1, maxLength: 2000 }
+              ticketId: { type: string, minLength: 1 }
+  responses:
+    Accepted:
+      description: The operation is durably accepted and routed to its resource owner.
+      content: { application/json: { schema: { $ref: '#/components/schemas/AcceptedOperation' } } }
+    AdminAuthenticationRequired:
+      description: A verified administrator session and recent MFA are required.
+      content: { application/json: { schema: { $ref: '#/components/schemas/AdminError' } } }
+    Forbidden:
+      description: The administrator lacks the required action scope.
+      content: { application/json: { schema: { $ref: '#/components/schemas/AdminError' } } }
+    Conflict:
+      description: The operation or resolution idempotency key was reused with a different payload.
+      content: { application/json: { schema: { $ref: '#/components/schemas/AdminError' } } }
+    Invalid:
+      description: The operation request is invalid.
+      content: { application/json: { schema: { $ref: '#/components/schemas/AdminError' } } }
+    Unavailable:
+      description: The durable M7 dependency or required M3/M4 owner adapter is unavailable.
+      content: { application/json: { schema: { $ref: '#/components/schemas/AdminError' } } }
+  schemas:
+    AuditEvent:
+      $ref: ./audit-event.schema.json
+    AdminOperationRequestedEvent:
+      $ref: ../../shared/v1/admin-operation-requested.schema.json
+    AdminOperationCompletedEvent:
+      $ref: ../../shared/v1/admin-operation-completed.schema.json
+    AcceptedOperation:
+      $ref: ./operation-response.schema.json#/$defs/Accepted
+    AdminOperation:
+      $ref: ./operation-response.schema.json#/$defs/Operation
+    AdminError:
+      type: object
+      additionalProperties: false
+      required: [error, message]
+      properties:
+        error: { type: string }
+        message: { type: string }
+    AuditEventPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AuditEvent' }
+        nextCursor: { type: string }
+    MetricsSnapshot:
+      type: object
+      additionalProperties: false
+      required: [generatedAt, metrics]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        metrics:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, value, unit]
+            properties:
+              name: { type: string }
+              value: { type: number }
+              unit: { enum: [count, currency, second, byte] }
+    ReconciliationReport:
+      type: object
+      additionalProperties: false
+      required: [reportId, generatedAt, checks]
+      properties:
+        reportId: { type: string }
+        generatedAt: { type: string, format: date-time }
+        checks:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [source, status, checkedAt]
+            properties:
+              source: { enum: [paypal, ledger, usage, vultr] }
+              status: { enum: [matched, mismatch, unavailable] }
+              checkedAt: { type: string, format: date-time }
+              details:
+                type: object
+                additionalProperties: { type: [string, number, boolean] }

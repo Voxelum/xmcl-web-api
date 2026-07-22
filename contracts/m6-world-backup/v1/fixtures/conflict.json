@@ -1,0 +1,12 @@
+{
+
+  "case": "A repeated idempotency key or incompatible backup state is a conflict.",
+  "response": {
+    "status": 409,
+    "body": {
+      "error": "conflict",
+      "message": "backup is not awaiting upload",
+      "requestId": "request_conflict_001"
+    }
+  }
+}

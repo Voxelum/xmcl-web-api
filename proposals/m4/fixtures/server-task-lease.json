@@ -1,0 +1,30 @@
+{
+  "server": {
+    "serverId": "server_123",
+    "accountId": "acct_123",
+    "provider": "vultr",
+    "region": "taipei",
+    "status": "running",
+    "desiredStatus": "running",
+    "statusVersion": 4,
+    "leaseId": "lease_123",
+    "address": "203.0.113.8"
+  },
+  "task": {
+    "taskId": "task_123",
+    "requestId": "request_123",
+    "status": "succeeded",
+    "operation": "start",
+    "resource": { "type": "server", "id": "server_123" },
+    "createdAt": "2026-07-22T14:00:00Z",
+    "updatedAt": "2026-07-22T14:01:00Z"
+  },
+  "lease": {
+    "leaseId": "lease_123",
+    "serverId": "server_123",
+    "accountId": "acct_123",
+    "startedAt": "2026-07-22T14:01:00Z",
+    "status": "active"
+  }
+}
+

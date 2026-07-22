@@ -1,0 +1,21 @@
+[
+  {
+
+    "eventType": "deployment.worker.stage_verified.v1",
+    "eventId": "event_1",
+    "schemaVersion": 1,
+    "deploymentId": "mpd_123",
+    "sequence": 1,
+    "manifestSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "occurredAt": "2026-07-23T00:00:01Z"
+  },
+  {
+    "eventType": "deployment.worker.switch_completed.v1",
+    "eventId": "event_2",
+    "schemaVersion": 1,
+    "deploymentId": "mpd_123",
+    "sequence": 2,
+    "manifestSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "occurredAt": "2026-07-23T00:00:02Z"
+  }
+]

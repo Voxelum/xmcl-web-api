@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m9-modpack-deployment/v1/events/deployment-worker.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventType",
+    "eventId",
+    "schemaVersion",
+    "deploymentId",
+    "sequence",
+    "occurredAt"
+  ],
+  "properties": {
+    "eventType": {
+      "enum": [
+        "deployment.worker.stage_verified.v1",
+        "deployment.worker.switch_completed.v1",
+        "deployment.worker.rollback_completed.v1",
+        "deployment.worker.failed.v1"
+      ]
+    },
+    "eventId": { "type": "string", "minLength": 1 },
+    "schemaVersion": { "const": 1 },
+    "deploymentId": { "type": "string", "minLength": 1 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "manifestSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "occurredAt": { "type": "string", "format": "date-time" }
+  }
+}

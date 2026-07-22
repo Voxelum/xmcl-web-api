@@ -4,7 +4,7 @@ import {
   HttpResponseInit,
   InvocationContext,
 } from "@azure/functions";
-import { createApp } from "../src/app.ts";
+import { createProductionApp } from "../src/lib/productionComposition.ts";
 import { createDbMiddleware } from "../src/middleware/db.ts";
 import { geoipMiddleware } from "../src/middleware/geoip.ts";
 import { getDb } from "../src/platform/db_npm.ts";
@@ -15,7 +15,7 @@ import { getDb } from "../src/platform/db_npm.ts";
 //  - MongoDB is accessed via the npm driver (MikroORM).
 //  - there is no translation queue, so /translation translates inline.
 //  - there is no realtime support, so /group/:id returns 501.
-const hono = createApp((a) => {
+const hono = createProductionApp(process.env, (a) => {
   a.use("*", geoipMiddleware);
   a.use("*", createDbMiddleware(getDb));
 });

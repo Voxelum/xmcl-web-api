@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m4-vultr-control/v1/server-lease.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["leaseId", "serverId", "accountId", "startedAt", "status"],
+  "properties": {
+    "leaseId": { "type": "string", "minLength": 1 },
+    "serverId": { "type": "string", "minLength": 1 },
+    "accountId": { "type": "string", "minLength": 1 },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "endedAt": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["reserved", "active", "settled", "released"] }
+  }
+}

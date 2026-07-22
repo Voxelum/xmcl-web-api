@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m5-minecraft-runtime/v1/schemas/worker-usage.schema.json",
+  "title": "M5 raw worker server-time usage",
+  "description": "M5 maps this payload to the shared canonical usage schema; sourceId becomes leaseId.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventId",
+    "serverId",
+    "leaseId",
+    "sequence",
+    "quantity",
+    "intervalStart",
+    "intervalEnd",
+    "occurredAt",
+    "idempotencyKey"
+  ],
+  "properties": {
+    "eventId": { "type": "string", "minLength": 1 },
+    "serverId": { "type": "string", "minLength": 1 },
+    "leaseId": { "type": "string", "minLength": 1 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "quantity": { "type": "integer", "minimum": 1 },
+    "intervalStart": { "type": "string", "format": "date-time" },
+    "intervalEnd": { "type": "string", "format": "date-time" },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 255 }
+  }
+}

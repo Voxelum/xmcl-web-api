@@ -12,12 +12,20 @@ export default new Hono<AppEnv>().get("/notifications", async (c) => {
   const locale = c.req.query("locale") ?? null;
 
   try {
-    const result = await getNofications(os, arch, env, locale, version, getConfig(c).GITHUB_PAT, {
-      inRange(version, range) {
-        const r = new Range(range);
-        return r.test(version);
+    const result = await getNofications(
+      os,
+      arch,
+      env,
+      locale,
+      version,
+      getConfig(c).GITHUB_PAT,
+      {
+        inRange(version, range) {
+          const r = new Range(range);
+          return r.test(version);
+        },
       },
-    });
+    );
     return c.json(result);
   } catch (e) {
     return c.json(

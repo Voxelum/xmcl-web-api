@@ -26,6 +26,23 @@ export interface AppConfig {
    * to the public `Voxelum/xmcl-community-content-i18n-extra` repo.
    */
   TRANSLATION_I18N_BASE?: string;
+  XMCL_SESSION_SECRET?: string;
+  XMCL_MICROSOFT_CLIENT_ID?: string;
+  XMCL_MICROSOFT_CLIENT_SECRET?: string;
+  XMCL_MODRINTH_CLIENT_ID?: string;
+  XMCL_MODRINTH_CLIENT_SECRET?: string;
+  XMCL_GOOGLE_CLIENT_ID?: string;
+  XMCL_GOOGLE_CLIENT_SECRET?: string;
+  XMCL_DISCORD_CLIENT_ID?: string;
+  XMCL_DISCORD_CLIENT_SECRET?: string;
+  XMCL_OAUTH_REDIRECT_URIS?: string;
+  XMCL_GOOGLE_LAUNCHER_ENABLED?: string;
+  XMCL_DISCORD_LAUNCHER_ENABLED?: string;
+  /**
+   * Enables routes that require the commercial durable-adapter composition.
+   * This remains disabled until concrete production adapters are available.
+   */
+  XMCL_COMMERCIAL_ENABLED?: string;
 }
 
 export function getConfig(c: Context): AppConfig {

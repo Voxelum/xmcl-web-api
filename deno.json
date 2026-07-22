@@ -17,6 +17,9 @@
         "lib": ["deno.window", "dom", "dom.iterable"]
     },
     "tasks": {
-        "start": "deno run --allow-net --allow-read --allow-env --allow-sys --unstable-kv --env index.ts"
+        "start": "deno run --allow-net --allow-read --allow-env --allow-sys --unstable-kv --env index.ts",
+        "local-demo": "deno run --allow-net --allow-env local_demo.ts",
+        "local-demo:smoke": "deno run --allow-net --allow-env scripts/local_demo_smoke.ts",
+        "check:local-demo": "deno check local_demo.ts scripts/local_demo_smoke.ts"
     }
 }

@@ -1,0 +1,15 @@
+{
+  "eventType": "admin.operation.requested.v1",
+  "eventId": "audit_123",
+  "schemaVersion": 1,
+  "operationId": "operation_123",
+  "action": "server_suspend",
+  "target": {
+    "resourceType": "server",
+    "resourceId": "server_123"
+  },
+  "requestedBy": "admin_123",
+  "reason": "Risk review",
+  "ticketId": "ticket_123",
+  "occurredAt": "2026-07-23T00:00:00Z"
+}

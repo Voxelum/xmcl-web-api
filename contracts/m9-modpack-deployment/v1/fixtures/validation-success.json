@@ -1,0 +1,17 @@
+{
+
+  "importId": "mpi_123",
+  "sourceFormat": "mrpack",
+  "status": "valid",
+  "configFiles": ["config/server.properties"],
+  "dataFiles": ["data/xmcl/functions/start.mcfunction"],
+  "mods": [
+    {
+      "provider": "modrinth",
+      "projectId": "fabric-api",
+      "fileId": "0.102.0",
+      "filename": "fabric-api.jar"
+    }
+  ],
+  "rejectedFiles": []
+}

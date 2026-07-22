@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m6-world-backup/v1/storage-retention-usage.event.schema.json",
+  "title": "M6 storage-retention canonical usage binding v1",
+  "allOf": [
+    {
+      "$ref": "../../shared/v1/canonical-usage-event.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "eventType": { "const": "usage.recorded.v1" },
+        "schemaVersion": { "const": 1 },
+        "resource": { "const": "storage_retention" },
+        "unit": { "const": "byte_second" },
+        "sourceId": {
+          "type": "string",
+          "pattern": "^storage:[^:]+$"
+        },
+        "sequence": { "type": "integer", "minimum": 1 }
+      },
+      "required": ["sequence"]
+    }
+  ]
+}

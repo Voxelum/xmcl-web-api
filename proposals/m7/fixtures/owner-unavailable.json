@@ -1,0 +1,22 @@
+{
+  "request": {
+    "operationId": "operation_unavailable_123",
+    "action": "server_suspend",
+    "target": {
+      "resourceType": "server",
+      "resourceId": "server_123"
+    },
+    "requestedBy": "admin_risk_123",
+    "reason": "Risk review",
+    "ticketId": "ticket_123"
+  },
+  "missingAdapter": "m4",
+  "response": {
+    "status": 503,
+    "error": "adapter_unavailable"
+  },
+  "retry": {
+    "sameOperationId": true,
+    "allowedAfterAdapterRecovery": true
+  }
+}

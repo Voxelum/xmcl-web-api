@@ -1,0 +1,27 @@
+{
+  "inputMetadata": {
+    "ticketId": "ticket_123",
+    "operationCount": 1,
+    "providerToken": "must-not-persist",
+    "paypalTransaction": "must-not-persist",
+    "oauthSecret": "must-not-persist",
+    "worldContent": "must-not-persist"
+  },
+  "auditEvent": {
+    "eventId": "audit_operation_123",
+    "schemaVersion": 1,
+    "actor": {
+      "type": "admin",
+      "id": "admin_123"
+    },
+    "action": "admin.operation.refund.requested",
+    "resourceType": "account",
+    "resourceId": "account_123",
+    "correlationId": "operation_123",
+    "occurredAt": "2026-07-22T14:00:00Z",
+    "metadata": {
+      "ticketId": "ticket_123",
+      "operationCount": 1
+    }
+  }
+}

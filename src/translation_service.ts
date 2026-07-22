@@ -32,7 +32,12 @@ export async function runTranslation(
   job: TranslationJob,
   keys: TranslationKeys,
 ): Promise<string | ChatError> {
-  const result = await translate(job.lang, job.body, job.contentType, keys.agnes);
+  const result = await translate(
+    job.lang,
+    job.body,
+    job.contentType,
+    keys.agnes,
+  );
 
   if (typeof result === "object") {
     return result as ChatError;

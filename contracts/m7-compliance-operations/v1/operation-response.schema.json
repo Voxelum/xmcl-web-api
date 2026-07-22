@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m7-compliance-operations/v1/operation-response.schema.json",
+  "title": "M7 administrator operation responses v1",
+  "$defs": {
+    "Resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "Accepted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["taskId", "requestId", "status", "resource"],
+      "properties": {
+        "taskId": { "type": "string", "minLength": 1 },
+        "requestId": { "type": "string", "minLength": 1 },
+        "status": { "const": "queued" },
+        "resource": { "$ref": "#/$defs/Resource" }
+      }
+    },
+    "Operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationId",
+        "action",
+        "target",
+        "requestedBy",
+        "reason",
+        "status",
+        "requestedAt"
+      ],
+      "properties": {
+        "operationId": { "type": "string", "minLength": 1 },
+        "action": {
+          "enum": ["refund", "balance_adjust", "server_suspend", "server_restore"]
+        },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["resourceType", "resourceId"],
+          "properties": {
+            "resourceType": { "type": "string", "minLength": 1 },
+            "resourceId": { "type": "string", "minLength": 1 }
+          }
+        },
+        "requestedBy": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "ticketId": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["pending", "running", "resolved", "rejected"] },
+        "requestedAt": { "type": "string", "format": "date-time" },
+        "completion": {
+          "$ref": "../../shared/v1/admin-operation-completed.schema.json"
+        }
+      }
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/Accepted" },
+    { "$ref": "#/$defs/Operation" }
+  ]
+}
