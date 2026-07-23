@@ -5,7 +5,6 @@ export function createDiscordOAuth(options: {
   clientSecret?: string;
   redirectUris: string[];
   fetch?: typeof globalThis.fetch;
-  launcherAvailable?: boolean;
 }) {
   return new RemoteOAuthAdapter({
     declaration: {
@@ -20,7 +19,10 @@ export function createDiscordOAuth(options: {
       scopes: ["identify"],
       redirectUris: options.redirectUris,
       credentialVerification: "provider_userinfo",
-      launcherAvailable: options.launcherAvailable ?? false,
+      // Discord is browser-OAuth-only in the launcher. Browser availability is
+      // determined by clientId; launcher-exchange accepts only existing
+      // Microsoft and Modrinth credentials.
+      launcherAvailable: false,
     },
     clientSecret: options.clientSecret,
     fetch: options.fetch,

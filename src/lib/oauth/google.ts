@@ -5,7 +5,6 @@ export function createGoogleOAuth(options: {
   clientSecret?: string;
   redirectUris: string[];
   fetch?: typeof globalThis.fetch;
-  launcherAvailable?: boolean;
 }) {
   return new RemoteOAuthAdapter({
     declaration: {
@@ -20,7 +19,10 @@ export function createGoogleOAuth(options: {
       scopes: ["openid", "profile"],
       redirectUris: options.redirectUris,
       credentialVerification: "oidc_token_and_userinfo",
-      launcherAvailable: options.launcherAvailable ?? false,
+      // Google is browser-OAuth-only in the launcher. Browser availability is
+      // determined by clientId; launcher-exchange accepts only existing
+      // Microsoft and Modrinth credentials.
+      launcherAvailable: false,
     },
     clientSecret: options.clientSecret,
     fetch: options.fetch,

@@ -25,6 +25,23 @@ function connect(config: AppConfig): Promise<Db> {
           findOne(filter: Record<string, unknown>) {
             return coll.findOne(filter as any);
           },
+          findOneAndUpdate(
+            filter: Record<string, unknown>,
+            update: Record<string, unknown>,
+            options?: {
+              sort?: Record<string, 1 | -1>;
+              returnDocument?: "before" | "after";
+            },
+          ) {
+            // The Deno Mongo driver exposes Mongo's atomic command as
+            // `findAndModify`; the npm driver calls the same command
+            // `findOneAndUpdate`.
+            return coll.findAndModify(filter as any, {
+              update: update as any,
+              sort: options?.sort as any,
+              new: options?.returnDocument === "after",
+            } as any);
+          },
           updateOne(
             filter: Record<string, unknown>,
             update: Record<string, unknown>,

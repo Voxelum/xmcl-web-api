@@ -173,11 +173,9 @@ upload URL is created; completing the import runs validation synchronously.
 ## Production safety
 
 `createProductionApp` remains the production entry-point composition. Its
-commercial routes remain unmounted unless durable adapters exist, and setting
-`XMCL_COMMERCIAL_ENABLED=true` still stops startup with its configuration
-error. The `local-demo` task does not invoke that composition and binds only
-to loopback. Never expose its port or copy its public mock credentials into a
-deployment.
+commercial routes remain unmounted until durable adapters exist in code. The
+`local-demo` task does not invoke that composition and binds only to loopback.
+Never expose its port or copy its public mock credentials into a deployment.
 
 ## Smoke test
 

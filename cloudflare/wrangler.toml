@@ -3,13 +3,8 @@ main = "worker.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
-# Non-secret defaults. Secrets (GITHUB_PAT, MONGO_CONNECION_STRING, RTC_SECRET,
-# AGNES_API_KEY, CURSEFORGE_KEY, MODRINTH_SECRET,
-# CLOUDFLARE_API_TOKEN, CLOUDFLARE_APP_ID) must be set with
-# `wrangler secret put <NAME>` or via the dashboard. See .dev.vars.example.
-[vars]
-MONGODB_NAME = "xmcl-api"
-TURNS = ""
+# Runtime configuration is set as Worker secrets. This prevents checked-in
+# defaults from overriding values supplied by deployment automation.
 
 # Durable Object backing /group/:id realtime rooms (replaces BroadcastChannel).
 [[durable_objects.bindings]]
@@ -19,22 +14,6 @@ class_name = "GroupRoom"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["GroupRoom"]
-
-# KV holds the per-(lang,id) translation semaphore (replaces the Deno.Kv lock).
-[[kv_namespaces]]
-binding = "TRANSLATION_KV"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
-
-# Queue offloads mod-description translation (replaces the Deno.Kv queue).
-# Optional: if absent the worker translates inline.
-[[queues.producers]]
-binding = "TRANSLATION_QUEUE"
-queue = "xmcl-translation"
-
-[[queues.consumers]]
-queue = "xmcl-translation"
-max_batch_size = 1
-max_retries = 3
 
 [triggers]
 crons = ["0 0 * * *"]

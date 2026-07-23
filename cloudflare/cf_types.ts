@@ -54,17 +54,6 @@ export interface ScheduledController {
   readonly cron: string;
 }
 
-export interface Message<T> {
-  readonly body: T;
-  ack(): void;
-  retry(): void;
-}
-
-export interface MessageBatch<T> {
-  readonly queue: string;
-  readonly messages: Message<T>[];
-}
-
 declare global {
   // Provided by the Cloudflare runtime (and denoflare's shim).
   const WebSocketPair: { new (): CfWebSocketPair };

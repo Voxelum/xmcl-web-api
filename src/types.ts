@@ -14,7 +14,6 @@ import type {
   WorldBackupRestoreWorkerPrincipal,
   WorldBackupService,
 } from "./lib/worldBackupService.ts";
-import type { TranslationJob } from "./translation_service.ts";
 import type { AccountRuntime } from "./lib/accountRuntime.ts";
 import type { WorkerRuntime } from "./lib/worker/runtime.ts";
 import type { XmclPrincipal } from "./lib/session.ts";
@@ -49,12 +48,6 @@ export interface AppVariables {
   microsoftProfile?: MicrosoftProfile;
   /** ISO country code resolved by a platform geo middleware (Deno/Azure). */
   country?: string;
-  /**
-   * Offload a translation to a platform queue (Deno.Kv / Cloudflare Queue).
-   * Returns true if accepted (route replies 202); absent or false means the
-   * route translates inline. Azure has no queue and always translates inline.
-   */
-  enqueueTranslation?: (job: TranslationJob) => Promise<boolean>;
   /** Optional Account test/platform override; production builds it from DB + env. */
   accountRuntime?: AccountRuntime;
   xmclPrincipal?: XmclPrincipal;
@@ -118,8 +111,6 @@ export interface AppVariables {
  */
 export interface AppBindings {
   GROUP_ROOM?: unknown;
-  TRANSLATION_KV?: unknown;
-  TRANSLATION_QUEUE?: unknown;
   [key: string]: unknown;
 }
 

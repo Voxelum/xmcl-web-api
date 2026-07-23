@@ -8,7 +8,6 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 MONGODB_NAME = "xmcl-api-preview-mot"
 TURNS = ""
-XMCL_COMMERCIAL_ENABLED = "false"
 
 [[durable_objects.bindings]]
 name = "GROUP_ROOM"
@@ -17,19 +16,6 @@ class_name = "GroupRoom"
 [[migrations]]
 tag = "mot-v1"
 new_sqlite_classes = ["GroupRoom"]
-
-[[kv_namespaces]]
-binding = "TRANSLATION_KV"
-id = "REPLACE_WITH_PREVIEW_KV_NAMESPACE_ID"
-
-[[queues.producers]]
-binding = "TRANSLATION_QUEUE"
-queue = "xmcl-translation-mot"
-
-[[queues.consumers]]
-queue = "xmcl-translation-mot"
-max_batch_size = 1
-max_retries = 3
 
 [triggers]
 crons = ["0 0 * * *"]

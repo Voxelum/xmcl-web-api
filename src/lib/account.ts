@@ -1,5 +1,6 @@
 import type { Db } from "../db.ts";
 import type { OAuthProvider, VerifiedIdentity } from "./oauth/types.ts";
+import type { OAuthRedirectPolicy } from "./oauth/redirectPolicy.ts";
 
 export type AccountStatus =
   | "active"
@@ -158,10 +159,10 @@ export class AccountService {
     redirectUri: string;
     state: string;
     codeChallenge: string;
-    allowedRedirectUris: string[];
+    redirectPolicy: OAuthRedirectPolicy;
   }) {
     if (
-      !input.allowedRedirectUris.includes(input.redirectUri) ||
+      !input.redirectPolicy.allows(input.redirectUri) ||
       !input.state ||
       !input.codeChallenge
     ) {

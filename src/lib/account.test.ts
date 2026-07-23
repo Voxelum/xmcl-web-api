@@ -22,6 +22,7 @@ import { createSessionRoutes } from "../routes/session.ts";
 import { createBackupStoragePolicyRoutes } from "../routes/backupStoragePolicy.ts";
 import { createGoogleOAuth } from "./oauth/google.ts";
 import { createMicrosoftOAuth } from "./oauth/microsoft.ts";
+import { createOAuthRedirectPolicy } from "./oauth/redirectPolicy.ts";
 
 const secret = "fixture-only-session-secret-at-least-32-bytes";
 
@@ -194,6 +195,57 @@ Deno.test("browser OAuth binds redirect, state, nonce and PKCE to a one-time tra
   assert.equal((await replay.json()).error, "oauth_transaction_replayed");
 });
 
+Deno.test("browser OAuth allows the launcher callback without a configured redirect URI", async () => {
+  const { app } = setup();
+  const verifier = "launcher-browser-pkce-verifier";
+  const redirectUri = "http://127.0.0.1:25555/commercial-auth";
+
+  for (const provider of ["google", "discord"] as const) {
+    const authorize = await app.request(
+      `/v1/auth/${provider}/authorize?redirectUri=${
+        encodeURIComponent(redirectUri)
+      }&state=${provider}-launcher-state&codeChallenge=${await sha256(
+        verifier,
+      )}`,
+    );
+    assert.equal(authorize.status, 200);
+    const authorization = await authorize.json();
+    assert.equal(
+      new URL(authorization.authorizationUrl).searchParams.get("redirect_uri"),
+      redirectUri,
+    );
+  }
+});
+
+Deno.test("account identity authorization allows the launcher callback", async () => {
+  const { app } = setup();
+  const signedIn = await (await launcher(app, "microsoft", "account-link"))
+    .json();
+  const redirectUri = "http://127.0.0.1:25562/commercial-auth";
+  const response = await app.request(
+    "/v1/account/identities/discord/authorize",
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${signedIn.session.accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        redirectUri,
+        state: "account-link-state",
+        codeChallenge: await sha256("account-link-verifier"),
+      }),
+    },
+  );
+
+  assert.equal(response.status, 200);
+  const authorization = await response.json();
+  assert.equal(
+    new URL(authorization.authorizationUrl).searchParams.get("redirect_uri"),
+    redirectUri,
+  );
+});
+
 Deno.test("browser and launcher sessions receive the user scopes required by AI and modpack routes", async () => {
   const { app, runtime } = setup();
   const launcherSession = await (await launcher(app, "microsoft", "scopes"))
@@ -263,7 +315,9 @@ Deno.test("OAuth transactions reject state mismatch, invalid redirects, and expi
         redirectUri: "https://attacker.invalid/callback",
         state: "state",
         codeChallenge: "challenge",
-        allowedRedirectUris: ["https://xmcl.app/oauth/callback"],
+        redirectPolicy: createOAuthRedirectPolicy([
+          "https://xmcl.app/oauth/callback",
+        ]),
       }),
     (error: unknown) =>
       error instanceof Error &&
@@ -276,7 +330,9 @@ Deno.test("OAuth transactions reject state mismatch, invalid redirects, and expi
     redirectUri: "https://xmcl.app/oauth/callback",
     state: "expected",
     codeChallenge: await sha256("verifier"),
-    allowedRedirectUris: ["https://xmcl.app/oauth/callback"],
+    redirectPolicy: createOAuthRedirectPolicy([
+      "https://xmcl.app/oauth/callback",
+    ]),
   });
   await assert.rejects(
     () =>

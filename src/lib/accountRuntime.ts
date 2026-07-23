@@ -7,6 +7,7 @@ import { createDiscordOAuth } from "./oauth/discord.ts";
 import { createGoogleOAuth } from "./oauth/google.ts";
 import { createMicrosoftOAuth } from "./oauth/microsoft.ts";
 import { createModrinthOAuth } from "./oauth/modrinth.ts";
+import { createOAuthRedirectPolicy } from "./oauth/redirectPolicy.ts";
 import type { OAuthRegistry } from "./oauth/types.ts";
 import { SessionService } from "./session.ts";
 
@@ -25,10 +26,13 @@ export async function getAccountRuntime(
   const db = await c.get("getDb")();
   const config = getConfig(c);
   const repository = new MongoAccountRepository(db);
-  const redirects = (config.XMCL_OAUTH_REDIRECT_URIS ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
+  const redirectPolicy = createOAuthRedirectPolicy(
+    (config.XMCL_OAUTH_REDIRECT_URIS ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+  const redirects = [...redirectPolicy.declaredRedirectUris];
   const oauth: OAuthRegistry = {
     microsoft: createMicrosoftOAuth({
       clientId: config.XMCL_MICROSOFT_CLIENT_ID ?? "",
@@ -36,7 +40,7 @@ export async function getAccountRuntime(
       redirectUris: redirects,
     }),
     modrinth: createModrinthOAuth({
-      clientId: config.XMCL_MODRINTH_CLIENT_ID ?? "",
+      clientId: config.XMCL_MODRINTH_CLIENT_ID,
       clientSecret: config.XMCL_MODRINTH_CLIENT_SECRET,
       redirectUris: redirects,
     }),
@@ -44,13 +48,11 @@ export async function getAccountRuntime(
       clientId: config.XMCL_GOOGLE_CLIENT_ID ?? "",
       clientSecret: config.XMCL_GOOGLE_CLIENT_SECRET,
       redirectUris: redirects,
-      launcherAvailable: config.XMCL_GOOGLE_LAUNCHER_ENABLED === "true",
     }),
     discord: createDiscordOAuth({
       clientId: config.XMCL_DISCORD_CLIENT_ID ?? "",
       clientSecret: config.XMCL_DISCORD_CLIENT_SECRET,
       redirectUris: redirects,
-      launcherAvailable: config.XMCL_DISCORD_LAUNCHER_ENABLED === "true",
     }),
   };
   const secret = config.XMCL_SESSION_SECRET;

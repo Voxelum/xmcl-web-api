@@ -33,9 +33,9 @@ import type { AppEnv } from "./types.ts";
 /**
  * Builds the shared Hono application. This is the single source of truth for all
  * HTTP routes and is reused by every platform entry point (Deno, Cloudflare
- * Workers, Azure Functions). Platform-specific behaviour (DB connector, realtime
- * upgrade, translation queue, geo) is injected via context variables set in
- * per-platform middleware.
+ * Workers, Azure Functions). Platform-specific behaviour (DB connector,
+ * realtime upgrade, geo) is injected via context variables set in per-platform
+ * middleware.
  */
 export interface CreateAppOptions {
   /**
@@ -54,7 +54,7 @@ export function createApp(
   app.use("*", cors());
 
   // Platform entry points inject their middleware here (geo, DB, realtime
-  // upgrade, translation queue) before the shared routes run.
+  // upgrade) before the shared routes run.
   register?.(app);
 
   app.route("/", latest);

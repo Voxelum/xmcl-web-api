@@ -14,9 +14,7 @@ export interface AppConfig {
   RTC_SECRET?: string;
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_APP_ID?: string;
-  AGNES_API_KEY?: string;
   CURSEFORGE_KEY?: string;
-  MODRINTH_SECRET?: string;
   TURNS?: string;
   MONGO_CONNECION_STRING?: string;
   MONGODB_NAME?: string;
@@ -35,14 +33,11 @@ export interface AppConfig {
   XMCL_GOOGLE_CLIENT_SECRET?: string;
   XMCL_DISCORD_CLIENT_ID?: string;
   XMCL_DISCORD_CLIENT_SECRET?: string;
-  XMCL_OAUTH_REDIRECT_URIS?: string;
-  XMCL_GOOGLE_LAUNCHER_ENABLED?: string;
-  XMCL_DISCORD_LAUNCHER_ENABLED?: string;
   /**
-   * Enables routes that require the commercial durable-adapter composition.
-   * This remains disabled until concrete production adapters are available.
+   * Optional comma-separated exact HTTPS callbacks for website OAuth.
+   * Launcher loopback callbacks are code-owned and require no configuration.
    */
-  XMCL_COMMERCIAL_ENABLED?: string;
+  XMCL_OAUTH_REDIRECT_URIS?: string;
 }
 
 export function getConfig(c: Context): AppConfig {

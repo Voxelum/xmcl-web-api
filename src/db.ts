@@ -4,6 +4,14 @@ import type { AppConfig } from "./config.ts";
 /** The subset of the native MongoDB collection API the routes rely on. */
 export interface MongoCollection {
   findOne(filter: Record<string, unknown>): Promise<any>;
+  findOneAndUpdate(
+    filter: Record<string, unknown>,
+    update: Record<string, unknown>,
+    options?: {
+      sort?: Record<string, 1 | -1>;
+      returnDocument?: "before" | "after";
+    },
+  ): Promise<any>;
   updateOne(
     filter: Record<string, unknown>,
     update: Record<string, unknown>,

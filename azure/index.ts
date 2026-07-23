@@ -13,9 +13,9 @@ import { getDb } from "../src/platform/db_npm.ts";
 // Azure-specific platform behaviour:
 //  - geo is resolved from the proxy-forwarded IP via geoip-country.
 //  - MongoDB is accessed via the npm driver (MikroORM).
-//  - there is no translation queue, so /translation translates inline.
+//  - translation cache misses are recorded for the external batch worker.
 //  - there is no realtime support, so /group/:id returns 501.
-const hono = createProductionApp(process.env, (a) => {
+const hono = createProductionApp((a) => {
   a.use("*", geoipMiddleware);
   a.use("*", createDbMiddleware(getDb));
 });

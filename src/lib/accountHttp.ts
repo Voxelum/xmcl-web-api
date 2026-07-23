@@ -45,10 +45,18 @@ export function handleAccountError(error: Error, c: Context) {
   console.error("Account request failed", {
     requestId: id,
     error: error.name,
+    message: sanitizeErrorMessage(error.message),
   });
   return c.json({
     error: "internal_error",
     message: "Internal server error",
     requestId: id,
   }, 500);
+}
+
+function sanitizeErrorMessage(message: string) {
+  return message.replace(
+    /mongodb(?:\+srv)?:\/\/[^@\s/]+@/gi,
+    "mongodb://***@",
+  );
 }

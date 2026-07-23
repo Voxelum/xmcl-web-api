@@ -7,6 +7,7 @@ import {
   getAccountRuntime,
 } from "../lib/accountRuntime.ts";
 import { handleAccountError, jsonBody } from "../lib/accountHttp.ts";
+import { createOAuthRedirectPolicy } from "../lib/oauth/redirectPolicy.ts";
 import { isOAuthProvider, type OAuthProvider } from "../lib/oauth/types.ts";
 import type { AccountRuntimeResolver } from "../middleware/xmclAuth.ts";
 import { xmclAuth } from "../middleware/xmclAuth.ts";
@@ -59,7 +60,9 @@ export function createSessionRoutes(
       redirectUri: c.req.query("redirectUri") ?? "",
       state: c.req.query("state") ?? "",
       codeChallenge: c.req.query("codeChallenge") ?? "",
-      allowedRedirectUris: adapter.declaration.redirectUris,
+      redirectPolicy: createOAuthRedirectPolicy(
+        adapter.declaration.redirectUris,
+      ),
     });
     return c.json({
       transactionId: transaction.transactionId,

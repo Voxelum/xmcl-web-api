@@ -4,6 +4,7 @@ import type { AppEnv } from "../types.ts";
 import { AccountError } from "../lib/account.ts";
 import { getAccountRuntime } from "../lib/accountRuntime.ts";
 import { handleAccountError, jsonBody, requestId } from "../lib/accountHttp.ts";
+import { createOAuthRedirectPolicy } from "../lib/oauth/redirectPolicy.ts";
 import { isOAuthProvider, type OAuthProvider } from "../lib/oauth/types.ts";
 import type { AccountRuntimeResolver } from "../middleware/xmclAuth.ts";
 import { xmclAuth } from "../middleware/xmclAuth.ts";
@@ -93,7 +94,9 @@ export function createAccountRoutes(
       redirectUri: String(body.redirectUri ?? ""),
       state: String(body.state ?? ""),
       codeChallenge: String(body.codeChallenge ?? ""),
-      allowedRedirectUris: adapter.declaration.redirectUris,
+      redirectPolicy: createOAuthRedirectPolicy(
+        adapter.declaration.redirectUris,
+      ),
     });
     return c.json({
       transactionId: transaction.transactionId,
