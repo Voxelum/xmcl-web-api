@@ -28,6 +28,9 @@ import usageSettlement from "./routes/usageSettlement.ts";
 import worker from "./routes/worker.ts";
 import ai from "./routes/ai.ts";
 import modpackDeployments from "./routes/modpackDeployments.ts";
+import sharedHosting from "./routes/sharedHosting.ts";
+import sharedHostingServices from "./routes/sharedHostingServices.ts";
+import sharedNodeTransport from "./routes/sharedNodeTransport.ts";
 import type { AppEnv } from "./types.ts";
 
 /**
@@ -43,6 +46,12 @@ export interface CreateAppOptions {
    * enables these routes once its complete durable composition is available.
    */
   commercialRoutes?: boolean;
+  /** Public payment routes can be enabled without shared-hosting composition. */
+  billingRoutes?: boolean;
+  /** Mounts authenticated internal node transport after complete composition. */
+  sharedNodeTransportRoutes?: boolean;
+  /** PayPal routes stay separately gated until provider reconciliation is deployed. */
+  paymentRoutes?: boolean;
 }
 
 export function createApp(
@@ -74,16 +83,26 @@ export function createApp(
   app.route("/", backupStoragePolicy);
   app.route("/", session);
   app.route("/", account);
-  if (options.commercialRoutes !== false) {
+  const enableCommercialRoutes = options.commercialRoutes !== false;
+  if (enableCommercialRoutes || options.billingRoutes === true) {
+    app.route("/", billing);
+  }
+  if (enableCommercialRoutes || options.paymentRoutes === true) {
+    app.route("/", paypal);
+  }
+  if (enableCommercialRoutes) {
     app.route("/", worldBackups);
     app.route("/", servers);
     app.route("/", operations);
-    app.route("/", billing);
-    app.route("/", paypal);
     app.route("/", usageSettlement);
     app.route("/", worker);
     app.route("/", ai);
     app.route("/", modpackDeployments);
+    app.route("/", sharedHosting);
+    app.route("/", sharedHostingServices);
+  }
+  if (options.sharedNodeTransportRoutes === true) {
+    app.route("/", sharedNodeTransport);
   }
 
   // Index: list the registered routes (mirrors the original `/`).

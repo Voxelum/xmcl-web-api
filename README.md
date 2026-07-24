@@ -165,20 +165,126 @@ The same variables are used across every runtime (read via `hono/adapter`:
 - `XMCL_MODRINTH_CLIENT_ID` - Modrinth OAuth client ID (defaults to the
   existing registered XMCL client ID)
 - `XMCL_MODRINTH_CLIENT_SECRET` - Modrinth OAuth client secret
-- `XMCL_OAUTH_REDIRECT_URIS` - optional comma-separated exact HTTPS callbacks
-  for website OAuth. The launcher callback uses
+- `BILLING_CURRENCY` - ISO-4217 settlement currency for the durable billing
+  ledger; defaults to `USD`.
+- `BILLING_RATES_JSON` - required JSON array of versioned cash rates before
+  billing services can be composed. Do not enable public billing routes without
+  an approved rate table and a real payment-provider verifier. Shared-hosting
+  uses the immutable `hour` rate versions `101` (`6` cents), `102` (`9`
+  cents), and `103` (`12` cents).
+- Shared hosting subscriptions charge their monthly base fee immediately and
+  again at each UTC calendar-month renewal. The approved catalog is Small
+  (4GiB, 2 shared CPU / burst 4, 32GiB persistent data) at `$4/month + $0.06/h`;
+  Medium (6GiB, 3 / burst 6, 48GiB) at `$6/month + $0.09/h`; and Large (8GiB,
+  4 / burst 8, 64GiB) at `$8/month + $0.12/h`. The scheduler must settle
+  running shared containers against rate versions `101`, `102`, and `103`;
+  it is intentionally not enabled in production yet.
+- `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`,
+  `PAYPAL_RETURN_URL`, and `PAYPAL_CANCEL_URL` - required together for the
+  production PayPal Orders API and signed webhook verifier. `PAYPAL_API_BASE_URL`
+  is optional and defaults to `https://api-m.paypal.com`.
+- Shared-hosting workspaces have one canonical S3-compatible object prefix per
+  service. A global scheduler packs only `starting`, `running`, and `stopping`
+  containers into a node's hard memory, shared CPU, and local-NVMe workspace
+  limits. A trusted node agent restores the canonical workspace before Docker
+  start, then flushes it on stop before the API releases the slot. The public
+  API never exposes node IDs, object prefixes, or storage credentials.
+- Persistent shared-hosting data is measured from the canonical synced revision.
+  The plan quota is included in the base fee; an overage gets a seven-day
+  notification/grace window and is then blocked from starting. Canonical data is
+  never deleted automatically by the quota policy.
+- Shared-node transport is mounted only when every required shared-hosting
+  setting is present **and** the runtime supplies a server-only
+  `SHARED_NODE_WORKSPACE_SIGNER` binding. Cloudflare constructs that binding
+  from the Worker secrets `XMCL_VULTR_OBJECT_STORAGE_ACCESS_KEY` and
+  `XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY` plus
+  `XMCL_VULTR_OBJECT_STORAGE_ENDPOINT`,
+  `XMCL_VULTR_OBJECT_STORAGE_REGION`, and
+  `XMCL_VULTR_OBJECT_STORAGE_BUCKET`. The key and secret must be Worker
+  secrets, never text responses, node configuration, logs, or exception data.
+  Absent or malformed signer configuration leaves internal transport routes
+  unmounted; public shared-hosting routes remain disabled.
+- The v2 internal transfer contract exposes only authenticated,
+  command/assignment/lease-bound `workspace-grants/restore`,
+  `workspace-grants/sync`, and `workspace-grants/publish` endpoints. Grants
+  are exact short-lived Vultr SigV4 GET/PUT URLs; they never grant List, Delete,
+  bucket access, arbitrary keys, or storage credentials. The canonical layout
+  is `shared-hosting/<accountId>/<serviceId>/content/<sha256>.tar.zst`,
+  `revisions/<revision>/world/<shard>.tar.zst`,
+  `revisions/<revision>/config.tar.zst`, and manifest-last
+  `revisions/<revision>/manifest.json` (schema version 2). A manifest carries
+  its complete safe local-path mapping and descriptor aggregate/manifest hash;
+  schema v1 file-per-object manifests are not compatible and must be resynced,
+  never silently restored.
+- Shared-node provisioning additionally requires
+  `XMCL_SHARED_AGENT_RELEASE_URL` / `XMCL_SHARED_AGENT_RELEASE_SHA256` and
+  `XMCL_SHARED_QUOTA_HELPER_RELEASE_URL` /
+  `XMCL_SHARED_QUOTA_HELPER_RELEASE_SHA256`. Both artifacts are downloaded only
+  over HTTPS and SHA-256 verified. The quota helper is installed root-owned at
+  `/usr/local/libexec/xmcl-quota-helper`; its configuration is root-owned and
+  non-writable by the agent.
+- `VULTR_SHARED_NODE_BLOCK_STORAGE_GIB` is a required positive integer with no
+  default. It must at least cover the selected profile's advertised workspace
+  capacity and include headroom for restore/archive/sync staging.
+  `VULTR_SHARED_NODE_BLOCK_STORAGE_TYPE` is also required and must be
+  `high_perf` or `storage_opt`. Size and type directly affect recurring Vultr
+  Block Storage charges. Cloud-init receives the created volume ID, resolves
+  only its stable `/dev/disk/by-id` link, rejects the root disk, and mounts
+  verified XFS with project quotas; operators never configure a device path.
+  The volume is disposable node-local cache only after every active workspace
+  has successfully synced to canonical Vultr Object Storage. Drain retains
+  uncertain resources, then deletes the VM, confirms volume detachment, and
+  deletes only the request-owned volume. It also obtains and validates the
+  node's public ingress IPv4 only from Vultr's link-local metadata endpoint
+  before starting the agent; it never relies on external IP-discovery services.
+- Shared nodes additionally require a long-lived,
+  pool-exclusive Vultr Firewall Group and the Worker settings
+  `VULTR_SHARED_NODE_FIREWALL_GROUP_ID`,
+  `XMCL_SHARED_NODE_INGRESS_PORT_MIN`, and
+  `XMCL_SHARED_NODE_INGRESS_PORT_MAX`. Create the group outside this service;
+  provisioning neither creates, deletes, nor repairs firewall attachment. Add
+  exactly one inbound rule: IPv4 TCP `<min>:<max>` from `0.0.0.0/0`. The
+  scheduler's control-plane range and this firewall range must be identical and
+  large enough for the planned concurrent services per node. Do not add SSH
+  (22), metrics (9464), Docker (2375/2376), RCON, control-plane, storage, or
+  catch-all inbound rules. Leave IPv6 unassigned/disabled on these VMs unless an
+  equivalent reviewed IPv6 ingress design is deployed. The group ID is
+  server-only configuration, never a browser request, cloud-init value, node
+  command, or public API response.
+- `XMCL_OAUTH_REDIRECT_URIS` - comma-separated exact HTTPS callbacks for
+  website OAuth. For the production website this includes
+  `https://xmcl.app/oauth/callback`; register the same exact URL in every
+  enabled OAuth provider application. The launcher callback uses
   `http://127.0.0.1:<port>/commercial-auth` and requires no environment
   configuration.
 - `TURNS` - TURN server configuration (format: "realm:ip,realm:ip")
 - `CLOUDFLARE_API_TOKEN` - Cloudflare TURN API token (optional, `/rtc?type=cloudflare`)
 - `CLOUDFLARE_APP_ID` - Cloudflare TURN app id (optional)
-- Commercial routes remain unmounted in the production entry points until their
-  complete durable adapter composition is implemented in code. This is a
-  code-owned safety boundary, not an environment toggle.
+- Shared-hosting and other commercial routes remain unmounted in the production
+  entry points until their complete durable adapter composition is implemented
+  in code. The public balance/rate ledger routes are independently enabled;
+  PayPal routes remain code-gated until pending-order reconciliation is deployed.
+  This is a code-owned safety boundary, not an environment toggle.
 
 ### Cloudflare-only bindings (wrangler.toml)
 
 - `GROUP_ROOM` - Durable Object namespace (class `GroupRoom`) for `/group/:id`
+- `XMCL_VULTR_OBJECT_STORAGE_ACCESS_KEY` and
+  `XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY` - Worker **secret** bindings for the
+  v2 S3 SigV4 signer. They require the endpoint, region, and bucket settings
+  above and must not be configured on node VMs.
+
+Before production approval, stage the complete real-Vultr path: `VM enroll ->
+restore revision -> start -> stop -> upload blobs -> publish manifest -> report
+sync -> slot release -> restore on another node`. Unit tests and local emulators
+do not establish production readiness.
+
+Also verify the firewall against an actual provisioned Vultr VM: inspect its
+`firewall_group_id`, confirm only the configured Minecraft port range is
+reachable, verify metrics/SSH/Docker/RCON are unreachable, start one service on
+a reserved port and connect to it, then stop it and verify that port no longer
+accepts a Minecraft connection. Do not claim production readiness until both
+staged flows complete successfully.
 
 
 ## Development

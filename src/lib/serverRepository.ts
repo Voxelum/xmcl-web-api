@@ -7,13 +7,20 @@ export type ServerStatus =
   | "starting"
   | "running"
   | "stopping"
+  | "archiving"
+  | "archived"
+  | "restoring"
   | "suspended"
   | "billing_blocked"
   | "failed"
   | "deleting"
   | "deleted";
 
-export type DesiredServerStatus = "running" | "stopped" | "deleted";
+export type DesiredServerStatus =
+  | "running"
+  | "stopped"
+  | "archived"
+  | "deleted";
 export type TaskStatus =
   | "queued"
   | "running"
@@ -25,6 +32,8 @@ export type ServerOperation =
   | "start"
   | "stop"
   | "restart"
+  | "archive"
+  | "restore"
   | "delete"
   | "forced_stop";
 export type LeaseStatus = "reserved" | "active" | "settled" | "released";
@@ -42,6 +51,8 @@ export interface ServerRecord {
   commandSource: "user" | "worker" | "m3" | "m5" | "m7" | "reconciler";
   taskId: string;
   providerResourceId?: string;
+  snapshotId?: string;
+  archivedAt?: string;
   address?: string;
   leaseId?: string;
   stopDeadline?: string;

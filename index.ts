@@ -15,7 +15,7 @@ import { createProductionApp } from "./src/lib/productionComposition.ts";
 const app = createProductionApp((a) => {
   a.use("*", geoipMiddleware);
   a.use("*", createDbMiddleware(getDb));
-});
+}, Deno.env.toObject());
 
 Deno.serve({ port: 8080 }, (request) => {
   const group = matchGroupUpgrade(request);

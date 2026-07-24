@@ -21,6 +21,14 @@ import type {
   WorkerDeploymentGateway,
 } from "./lib/deploymentTasks.ts";
 import { MemoryBillingStore } from "./lib/ledger.ts";
+import {
+  MemorySharedHostingSchedulerRepository,
+  SharedHostingScheduler,
+} from "./lib/sharedHostingScheduler.ts";
+import {
+  SHARED_HOSTING_RATES,
+  SharedHostingService,
+} from "./lib/sharedHosting.ts";
 import { createModpackDeploymentRuntime } from "./lib/modpackDeploymentRuntime.ts";
 import { createStoredZip, jsonBytes } from "./lib/modpackTestFixtures.ts";
 import type {
@@ -217,6 +225,7 @@ function demoOAuth(provider: OAuthProvider): OAuthProviderAdapter {
 
 class DemoProvider implements VultrAdapter {
   private readonly instances = new Map<string, VultrInstance>();
+  private readonly snapshots = new Set<string>();
 
   async validateCapacity(plan: string) {
     if (plan !== "vc2-2c-4gb" && plan !== "vc2-4c-8gb") {
@@ -246,6 +255,15 @@ class DemoProvider implements VultrAdapter {
 
   async reconcileCreate(serverId: string) {
     return [...this.instances.values()].find((item) => item.label === serverId);
+  }
+
+  async createSnapshot(instanceId: string) {
+    if (!this.instances.has(instanceId)) {
+      throw new Error("local demo instance does not exist");
+    }
+    const snapshotId = `demo-snapshot-${instanceId}`;
+    this.snapshots.add(snapshotId);
+    return { snapshotId };
   }
 
   async getInstance(instanceId: string) {
@@ -633,11 +651,12 @@ export async function createLocalDemoApp(): Promise<LocalDemoApp> {
   const billing = new BillingService(billingStore, {
     currency: "USD",
     rates: [
+      ...SHARED_HOSTING_RATES,
       {
         resource: "server_time",
-        unit: "second",
+        unit: "hour",
         rateVersion: 1,
-        amountMinorPerUnit: 1,
+        amountMinorPerUnit: 6,
         effectiveAt: "2026-01-01T00:00:00.000Z",
       },
       {
@@ -673,6 +692,25 @@ export async function createLocalDemoApp(): Promise<LocalDemoApp> {
   });
   const usage = new UsageSettlementService(billingStore, billing, {
     createId: nextId,
+  });
+  const sharedHosting = new SharedHostingService(billingStore, {
+    now: () => new Date(),
+    createId: nextId,
+  });
+  const sharedHostingScheduler = new SharedHostingScheduler(
+    new MemorySharedHostingSchedulerRepository(),
+    sharedHosting,
+    { dispatch: async () => {} },
+    undefined,
+    { region: "local", createId: nextId },
+  );
+  await sharedHostingScheduler.registerNode({
+    nodeId: "demo-shared-node",
+    region: "local",
+    status: "ready",
+    totalMemoryMiB: 12 * 1024,
+    totalSharedCpu: 8,
+    totalWorkspaceGiB: 128,
   });
   const paypal = new PayPalService(
     billing,
@@ -1027,6 +1065,8 @@ export async function createLocalDemoApp(): Promise<LocalDemoApp> {
       context.set("billingService", billing);
       context.set("paypalService", paypal);
       context.set("usageSettlementService", usage);
+      context.set("sharedHostingService", sharedHosting);
+      context.set("sharedHostingScheduler", sharedHostingScheduler);
       context.set("serverControlRuntime", serverRuntime);
       context.set("workerRuntime", workerRuntime);
       context.set("worldBackupService", worldBackups);

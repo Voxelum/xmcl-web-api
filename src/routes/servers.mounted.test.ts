@@ -13,6 +13,7 @@ const accountId = "account_m4_mounted";
 const provider: VultrAdapter = {
   validateCapacity: () => Promise.resolve(),
   createInstance: () => Promise.reject(new Error("not used by route test")),
+  createSnapshot: () => Promise.reject(new Error("not used by route test")),
   reconcileCreate: () => Promise.resolve(undefined),
   getInstance: () => Promise.resolve(undefined),
   start: () => Promise.resolve(),

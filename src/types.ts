@@ -18,8 +18,14 @@ import type { AccountRuntime } from "./lib/accountRuntime.ts";
 import type { WorkerRuntime } from "./lib/worker/runtime.ts";
 import type { XmclPrincipal } from "./lib/session.ts";
 import type { BillingService } from "./lib/billing.ts";
+import type { BillingRuntime } from "./lib/billingRuntime.ts";
 import type { PayPalService } from "./lib/paypal.ts";
 import type { UsageSettlementService } from "./lib/usageSettlement.ts";
+import type { SharedHostingService } from "./lib/sharedHosting.ts";
+import type { SharedHostingScheduler } from "./lib/sharedHostingScheduler.ts";
+import type { SharedHostingBillingScheduledWork } from "./lib/sharedHostingScheduling.ts";
+import type { SharedNodeTransportService } from "./lib/sharedNodeTransport.ts";
+import type { VultrSharedNodeProvisioner } from "./lib/sharedNodeProvisioner.ts";
 import type { AiServiceDependencies } from "./lib/ai/service.ts";
 import type { ServerControlRuntime } from "./lib/serverControlRuntime.ts";
 import type {
@@ -87,8 +93,18 @@ export interface AppVariables {
   };
   /** Billing dependencies are injected by platform composition; never browser supplied. */
   billingService?: BillingService;
+  billingRuntime?: BillingRuntime;
   paypalService?: PayPalService;
   usageSettlementService?: UsageSettlementService;
+  /** Shared-hosting plan subscriptions and renewal billing. */
+  sharedHostingService?: SharedHostingService;
+  /** Global shared-node scheduler; Docker and direct grant transfers remain node-agent owned. */
+  sharedHostingScheduler?: SharedHostingScheduler;
+  /** Trusted UTC renewal sweep; never supplied by a browser request. */
+  sharedHostingBillingScheduledWork?: SharedHostingBillingScheduledWork;
+  /** Authenticated internal transport for shared-node agents. */
+  sharedNodeTransport?: SharedNodeTransportService;
+  sharedNodeProvisioner?: VultrSharedNodeProvisioner;
   /** Complete ServerControl composition; absent routes and scheduled work fail explicitly. */
   serverControlRuntime?: ServerControlRuntime;
   /** Platform composition injects ServerControl/Billing-backed Worker worker adapters here. */
@@ -111,6 +127,7 @@ export interface AppVariables {
  */
 export interface AppBindings {
   GROUP_ROOM?: unknown;
+  SHARED_NODE_WORKSPACE_SIGNER?: unknown;
   [key: string]: unknown;
 }
 

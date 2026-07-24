@@ -67,7 +67,8 @@ the existing account read/write compatibility rules.
 | World backups | `/v1/backup-sources/*/backups`, `/v1/world-backups/*`, `/v1/internal/world-backups/*/events` | User token for customer operations; restore-worker token for callback events. Create/write routes require `Idempotency-Key`. |
 | Billing and payments | `/v1/billing/*`, `/v1/billing/paypal/*`, `/v1/webhooks/paypal` | User token for customer routes. PayPal webhook is intentionally unauthenticated but its mock verifier accepts the supplied payload. Payment creation requires `Idempotency-Key`. |
 | Internal usage | `/v1/internal/usage/{authorize,release,settle}` | Internal service token with `billing:internal`. Authorization and settlement validate body/header idempotency keys. |
-| Servers and tasks | `/v1/servers`, `/v1/tasks/*` | User token. Mutations require `Idempotency-Key`; repeated equal requests return the stored task and changed payloads return `409 idempotency_conflict`. |
+| Servers and tasks | `/v1/servers`, `/v1/tasks/*` | User token. Mutations require `Idempotency-Key`; `stop` closes Minecraft while retaining the instance, `archive` snapshots a stopped instance and releases it, and `restore` provisions a new instance from that snapshot. Repeated equal requests return the stored task and changed payloads return `409 idempotency_conflict`. |
+| Shared hosting | `/v1/shared-hosting/plans`, `/v1/shared-hosting/subscriptions`, `/v1/shared-hosting/services` | User token. A subscription immediately charges its monthly base fee. Service start selects the local demo node and issues a mock restore-and-start command; no Docker or S3 request is made. |
 | Worker callbacks | `/v1/internal/servers/:serverId/worker/*` | Register with the bootstrap credential plus HMAC headers; subsequent requests use the issued `Worker` token and fresh signed nonce. |
 | AI | `/v1/ai/models`, `/v1/ai/:capability` | User token with `ai:invoke`. The `troubleshoot` capability uses the `local-demo-small` deterministic provider and requires `Idempotency-Key`. `GET /v1/ai/usage` is intentionally excluded because that route has no usage-projection adapter; it returns `503 ai_usage_not_configured`. |
 | Modpack deployment | `/v1/servers/*/modpack-imports`, `/v1/modpack-imports/*`, `/v1/modpack-deployments/*`, `/v1/modpack-tasks/*` | User token with `modpack:read` or `modpack:write`. The profile response supplies the required archive metadata. |
@@ -152,6 +153,9 @@ upload URL is created; completing the import runs validation synchronously.
   verifier. No PayPal endpoint or credential is reachable.
 - Server operations use an in-memory provider adapter; no Vultr API call or
   token is possible.
+- Shared hosting uses an in-memory global slot scheduler. Production node agents
+  own Docker and S3-compatible object-storage credentials; the API sends only
+  idempotent workspace restore/start and stop/sync commands.
 - AI returns a deterministic string and settles against an in-memory ledger;
   no model/provider request is made.
 - Backup and modpack upload URLs use the `mock://` scheme. The corresponding

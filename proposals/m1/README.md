@@ -19,7 +19,7 @@ not modify `contracts/`.
 ## Bearer XMCL session transport
 
 Authenticated requests use only `Authorization: Bearer <XMCL access token>`. The
-token is short-lived (currently 15 minutes), is scoped, and identifies an opaque
+access token expires after 24 hours, is scoped, and identifies an opaque
 `accountId` plus session/family IDs. It is never sent in URLs, persisted by a
 renderer, written to ordinary logs, or included in events. Refresh tokens are
 accepted only in `POST /v1/sessions/refresh` JSON bodies; a replay revokes the

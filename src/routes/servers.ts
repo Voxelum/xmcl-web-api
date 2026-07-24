@@ -264,7 +264,15 @@ export function createServerRoutes(
     }
   });
 
-  for (const operation of ["start", "stop", "restart"] as const) {
+  for (
+    const operation of [
+      "start",
+      "stop",
+      "restart",
+      "archive",
+      "restore",
+    ] as const
+  ) {
     routes.post(`/v1/servers/:serverId/${operation}`, async (c) => {
       try {
         const dependencies = await resolve(c);

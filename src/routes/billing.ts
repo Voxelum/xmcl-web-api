@@ -1,6 +1,7 @@
 import { type Context, Hono } from "hono";
 import { AccountError } from "../lib/account.ts";
 import { handleAccountError } from "../lib/accountHttp.ts";
+import { getBillingRuntime } from "../lib/billingRuntime.ts";
 import type { BillingService } from "../lib/billing.ts";
 import { getAccountRuntime } from "../lib/accountRuntime.ts";
 import type { AccountRuntimeResolver } from "../middleware/xmclAuth.ts";
@@ -19,25 +20,29 @@ export function createBillingRoutes(
     "/v1/billing/balance",
     async (c) =>
       c.json(
-        await billingFor(c, billing).balance(c.get("xmclPrincipal")!.accountId),
+        await (await billingFor(c, billing)).balance(
+          c.get("xmclPrincipal")!.accountId,
+        ),
       ),
   );
   app.get(
     "/v1/billing/rates",
-    (c) => c.json(billingFor(c, billing).listRates()),
+    async (c) => c.json((await billingFor(c, billing)).listRates()),
   );
   app.get(
     "/v1/billing/orders",
     async (c) =>
       c.json(
-        await billingFor(c, billing).orders(c.get("xmclPrincipal")!.accountId),
+        await (await billingFor(c, billing)).orders(
+          c.get("xmclPrincipal")!.accountId,
+        ),
       ),
   );
   app.get(
     "/v1/billing/orders/:orderId",
     async (c) =>
       c.json(
-        await billingFor(c, billing).order(
+        await (await billingFor(c, billing)).order(
           c.get("xmclPrincipal")!.accountId,
           c.req.param("orderId"),
         ),
@@ -47,7 +52,7 @@ export function createBillingRoutes(
     "/v1/billing/ledger",
     async (c) =>
       c.json({
-        items: await billingFor(c, billing).ledger(
+        items: await (await billingFor(c, billing)).ledger(
           c.get("xmclPrincipal")!.accountId,
         ),
       }),
@@ -56,7 +61,7 @@ export function createBillingRoutes(
     "/v1/billing/usage",
     async (c) =>
       c.json({
-        items: await billingFor(c, billing).usage(
+        items: await (await billingFor(c, billing)).usage(
           c.get("xmclPrincipal")!.accountId,
         ),
       }),
@@ -64,10 +69,15 @@ export function createBillingRoutes(
   return app;
 }
 
-function billingFor(c: Context<AppEnv>, injected?: BillingService) {
+async function billingFor(c: Context<AppEnv>, injected?: BillingService) {
   const service = injected ?? c.var.billingService;
-  if (!service) throw new AccountError(503, "billing_unavailable");
-  return service;
+  if (service) return service;
+  try {
+    return (await getBillingRuntime(c)).billing;
+  } catch (error) {
+    if (error instanceof AccountError) throw error;
+    throw new AccountError(503, "billing_unavailable");
+  }
 }
 
 export function requireIdempotencyKey(

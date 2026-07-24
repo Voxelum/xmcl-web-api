@@ -5,6 +5,13 @@ import { createProductionApp } from "../src/lib/productionComposition.ts";
 import { createDbMiddleware } from "../src/middleware/db.ts";
 import { matchGroupUpgrade } from "../src/realtime/match.ts";
 import { runServerControlScheduledSweep } from "../src/lib/serverControlScheduling.ts";
+import { runSharedHostingBillingScheduledSweep } from "../src/lib/sharedHostingScheduling.ts";
+import { runSharedNodeScheduledSweep } from "../src/lib/sharedNodeScheduling.ts";
+import {
+  createSharedHostingRuntime,
+} from "../src/lib/sharedHostingRuntime.ts";
+import { hasSharedNodeRuntimeSettings } from "../src/lib/productionComposition.ts";
+import { createS3SigV4Presigner } from "../src/lib/s3SigV4.ts";
 import type { AppEnv } from "../src/types.ts";
 import type { DbFactory } from "../src/db.ts";
 import type { ExecutionContext, ScheduledController } from "./cf_types.ts";
@@ -17,8 +24,8 @@ export { GroupRoom };
 // rejects in Worker global scope. Loading the Mongo connector on first database
 // use keeps the Worker module side-effect free.
 const getCloudflareDb: DbFactory = async (config) => {
-  const { getDb } = await import("../src/platform/db_npm.ts");
-  return getDb(config);
+  const { createDb } = await import("../src/platform/db_npm.ts");
+  return createDb(config);
 };
 
 /**
@@ -70,11 +77,20 @@ const platformMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   await next();
 });
 
-function createCloudflareApp(env: AppConfig) {
+function createCloudflareApp(
+  env: AppConfig,
+) {
+  const signer = createS3SigV4Presigner({
+    endpoint: env.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT,
+    region: env.XMCL_VULTR_OBJECT_STORAGE_REGION,
+    bucket: env.XMCL_VULTR_OBJECT_STORAGE_BUCKET,
+    accessKey: env.XMCL_VULTR_OBJECT_STORAGE_ACCESS_KEY,
+    secretKey: env.XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY,
+  });
   return createProductionApp((a) => {
     a.use("*", createDbMiddleware(getCloudflareDb));
     a.use("*", platformMiddleware);
-  });
+  }, env, { SHARED_NODE_WORKSPACE_SIGNER: signer });
 }
 
 export default {
@@ -104,6 +120,42 @@ export default {
             await runServerControlScheduledSweep(
               env.SERVER_CONTROL_SCHEDULED_WORK,
               new Date(controller.scheduledTime).toISOString(),
+            );
+          }
+          const scheduledAt = new Date(controller.scheduledTime).toISOString();
+          const signer = createS3SigV4Presigner({
+            endpoint: env.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT,
+            region: env.XMCL_VULTR_OBJECT_STORAGE_REGION,
+            bucket: env.XMCL_VULTR_OBJECT_STORAGE_BUCKET,
+            accessKey: env.XMCL_VULTR_OBJECT_STORAGE_ACCESS_KEY,
+            secretKey: env.XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY,
+          });
+          if (hasSharedNodeRuntimeSettings(env, {
+            SHARED_NODE_WORKSPACE_SIGNER: signer,
+          })) {
+            const runtime = createSharedHostingRuntime(
+              await getCloudflareDb(env),
+              env,
+              signer,
+            );
+            await runSharedHostingBillingScheduledSweep(
+              runtime.billingScheduledWork,
+              scheduledAt,
+            );
+            await runtime.scheduler.processCapacityRequests();
+            await runSharedNodeScheduledSweep(
+              runtime.transport,
+              scheduledAt,
+            );
+          } else if (env.SHARED_HOSTING_BILLING_SCHEDULED_WORK) {
+            await runSharedHostingBillingScheduledSweep(
+              env.SHARED_HOSTING_BILLING_SCHEDULED_WORK,
+              scheduledAt,
+            );
+          } else if (env.SHARED_NODE_SCHEDULED_WORK) {
+            await runSharedNodeScheduledSweep(
+              env.SHARED_NODE_SCHEDULED_WORK,
+              scheduledAt,
             );
           }
           await env.RECONCILIATION_SCHEDULED_WORK?.run?.();

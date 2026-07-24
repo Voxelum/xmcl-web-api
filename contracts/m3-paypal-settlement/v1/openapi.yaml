@@ -20,6 +20,66 @@ paths:
       responses:
         '201': { description: Pending PayPal order }
         '409': { description: Idempotency conflict }
+  /v1/shared-hosting/plans:
+    get:
+      security: [{ xmclSession: [] }]
+      responses: { '200': { description: Approved shared-hosting plans and their monthly base and hourly prices } }
+  /v1/shared-hosting/subscriptions:
+    get:
+      security: [{ xmclSession: [] }]
+      responses: { '200': { description: Account shared-hosting subscriptions } }
+    post:
+      security: [{ xmclSession: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+         required: true
+         content:
+           application/json:
+             schema:
+               type: object
+               additionalProperties: false
+               required: [planId]
+               properties:
+                 planId: { enum: [shared-small, shared-medium, shared-large] }
+      responses:
+         '201': { description: Subscription created and first monthly base fee charged }
+         '422': { description: Insufficient balance or invalid plan }
+  /v1/shared-hosting/subscriptions/{subscriptionId}/cancel:
+    post:
+      security: [{ xmclSession: [] }]
+      parameters:
+         - { name: subscriptionId, in: path, required: true, schema: { type: string, minLength: 1 } }
+         - { $ref: '#/components/parameters/IdempotencyKey' }
+      responses:
+         '200': { description: Cancellation scheduled for the end of the current paid period }
+  /v1/shared-hosting/services:
+    get:
+      security: [{ xmclSession: [] }]
+      responses: { '200': { description: Account-owned shared Minecraft services without node or object-store details } }
+    post:
+      security: [{ xmclSession: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+         required: true
+         content:
+           application/json:
+             schema:
+               type: object
+               additionalProperties: false
+               required: [subscriptionId]
+               properties:
+                 subscriptionId: { type: string, minLength: 1 }
+      responses:
+         '201': { description: Persistent shared service workspace created }
+  /v1/shared-hosting/services/{serviceId}/{operation}:
+    post:
+      security: [{ xmclSession: [] }]
+      parameters:
+         - { name: serviceId, in: path, required: true, schema: { type: string, minLength: 1 } }
+         - { name: operation, in: path, required: true, schema: { enum: [start, stop] } }
+         - { $ref: '#/components/parameters/IdempotencyKey' }
+      responses:
+         '202': { description: Service start is assigned or queued; stop flushes workspace data before releasing the node slot }
   /v1/billing/orders:
     get:
       security: [{ xmclSession: [] }]

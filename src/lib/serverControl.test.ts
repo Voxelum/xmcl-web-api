@@ -24,6 +24,7 @@ import { VultrError } from "./vultr.ts";
 
 class FixtureVultr implements VultrAdapter {
   readonly calls: string[] = [];
+  readonly createInputs: CreateVultrInstance[] = [];
   failCreateUnknown = false;
   instance: VultrInstance | undefined;
 
@@ -34,9 +35,11 @@ class FixtureVultr implements VultrAdapter {
 
   createInstance(input: CreateVultrInstance) {
     this.calls.push(`create:${input.serverId}`);
+    this.createInputs.push(structuredClone(input));
     if (this.failCreateUnknown) {
       return Promise.reject(new VultrError("provider_unknown", "unknown"));
     }
+
     this.instance = {
       id: "provider-secret-id",
       region: "tpe",
@@ -48,6 +51,11 @@ class FixtureVultr implements VultrAdapter {
       address: "203.0.113.8",
     };
     return Promise.resolve(structuredClone(this.instance));
+  }
+
+  createSnapshot() {
+    this.calls.push("snapshot");
+    return Promise.resolve({ snapshotId: "snapshot_fixture" });
   }
 
   reconcileCreate() {
@@ -163,6 +171,7 @@ Deno.test("owns lifecycle state, activates a lease only after worker health, and
     idempotencyKey: "create-1",
     requestId: "request-create-1",
   });
+
   assert.equal(
     (await setup.service.get(accountId, created.resource.id)).status,
     "creating",
@@ -228,6 +237,49 @@ Deno.test("owns lifecycle state, activates a lease only after worker health, and
   );
   assert.equal(setup.released.length, 2);
   assert.ok(setup.vultr.calls.includes("halt"));
+});
+
+Deno.test("archives a stopped server into a snapshot and restores it into a new instance", async () => {
+  const setup = fixture();
+  const created = await setup.service.create(accountId, {
+    plan: "vc2-2c-4gb",
+  }, {
+    idempotencyKey: "archive-create",
+    requestId: "archive-create",
+  });
+  await setup.service.executeTask(accountId, created.taskId);
+
+  const archive = await setup.service.archive(accountId, created.resource.id, {
+    idempotencyKey: "archive-server",
+    requestId: "archive-server",
+  });
+  await setup.service.executeTask(accountId, archive.taskId);
+  let server = await setup.service.get(accountId, created.resource.id);
+  assert.equal(server.status, "archived");
+  assert.equal(server.providerResourceId, undefined);
+  assert.equal(server.snapshotId, "snapshot_fixture");
+  assert.deepEqual(setup.vultr.calls.slice(-2), ["snapshot", "delete"]);
+
+  const restore = await setup.service.restore(accountId, server.serverId, {
+    idempotencyKey: "restore-server",
+    requestId: "restore-server",
+  });
+  await setup.service.executeTask(accountId, restore.taskId);
+  server = await setup.service.get(accountId, server.serverId);
+  assert.equal(server.status, "restoring");
+  assert.ok(server.providerResourceId);
+  assert.equal(
+    setup.vultr.createInputs.at(-1)?.snapshotId,
+    "snapshot_fixture",
+  );
+
+  assert.equal(await setup.service.handleWorkerEvent(workerHealthy), "applied");
+  server = await setup.service.get(accountId, server.serverId);
+  assert.equal(server.status, "running");
+  assert.equal(
+    (await setup.service.getTask(accountId, restore.taskId)).status,
+    "succeeded",
+  );
 });
 
 Deno.test("Idempotency-Key replays one task and rejects a conflicting payload", async () => {

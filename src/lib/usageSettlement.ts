@@ -78,6 +78,7 @@ const resources: readonly BillingResource[] = [
 ];
 const units: readonly MeterUnit[] = [
   "second",
+  "hour",
   "request",
   "token",
   "byte_second",

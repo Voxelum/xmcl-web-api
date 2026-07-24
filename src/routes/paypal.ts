@@ -1,6 +1,7 @@
 import { type Context, Hono } from "hono";
 import { AccountError } from "../lib/account.ts";
 import { handleAccountError, jsonBody } from "../lib/accountHttp.ts";
+import { getPayPalService } from "../lib/billingRuntime.ts";
 import type { PayPalService } from "../lib/paypal.ts";
 import { getAccountRuntime } from "../lib/accountRuntime.ts";
 import type { AccountRuntimeResolver } from "../middleware/xmclAuth.ts";
@@ -27,7 +28,7 @@ export function createPayPalRoutes(
   app.post("/v1/billing/paypal/orders", async (c) => {
     const body = await jsonBody(c);
     return c.json(
-      await paypalFor(c, paypal).createOrder({
+      await (await paypalFor(c, paypal)).createOrder({
         accountId: c.get("xmclPrincipal")!.accountId,
         idempotencyKey: requireIdempotencyKey(c),
         amountMinor: body.amountMinor as number,
@@ -39,7 +40,7 @@ export function createPayPalRoutes(
     "/v1/billing/paypal/orders/:orderId/capture",
     async (c) =>
       c.json(
-        await paypalFor(c, paypal).captureOrder(
+        await (await paypalFor(c, paypal)).captureOrder(
           c.get("xmclPrincipal")!.accountId,
           c.req.param("orderId"),
         ),
@@ -48,7 +49,7 @@ export function createPayPalRoutes(
 
   app.post("/v1/webhooks/paypal", async (c) => {
     const rawBody = await c.req.text();
-    const result = await paypalFor(c, paypal).receiveWebhook(
+    const result = await (await paypalFor(c, paypal)).receiveWebhook(
       rawBody,
       headers(c),
     );
@@ -57,10 +58,15 @@ export function createPayPalRoutes(
   return app;
 }
 
-function paypalFor(c: Context<AppEnv>, injected?: PayPalService) {
+async function paypalFor(c: Context<AppEnv>, injected?: PayPalService) {
   const service = injected ?? c.var.paypalService;
-  if (!service) throw new AccountError(503, "billing_unavailable");
-  return service;
+  if (service) return service;
+  try {
+    return await getPayPalService(c);
+  } catch (error) {
+    if (error instanceof AccountError) throw error;
+    throw new AccountError(503, "billing_unavailable");
+  }
 }
 
 export default createPayPalRoutes();

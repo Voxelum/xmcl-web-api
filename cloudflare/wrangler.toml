@@ -5,6 +5,12 @@ compatibility_flags = ["nodejs_compat"]
 
 # Runtime configuration is set as Worker secrets. This prevents checked-in
 # defaults from overriding values supplied by deployment automation.
+#
+# Shared workspace v2 requires these Worker secrets (never [vars]):
+# XMCL_VULTR_OBJECT_STORAGE_ACCESS_KEY
+# XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY
+# Alongside the endpoint, region, and bucket configuration, worker.ts creates
+# the server-only SigV4 signer. Nodes receive only its command-bound URLs.
 
 # Durable Object backing /group/:id realtime rooms (replaces BroadcastChannel).
 [[durable_objects.bindings]]

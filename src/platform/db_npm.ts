@@ -9,6 +9,20 @@ import type { Db, DbFactory, MongoCollection } from "../db.ts";
  * db_deno.ts there instead).
  */
 let dbPromise: Promise<Db> | undefined;
+const DB_CONNECT_TIMEOUT_MS = 10_000;
+
+function withConnectionTimeout<T>(operation: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error("Mongo connection timed out after 10000ms")),
+      DB_CONNECT_TIMEOUT_MS,
+    );
+  });
+  return Promise.race([operation, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
 
 function connect(config: AppConfig): Promise<Db> {
   let clientUrl = config.MONGO_CONNECION_STRING;
@@ -28,13 +42,18 @@ function connect(config: AppConfig): Promise<Db> {
       encodeURIComponent(pass)
     }@${rest}`;
   }
-  return MikroORM.init({
+  return withConnectionTimeout(MikroORM.init({
     clientUrl,
     dbName: config.MONGODB_NAME || "coturn",
     entities: [],
     discovery: { warnWhenNoEntities: false },
-    driverOptions: { retryWrites: false },
-  }).then((orm) => {
+    driverOptions: {
+      retryWrites: false,
+      connectTimeoutMS: DB_CONNECT_TIMEOUT_MS,
+      serverSelectionTimeoutMS: DB_CONNECT_TIMEOUT_MS,
+      socketTimeoutMS: DB_CONNECT_TIMEOUT_MS,
+    },
+  })).then((orm) => {
     const connection = orm.em.getConnection();
     return {
       collection(name: string): MongoCollection {
@@ -44,6 +63,14 @@ function connect(config: AppConfig): Promise<Db> {
   });
 }
 
+/**
+ * Creates a new driver connection. Cloudflare Workers must use this per
+ * request: Node Mongo driver's I/O objects are request-context-bound there and
+ * cannot be reused by another Worker request.
+ */
+export const createDb: DbFactory = (config) => connect(config);
+
+/** Shared connection factory for long-lived Node/Azure processes. */
 export const getDb: DbFactory = (config) => {
   if (!dbPromise) {
     dbPromise = connect(config).catch((e) => {

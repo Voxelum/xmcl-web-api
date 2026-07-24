@@ -30,7 +30,16 @@ async function optionalAccountId(c: Context<AppEnv>, runtime: AccountRuntime) {
   if (!authorization.startsWith("Bearer ")) {
     throw new AccountError(401, "invalid_access_token");
   }
-  return (await runtime.sessions.verify(authorization.slice(7))).accountId;
+  try {
+    return (await runtime.sessions.verify(authorization.slice(7))).accountId;
+  } catch (error) {
+    // Launcher-exchange can restore an account from a newly verified provider
+    // credential. An expired optional XMCL bearer must not block that recovery.
+    if (error instanceof AccountError && error.code === "access_token_expired") {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 function providerFrom(c: Context<AppEnv>): OAuthProvider {

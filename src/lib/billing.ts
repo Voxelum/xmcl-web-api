@@ -15,12 +15,13 @@ export interface BillingOptions {
   rates: CashRate[];
   now?: () => Date;
   createId?: (prefix: string) => string;
+  providerCreationRecoveryMs?: number;
 }
 
 export interface PublicOrder {
   orderId: string;
   cashAmount: Money;
-  approvalUrl: string;
+  approvalUrl?: string;
   status: BillingOrder["status"];
   createdAt: string;
   updatedAt: string;
@@ -104,10 +105,10 @@ function publicOrder(order: BillingOrder): PublicOrder {
   return {
     orderId: order.orderId,
     cashAmount: order.amount,
-    approvalUrl: order.approvalUrl,
+    ...(order.approvalUrl ? { approvalUrl: order.approvalUrl } : {}),
     status: order.status,
     createdAt: order.createdAt,
-    updatedAt: order.createdAt,
+    updatedAt: order.updatedAt ?? order.createdAt,
   };
 }
 
@@ -143,6 +144,7 @@ export class BillingService {
   private readonly rates = new Map<string, CashRate>();
   private readonly now: () => Date;
   private readonly createId: (prefix: string) => string;
+  private readonly providerCreationRecoveryMs: number;
 
   constructor(
     private readonly store: BillingStore,
@@ -151,6 +153,14 @@ export class BillingService {
     this.currency = requireIsoCurrency(options.currency);
     this.now = options.now ?? (() => new Date());
     this.createId = options.createId ?? randomId;
+    this.providerCreationRecoveryMs = options.providerCreationRecoveryMs ??
+      5 * 60 * 1_000;
+    if (
+      !Number.isSafeInteger(this.providerCreationRecoveryMs) ||
+      this.providerCreationRecoveryMs <= 0
+    ) {
+      throw new Error("Provider creation recovery duration must be positive");
+    }
     for (const rate of options.rates) {
       requirePositiveSafeInteger(rate.rateVersion, "invalid_rate");
       requireNonNegativeSafeInteger(rate.amountMinorPerUnit, "invalid_rate");
@@ -210,6 +220,10 @@ export class BillingService {
     );
   }
 
+  async adminLedger(): Promise<LedgerEntry[]> {
+    return await this.store.read((state) => state.ledger);
+  }
+
   async createOrder(input: {
     accountId: string;
     idempotencyKey: string;
@@ -225,43 +239,116 @@ export class BillingService {
       amountMinor: input.amountMinor,
       currency: this.currency,
     });
-    return await this.store.transaction(async (state) => {
+    const claim = await this.store.transaction((state) => {
       const scope = idempotencyScope(
         input.accountId,
         "paypal_order",
         input.idempotencyKey,
       );
       const replay = state.idempotencies.get(scope);
+      let order: BillingOrder;
       if (replay) {
         if (replay.fingerprint !== fingerprint) {
           fail(409, "idempotency_conflict");
         }
-        return replay.response as PublicOrder;
+        const replayed = replay.response as PublicOrder;
+        const stored = state.orders.get(replayed.orderId);
+        if (!stored) fail(409, "order_state_conflict");
+        order = stored;
+      } else {
+        const orderId = this.createId("order");
+        const amount = {
+          currency: this.currency,
+          amountMinor: input.amountMinor,
+        };
+        order = {
+          orderId,
+          accountId: input.accountId,
+          amount,
+          status: "pending",
+          createdAt: this.now().toISOString(),
+          updatedAt: this.now().toISOString(),
+        };
+        state.orders.set(order.orderId, order);
+        state.idempotencies.set(scope, {
+          fingerprint,
+          response: publicOrder(order),
+        });
       }
-      const orderId = this.createId("order");
-      const amount = {
-        currency: this.currency,
-        amountMinor: input.amountMinor,
+      if (order.providerOrderId) {
+        return { kind: "complete" as const, order: structuredClone(order) };
+      }
+      if (
+        order.providerCreation &&
+        !this.canRecoverProviderCreation(order.providerCreation.startedAt)
+      ) {
+        return { kind: "pending" as const, order: structuredClone(order) };
+      }
+      const attemptId = this.createId("paypal_attempt");
+      order.providerCreation = {
+        attemptId,
+        startedAt: this.now().toISOString(),
       };
-      const provider = await input.createProviderOrder(orderId, amount);
+      order.updatedAt = this.now().toISOString();
+      state.idempotencies.set(scope, {
+        fingerprint,
+        response: publicOrder(order),
+      });
+      return {
+        kind: "provider" as const,
+        scope,
+        attemptId,
+        order: structuredClone(order),
+      };
+    });
+    if (claim.kind !== "provider") return publicOrder(claim.order);
+    let provider: { providerOrderId: string; approvalUrl: string };
+    try {
+      provider = await input.createProviderOrder(
+        claim.order.orderId,
+        claim.order.amount,
+      );
       if (!provider.providerOrderId || !provider.approvalUrl) {
         fail(502, "provider_invalid_response");
       }
-      const order: BillingOrder = {
-        orderId,
-        accountId: input.accountId,
-        amount,
-        providerOrderId: provider.providerOrderId,
-        approvalUrl: provider.approvalUrl,
-        status: "pending",
-        createdAt: this.now().toISOString(),
-      };
-      state.orders.set(order.orderId, order);
-      state.ordersByProviderId.set(order.providerOrderId, order.orderId);
-      const response = publicOrder(order);
-      state.idempotencies.set(scope, { fingerprint, response });
-      return response;
-    });
+    } catch (error) {
+      await this.releaseProviderCreation(
+        claim.order.orderId,
+        claim.scope,
+        claim.attemptId,
+        fingerprint,
+      );
+      throw error;
+    }
+    try {
+      return await this.store.transaction((state) => {
+        const order = state.orders.get(claim.order.orderId);
+        if (!order) fail(409, "order_state_conflict");
+        if (order.providerOrderId) return publicOrder(order);
+        if (order.providerCreation?.attemptId !== claim.attemptId) {
+          return publicOrder(order);
+        }
+        order.providerOrderId = provider.providerOrderId;
+        order.approvalUrl = provider.approvalUrl;
+        order.providerCreation = undefined;
+        order.updatedAt = this.now().toISOString();
+        state.ordersByProviderId.set(provider.providerOrderId, order.orderId);
+        const response = publicOrder(order);
+        state.idempotencies.set(claim.scope, {
+          fingerprint,
+          response,
+        });
+        return response;
+      });
+    } catch (error) {
+      await this.releaseProviderCreation(
+        claim.order.orderId,
+        claim.scope,
+        claim.attemptId,
+        fingerprint,
+      );
+      throw error;
+    }
   }
 
   async orders(accountId: string): Promise<PublicOrder[]> {
@@ -283,6 +370,7 @@ export class BillingService {
     return await this.store.read((state) => {
       const order = state.orders.get(orderId);
       if (!order || order.accountId !== accountId) fail(404, "order_not_found");
+      if (!order.providerOrderId) fail(409, "order_provider_pending");
       return order;
     });
   }
@@ -402,5 +490,29 @@ export class BillingService {
 
   private rateKey(resource: BillingResource, unit: string, version: number) {
     return `${resource}:${unit}:${version}`;
+  }
+
+  private canRecoverProviderCreation(startedAt: string) {
+    const started = Date.parse(startedAt);
+    return !Number.isFinite(started) ||
+      started <= this.now().getTime() - this.providerCreationRecoveryMs;
+  }
+
+  private async releaseProviderCreation(
+    orderId: string,
+    scope: string,
+    attemptId: string,
+    fingerprint: string,
+  ) {
+    await this.store.transaction((state) => {
+      const order = state.orders.get(orderId);
+      if (!order || order.providerCreation?.attemptId !== attemptId) return;
+      order.providerCreation = undefined;
+      order.updatedAt = this.now().toISOString();
+      state.idempotencies.set(scope, {
+        fingerprint,
+        response: publicOrder(order),
+      });
+    });
   }
 }

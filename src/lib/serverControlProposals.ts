@@ -21,7 +21,7 @@ export interface BillingRuntimeAuthorizationRequest {
   resource: "server_time";
   sourceId: string;
   expectedQuantity: number;
-  unit: "second";
+  unit: "hour";
   settlementIntervalSeconds: number;
   rateVersion: number;
   idempotencyKey: string;

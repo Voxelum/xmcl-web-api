@@ -31,7 +31,7 @@
     },
     "sourceId": { "type": "string", "minLength": 1 },
     "quantity": { "type": "integer", "minimum": 1 },
-    "unit": { "enum": ["second", "request", "token", "byte_second"] },
+    "unit": { "enum": ["second", "hour", "request", "token", "byte_second"] },
     "rateVersion": { "type": "integer", "minimum": 1 },
     "sequence": { "type": "integer", "minimum": 1 },
     "intervalStart": { "type": "string", "format": "date-time" },

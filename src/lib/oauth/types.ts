@@ -50,6 +50,8 @@ export interface OAuthProviderAdapter {
 
 export type OAuthRegistry = Record<OAuthProvider, OAuthProviderAdapter>;
 
+const PROVIDER_REQUEST_TIMEOUT_MS = 15_000;
+
 export class OAuthProviderError extends Error {
   constructor(
     readonly code:
@@ -86,7 +88,10 @@ export class RemoteOAuthAdapter implements OAuthProviderAdapter {
   constructor(options: RemoteOAuthOptions) {
     this.declaration = options.declaration;
     this.clientSecret = options.clientSecret;
-    this.remoteFetch = options.fetch ?? globalThis.fetch;
+    // Cloudflare's fetch requires the Worker global as its receiver. Keeping an
+    // unbound reference works in Node/Deno but throws an illegal-invocation
+    // error in Workers when an OAuth adapter calls it later.
+    this.remoteFetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.mapUser = options.mapUser;
   }
 
@@ -127,11 +132,20 @@ export class RemoteOAuthAdapter implements OAuthProviderAdapter {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body,
+        signal: AbortSignal.timeout(PROVIDER_REQUEST_TIMEOUT_MS),
       });
-    } catch {
+    } catch (error) {
+      logProviderNetworkFailure(
+        this.declaration.provider,
+        this.declaration.tokenEndpoint,
+        error,
+      );
       throw new OAuthProviderError("provider_unavailable");
     }
-    if (!response.ok) throw new OAuthProviderError("provider_rejected");
+    if (!response.ok) {
+      logProviderRejection(this.declaration.provider, this.declaration.tokenEndpoint, response.status);
+      throw new OAuthProviderError("provider_rejected");
+    }
     const token = await response.json() as { access_token?: string };
     if (!token.access_token) {
       throw new OAuthProviderError("invalid_provider_credential");
@@ -156,11 +170,22 @@ export class RemoteOAuthAdapter implements OAuthProviderAdapter {
           authorization: `Bearer ${accessToken}`,
           accept: "application/json",
         },
+        signal: AbortSignal.timeout(PROVIDER_REQUEST_TIMEOUT_MS),
       });
-    } catch {
+    } catch (error) {
+      logProviderNetworkFailure(
+        this.declaration.provider,
+        this.declaration.userInfoEndpoint,
+        error,
+      );
       throw new OAuthProviderError("provider_unavailable");
     }
     if (!response.ok) {
+      logProviderRejection(
+        this.declaration.provider,
+        this.declaration.userInfoEndpoint,
+        response.status,
+      );
       throw new OAuthProviderError("invalid_provider_credential");
     }
     const mapped = this.mapUser(
@@ -177,4 +202,30 @@ export class RemoteOAuthAdapter implements OAuthProviderAdapter {
         : undefined,
     };
   }
+}
+
+function logProviderNetworkFailure(
+  provider: OAuthProvider,
+  endpoint: string,
+  error: unknown,
+) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error("OAuth provider request failed", {
+    provider,
+    endpointHost: new URL(endpoint).host,
+    error: error instanceof Error ? error.name : typeof error,
+    message: message.slice(0, 500),
+  });
+}
+
+function logProviderRejection(
+  provider: OAuthProvider,
+  endpoint: string,
+  status: number,
+) {
+  console.warn("OAuth provider rejected request", {
+    provider,
+    endpointHost: new URL(endpoint).host,
+    status,
+  });
 }

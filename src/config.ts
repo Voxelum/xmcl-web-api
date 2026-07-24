@@ -33,11 +33,46 @@ export interface AppConfig {
   XMCL_GOOGLE_CLIENT_SECRET?: string;
   XMCL_DISCORD_CLIENT_ID?: string;
   XMCL_DISCORD_CLIENT_SECRET?: string;
+  /** ISO-4217 settlement currency for the durable billing ledger. Defaults to USD. */
+  BILLING_CURRENCY?: string;
+  /** JSON array of versioned CashRate records. Required before billing is composed. */
+  BILLING_RATES_JSON?: string;
+  PAYPAL_CLIENT_ID?: string;
+  PAYPAL_CLIENT_SECRET?: string;
+  PAYPAL_WEBHOOK_ID?: string;
+  PAYPAL_RETURN_URL?: string;
+  PAYPAL_CANCEL_URL?: string;
+  PAYPAL_API_BASE_URL?: string;
   /**
    * Optional comma-separated exact HTTPS callbacks for website OAuth.
    * Launcher loopback callbacks are code-owned and require no configuration.
    */
   XMCL_OAUTH_REDIRECT_URIS?: string;
+  VULTR_API_TOKEN?: string;
+  VULTR_SHARED_NODE_REGION_ID?: string;
+  VULTR_SHARED_NODE_PLAN?: string;
+  VULTR_SHARED_NODE_IMAGE_ID?: string;
+  XMCL_SHARED_AGENT_RELEASE_URL?: string;
+  XMCL_SHARED_AGENT_RELEASE_SHA256?: string;
+  XMCL_SHARED_QUOTA_HELPER_RELEASE_URL?: string;
+  XMCL_SHARED_QUOTA_HELPER_RELEASE_SHA256?: string;
+  XMCL_CONTROL_PLANE_URL?: string;
+  XMCL_VULTR_OBJECT_STORAGE_ENDPOINT?: string;
+  XMCL_VULTR_OBJECT_STORAGE_REGION?: string;
+  XMCL_VULTR_OBJECT_STORAGE_BUCKET?: string;
+  /** Server-only Worker secret used solely for S3 SigV4 pre-signing. */
+  XMCL_VULTR_OBJECT_STORAGE_ACCESS_KEY?: string;
+  /** Server-only Worker secret used solely for S3 SigV4 pre-signing. */
+  XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY?: string;
+  XMCL_SHARED_NODE_CONTAINER_IMAGE?: string;
+  XMCL_WORKSPACE_ROOT?: string;
+  XMCL_RCON_STOP_TIMEOUT_SECONDS?: string;
+  XMCL_XFS_PROJECT_BASE?: string;
+  VULTR_SHARED_NODE_BLOCK_STORAGE_GIB?: string;
+  VULTR_SHARED_NODE_BLOCK_STORAGE_TYPE?: string;
+  VULTR_SHARED_NODE_FIREWALL_GROUP_ID?: string;
+  XMCL_SHARED_NODE_INGRESS_PORT_MIN?: string;
+  XMCL_SHARED_NODE_INGRESS_PORT_MAX?: string;
 }
 
 export function getConfig(c: Context): AppConfig {

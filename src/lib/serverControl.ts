@@ -330,6 +330,125 @@ export class ServerControlService {
     return task;
   }
 
+  async archive(
+    accountId: string,
+    serverId: string,
+    meta: MutationMeta,
+  ): Promise<ServerTask> {
+    this.validateMeta(accountId, meta);
+    const requestFingerprint = fingerprint({ operation: "archive", serverId });
+    const replay = await this.replay(accountId, meta, requestFingerprint);
+    if (replay) return replay;
+    const now = this.now();
+    return await this.repository.transact(accountId, (state) => {
+      const server = findServer(state, serverId);
+      if (!server) throw new ServerControlError("not_found");
+      const claimed = this.claim(
+        state,
+        meta,
+        requestFingerprint,
+        this.id("task"),
+        now,
+      );
+      if (claimed.replay) return claimed.replay;
+      if (server.status !== "stopped" || !server.providerResourceId) {
+        throw new ServerControlError(
+          "conflict",
+          "server must be stopped before it can be archived",
+        );
+      }
+      const task = this.newTask(
+        accountId,
+        claimed.taskId,
+        meta.requestId,
+        "archive",
+        serverId,
+        now,
+      );
+      state.tasks.push(task);
+      setStatus(
+        server,
+        "archiving",
+        "archived",
+        "archive_requested",
+        "user",
+        task.taskId,
+        now,
+      );
+      return task;
+    });
+  }
+
+  async restore(
+    accountId: string,
+    serverId: string,
+    meta: MutationMeta,
+  ): Promise<ServerTask> {
+    this.validateMeta(accountId, meta);
+    const requestFingerprint = fingerprint({ operation: "restore", serverId });
+    const replay = await this.replay(accountId, meta, requestFingerprint);
+    if (replay) return replay;
+    const server = await this.get(accountId, serverId);
+    if (server.status !== "archived" || !server.snapshotId) {
+      throw new ServerControlError(
+        "conflict",
+        "server must be archived before it can be restored",
+      );
+    }
+    const authorization = await this.authorize(
+      accountId,
+      serverId,
+      meta.idempotencyKey,
+    );
+    const now = this.now();
+    return await this.repository.transact(accountId, (state) => {
+      const current = findServer(state, serverId);
+      if (!current) throw new ServerControlError("not_found");
+      const claimed = this.claim(
+        state,
+        meta,
+        requestFingerprint,
+        this.id("task"),
+        now,
+      );
+      if (claimed.replay) return claimed.replay;
+      if (current.status !== "archived" || !current.snapshotId) {
+        throw new ServerControlError("conflict");
+      }
+      const task = this.newTask(
+        accountId,
+        claimed.taskId,
+        meta.requestId,
+        "restore",
+        serverId,
+        now,
+        authorization.authorizationId,
+      );
+      state.tasks.push(task);
+      state.leases.push({
+        leaseId: this.id("lease"),
+        serverId,
+        accountId,
+        authorizationId: authorization.authorizationId,
+        startedAt: now,
+        status: "reserved",
+      });
+      const lease = state.leases.at(-1)!;
+      current.leaseId = lease.leaseId;
+      current.address = undefined;
+      setStatus(
+        current,
+        "restoring",
+        "running",
+        "restore_requested",
+        "user",
+        task.taskId,
+        now,
+      );
+      return task;
+    });
+  }
+
   async delete(
     accountId: string,
     serverId: string,
@@ -414,6 +533,8 @@ export class ServerControlService {
       else if (task.operation === "restart") {
         await this.executeStart(task, true);
       } else if (task.operation === "delete") await this.executeDelete(task);
+      else if (task.operation === "archive") await this.executeArchive(task);
+      else if (task.operation === "restore") await this.executeRestore(task);
     } catch (error) {
       await this.handleProviderFailure(task, error);
     }
@@ -532,7 +653,7 @@ export class ServerControlService {
       server.lastWorkerSequence = event.sequence;
       if (
         event.type === "worker.healthy" &&
-        server.status === "starting" &&
+        ["starting", "restoring"].includes(server.status) &&
         server.desiredStatus === "running"
       ) {
         const lease = activeLease(state, server);
@@ -1111,6 +1232,60 @@ export class ServerControlService {
     });
   }
 
+  private async executeArchive(task: ServerTask) {
+    const server = await this.get(task.accountId, task.resource.id);
+    if (!server.providerResourceId) {
+      throw new ServerControlError("conflict", "provider instance is missing");
+    }
+    const snapshot = await this.provider.createSnapshot(
+      server.providerResourceId,
+      `xmcl:${server.serverId}:${task.taskId}`,
+    );
+    await this.provider.delete(server.providerResourceId);
+    const now = this.now();
+    await this.repository.transact(task.accountId, (state) => {
+      const current = findServer(state, server.serverId);
+      const currentTask = findTask(state, task.taskId);
+      if (!current || !currentTask || currentTask.status !== "running") return;
+      current.providerResourceId = undefined;
+      current.snapshotId = snapshot.snapshotId;
+      current.archivedAt = now;
+      current.address = undefined;
+      setStatus(
+        current,
+        "archived",
+        "archived",
+        "provider_snapshot_archived",
+        "reconciler",
+        task.taskId,
+        now,
+      );
+      currentTask.status = "succeeded";
+      currentTask.result = { serverId: current.serverId };
+      currentTask.updatedAt = now;
+    });
+  }
+
+  private async executeRestore(task: ServerTask) {
+    const server = await this.get(task.accountId, task.resource.id);
+    if (!server.snapshotId) {
+      throw new ServerControlError("conflict", "server snapshot is missing");
+    }
+    const instance = await this.provider.createInstance({
+      serverId: server.serverId,
+      plan: server.plan,
+      userData: this.bootstrapUserData(server.serverId),
+      snapshotId: server.snapshotId,
+    });
+    await this.repository.transact(task.accountId, (state) => {
+      const current = findServer(state, server.serverId);
+      if (current && current.status === "restoring") {
+        current.providerResourceId = instance.id;
+        current.updatedAt = this.now();
+      }
+    });
+  }
+
   private async handleProviderFailure(task: ServerTask, error: unknown) {
     const now = this.now();
     const unknown = error instanceof VultrError && error.outcome === "unknown";
@@ -1155,12 +1330,17 @@ export class ServerControlService {
           task.taskId,
           now,
         );
-      } else if (task.operation === "start" || task.operation === "restart") {
+      } else if (
+        task.operation === "start" || task.operation === "restart" ||
+        task.operation === "restore"
+      ) {
         setStatus(
           server,
-          "stopped",
-          "stopped",
-          "provider_start_failed",
+          task.operation === "restore" ? "archived" : "stopped",
+          task.operation === "restore" ? "archived" : "stopped",
+          task.operation === "restore"
+            ? "provider_restore_failed"
+            : "provider_start_failed",
           "reconciler",
           task.taskId,
           now,
@@ -1188,8 +1368,8 @@ export class ServerControlService {
       accountId,
       resource: "server_time",
       sourceId: serverId,
-      expectedQuantity: 3600,
-      unit: "second",
+      expectedQuantity: 1,
+      unit: "hour",
       settlementIntervalSeconds: 3600,
       rateVersion: this.rateVersion,
       idempotencyKey: `m4:${idempotencyKey}`,

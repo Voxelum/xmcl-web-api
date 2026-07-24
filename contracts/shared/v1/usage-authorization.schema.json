@@ -9,7 +9,7 @@
       "enum": ["server_time", "ai_request", "ai_tokens", "storage_retention"]
     },
     "unit": {
-      "enum": ["second", "request", "token", "byte_second"]
+      "enum": ["second", "hour", "request", "token", "byte_second"]
     },
     "money": {
       "type": "object",

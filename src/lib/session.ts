@@ -30,6 +30,8 @@ export const USER_SESSION_SCOPES = [
   "modpack:write",
 ] as const;
 
+export const ACCESS_TOKEN_TTL_MS = 24 * 60 * 60_000;
+
 interface AccessClaims {
   iss: "xmcl";
   sub: string;
@@ -112,7 +114,7 @@ export class SessionService {
       accountId,
       scopes: [...scopes],
       issuedAt: now.toISOString(),
-      expiresAt: new Date(now.getTime() + 15 * 60_000).toISOString(),
+      expiresAt: new Date(now.getTime() + ACCESS_TOKEN_TTL_MS).toISOString(),
       refreshHash: await sha256(refreshToken),
       consumedRefreshHashes: [],
       refreshExpiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60_000)
@@ -152,7 +154,7 @@ export class SessionService {
     const nextRefreshToken = randomId("rfr");
     record.refreshHash = await sha256(nextRefreshToken);
     record.issuedAt = this.now().toISOString();
-    record.expiresAt = new Date(this.now().getTime() + 15 * 60_000)
+    record.expiresAt = new Date(this.now().getTime() + ACCESS_TOKEN_TTL_MS)
       .toISOString();
     await this.repository.saveSession(record);
     return await this.toPublic(record, nextRefreshToken);

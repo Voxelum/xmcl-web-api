@@ -27,7 +27,7 @@ paths:
   /v1/servers/{serverId}/{operation}:
     parameters:
       - { name: serverId, in: path, required: true, schema: { type: string } }
-      - { name: operation, in: path, required: true, schema: { enum: [start, stop, restart] } }
+      - { name: operation, in: path, required: true, schema: { enum: [start, stop, restart, archive, restore] } }
       - { $ref: '#/components/parameters/IdempotencyKey' }
     post:
       security: [{ xmclSession: [] }]

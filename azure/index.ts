@@ -18,7 +18,7 @@ import { getDb } from "../src/platform/db_npm.ts";
 const hono = createProductionApp((a) => {
   a.use("*", geoipMiddleware);
   a.use("*", createDbMiddleware(getDb));
-});
+}, process.env as Record<string, string | undefined>);
 
 async function toRequest(req: HttpRequest): Promise<Request> {
   const method = req.method;

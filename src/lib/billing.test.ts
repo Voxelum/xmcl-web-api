@@ -176,6 +176,7 @@ Deno.test("the shared Hono app registers the Billing route families", () => {
   assert(paths.includes("/v1/billing/paypal/orders"));
   assert(paths.includes("/v1/internal/usage/authorize"));
   assert(paths.includes("/v1/webhooks/paypal"));
+  assert(paths.includes("/v1/shared-hosting/services"));
 });
 
 Deno.test("PayPal order replays deterministically, conflicts on a changed intent, and never credits a provider failure", async () => {
@@ -233,8 +234,129 @@ Deno.test("PayPal order replays deterministically, conflicts on a changed intent
       body: JSON.stringify({ amountMinor: 100 }),
     });
   assert.equal((await retryRequest()).status, 503);
+  const pending = (await retrying.billing.orders("account_1"))[0];
+  assert.equal(pending?.status, "pending");
+  assert.equal(pending?.approvalUrl, undefined);
   assert.equal((await retryRequest()).status, 201);
   assert.equal(retrying.provider.createCalls.length, 2);
+  assert.equal(
+    retrying.provider.createCalls[0].orderId,
+    retrying.provider.createCalls[1].orderId,
+  );
+});
+
+Deno.test("a duplicate PayPal intent does not invoke the provider while its durable attempt is active", async () => {
+  let ids = 0;
+  const billing = new BillingService(new MemoryBillingStore(), {
+    currency: "USD",
+    rates: [rate],
+    now: () => new Date(now),
+    createId: (prefix) => `${prefix}_${++ids}`,
+  });
+  let providerCalls = 0;
+  let began!: () => void;
+  let finish!: () => void;
+  const providerBegan = new Promise<void>((resolve) => {
+    began = resolve;
+  });
+  const providerFinish = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const createProviderOrder = async (orderId: string) => {
+    providerCalls += 1;
+    began();
+    await providerFinish;
+    return {
+      providerOrderId: `paypal_${orderId}`,
+      approvalUrl: `https://paypal.invalid/checkout/${orderId}`,
+    };
+  };
+  const first = billing.createOrder({
+    accountId: "account_1",
+    idempotencyKey: "order_concurrent",
+    amountMinor: 100,
+    createProviderOrder,
+  });
+  await providerBegan;
+  const duplicate = await billing.createOrder({
+    accountId: "account_1",
+    idempotencyKey: "order_concurrent",
+    amountMinor: 100,
+    createProviderOrder,
+  });
+  assert.equal(providerCalls, 1);
+  assert.equal(duplicate.approvalUrl, undefined);
+  finish();
+  const completed = await first;
+  const replay = await billing.createOrder({
+    accountId: "account_1",
+    idempotencyKey: "order_concurrent",
+    amountMinor: 100,
+    createProviderOrder,
+  });
+  assert.deepEqual(replay, completed);
+  assert.equal(providerCalls, 1);
+});
+
+Deno.test("a stale PayPal provider attempt is recoverable with its original provider request ID", async () => {
+  let ids = 0;
+  let currentTime = Date.parse(now);
+  const billing = new BillingService(new MemoryBillingStore(), {
+    currency: "USD",
+    rates: [rate],
+    now: () => new Date(currentTime),
+    createId: (prefix) => `${prefix}_${++ids}`,
+    providerCreationRecoveryMs: 1_000,
+  });
+  let delayedProvider!: () => void;
+  const delayed = new Promise<void>((resolve) => {
+    delayedProvider = resolve;
+  });
+  let firstProviderStarted!: () => void;
+  const firstStarted = new Promise<void>((resolve) => {
+    firstProviderStarted = resolve;
+  });
+  let initialProviderRequestId: string | undefined;
+  let recoveryProviderRequestId: string | undefined;
+  const first = billing.createOrder({
+    accountId: "account_1",
+    idempotencyKey: "order_recovery",
+    amountMinor: 100,
+    createProviderOrder: async (orderId) => {
+      initialProviderRequestId = orderId;
+      firstProviderStarted();
+      await delayed;
+      return {
+        providerOrderId: `late_${orderId}`,
+        approvalUrl: `https://paypal.invalid/checkout/late/${orderId}`,
+      };
+    },
+  });
+  await firstStarted;
+  currentTime += 1_001;
+  const recovered = await billing.createOrder({
+    accountId: "account_1",
+    idempotencyKey: "order_recovery",
+    amountMinor: 100,
+    createProviderOrder: async (orderId) => {
+      recoveryProviderRequestId = orderId;
+      return {
+        providerOrderId: `paypal_${orderId}`,
+        approvalUrl: `https://paypal.invalid/checkout/${orderId}`,
+      };
+    },
+  });
+  delayedProvider();
+  const late = await first;
+
+  assert.equal(recovered.orderId, "order_1");
+  assert.equal(initialProviderRequestId, recoveryProviderRequestId);
+  assert.equal(late.orderId, recovered.orderId);
+  assert.equal(late.approvalUrl, recovered.approvalUrl);
+  assert.equal(
+    (await billing.orders("account_1"))[0]?.approvalUrl,
+    recovered.approvalUrl,
+  );
 });
 
 Deno.test("verified raw PayPal webhooks credit once; invalid and duplicate bodies cannot credit twice", async () => {

@@ -86,6 +86,46 @@ try {
   await expect("billing rates", 200, "/v1/billing/rates", {
     headers: headers(),
   });
+  const sharedPlans = await expect(
+    "shared hosting plans",
+    200,
+    "/v1/shared-hosting/plans",
+    { headers: headers() },
+  );
+  if (!Array.isArray(sharedPlans) || sharedPlans.length !== 3) {
+    throw new Error("Shared hosting catalog is unavailable in local demo");
+  }
+  const sharedSubscription = await expect(
+    "shared hosting subscription",
+    201,
+    "/v1/shared-hosting/subscriptions",
+    {
+      method: "POST",
+      headers: { ...headers(), "idempotency-key": "smoke-shared-subscription" },
+      body: JSON.stringify({ planId: "shared-small" }),
+    },
+  );
+  const sharedService = await expect(
+    "shared hosting service",
+    201,
+    "/v1/shared-hosting/services",
+    {
+      method: "POST",
+      headers: { ...headers(), "idempotency-key": "smoke-shared-service" },
+      body: JSON.stringify({
+        subscriptionId: sharedSubscription.subscriptionId,
+      }),
+    },
+  );
+  await expect(
+    "shared hosting start",
+    202,
+    `/v1/shared-hosting/services/${sharedService.serviceId}/start`,
+    {
+      method: "POST",
+      headers: { ...headers(), "idempotency-key": "smoke-shared-start" },
+    },
+  );
   const order = await expect(
     "PayPal mock order",
     201,

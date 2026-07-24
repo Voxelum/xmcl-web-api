@@ -24,7 +24,7 @@ command, or `wrangler.toml`.
 | `RTC_SECRET`, `TURNS`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_APP_ID` | Preview-only RTC configuration, if RTC is required. |
 | `XMCL_SESSION_SECRET` | New random preview secret, never copied from production. |
 | `XMCL_MICROSOFT_*`, `XMCL_GOOGLE_*`, `XMCL_DISCORD_*` | Preview OAuth application credentials. |
-| `XMCL_OAUTH_REDIRECT_URIS` | Optional exact comma-separated HTTPS website callback URLs. Launcher OAuth uses its code-owned loopback callback and needs no setting. |
+| `XMCL_OAUTH_REDIRECT_URIS` | Exact comma-separated HTTPS website callback URLs. Register every value with the corresponding provider application; the production website callback is `https://xmcl.app/oauth/callback`. Launcher OAuth uses its code-owned loopback callback and needs no setting. |
 
 Set `XMCL_MODRINTH_CLIENT_SECRET` to the raw client secret. Set
 `XMCL_MODRINTH_CLIENT_ID` only when overriding the existing registered client

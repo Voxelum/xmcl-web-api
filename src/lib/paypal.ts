@@ -20,6 +20,239 @@ export interface PayPalWebhookVerifier {
   }): Promise<boolean>;
 }
 
+export interface PayPalHttpProviderOptions {
+  clientId: string;
+  clientSecret: string;
+  returnUrl?: string;
+  cancelUrl?: string;
+  apiBaseUrl?: string;
+  fetchImpl?: typeof fetch;
+}
+
+async function responseJson(
+  response: Response,
+  errorCode: string,
+): Promise<Record<string, unknown>> {
+  if (!response.ok) throw new AccountError(503, errorCode);
+  let value: unknown;
+  try {
+    value = await response.json();
+  } catch {
+    throw new AccountError(503, "paypal_invalid_response");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AccountError(503, "paypal_invalid_response");
+  }
+  return value as Record<string, unknown>;
+}
+
+function requiredString(value: unknown, code: string): string {
+  if (typeof value !== "string" || !value) {
+    throw new AccountError(503, code);
+  }
+  return value;
+}
+
+export class PayPalHttpProvider implements PayPalOrderProvider {
+  private readonly baseUrl: string;
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(private readonly options: PayPalHttpProviderOptions) {
+    if (
+      !options.clientId || !options.clientSecret || !options.returnUrl ||
+      !options.cancelUrl
+    ) {
+      throw new Error(
+        "PayPal provider credentials and redirect URLs are required",
+      );
+    }
+    this.baseUrl = (options.apiBaseUrl ?? "https://api-m.paypal.com").replace(
+      /\/$/,
+      "",
+    );
+    this.fetchImpl = options.fetchImpl ?? fetch;
+  }
+
+  async createOrder(input: {
+    orderId: string;
+    accountId: string;
+    amount: Money;
+  }) {
+    const token = await this.accessToken();
+    const response = await this.fetchImpl(
+      `${this.baseUrl}/v2/checkout/orders`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+          prefer: "return=representation",
+          "paypal-request-id": input.orderId,
+        },
+        body: JSON.stringify({
+          intent: "CAPTURE",
+          purchase_units: [{
+            reference_id: input.orderId,
+            amount: {
+              currency_code: input.amount.currency,
+              value: (input.amount.amountMinor / 100).toFixed(2),
+            },
+          }],
+          application_context: {
+            return_url: this.options.returnUrl!,
+            cancel_url: this.options.cancelUrl!,
+            user_action: "PAY_NOW",
+          },
+        }),
+      },
+    );
+    const value = await responseJson(response, "paypal_order_create_failed");
+    const links = Array.isArray(value.links) ? value.links : [];
+    const approval = links.find((link) =>
+      link && typeof link === "object" &&
+      ["approve", "payer-action"].includes(
+        String((link as { rel?: unknown }).rel ?? ""),
+      )
+    );
+    return {
+      providerOrderId: requiredString(value.id, "paypal_invalid_response"),
+      approvalUrl: requiredString(
+        approval && typeof approval === "object"
+          ? (approval as { href?: unknown }).href
+          : undefined,
+        "paypal_invalid_response",
+      ),
+    };
+  }
+
+  async captureOrder(input: { providerOrderId: string }) {
+    const token = await this.accessToken();
+    const response = await this.fetchImpl(
+      `${this.baseUrl}/v2/checkout/orders/${
+        encodeURIComponent(input.providerOrderId)
+      }/capture`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+          prefer: "return=representation",
+        },
+        body: "{}",
+      },
+    );
+    const value = await responseJson(response, "paypal_capture_failed");
+    return {
+      captureId: requiredString(value.id, "paypal_invalid_response"),
+      status: value.status === "COMPLETED"
+        ? "completed" as const
+        : "pending" as const,
+    };
+  }
+
+  private async accessToken() {
+    const response = await this.fetchImpl(`${this.baseUrl}/v1/oauth2/token`, {
+      method: "POST",
+      headers: {
+        authorization: `Basic ${
+          btoa(
+            `${this.options.clientId}:${this.options.clientSecret}`,
+          )
+        }`,
+        "content-type": "application/x-www-form-urlencoded",
+        accept: "application/json",
+        "accept-language": "en_US",
+      },
+      body: "grant_type=client_credentials",
+    });
+    const value = await responseJson(response, "paypal_authentication_failed");
+    return requiredString(value.access_token, "paypal_authentication_failed");
+  }
+}
+
+export class PayPalHttpWebhookVerifier implements PayPalWebhookVerifier {
+  private readonly baseUrl: string;
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(
+    private readonly options: PayPalHttpProviderOptions & { webhookId: string },
+  ) {
+    if (!options.webhookId) throw new Error("PayPal webhook ID is required");
+    this.baseUrl = (options.apiBaseUrl ?? "https://api-m.paypal.com").replace(
+      /\/$/,
+      "",
+    );
+    this.fetchImpl = options.fetchImpl ?? fetch;
+  }
+
+  async verify(input: {
+    rawBody: string;
+    headers: Record<string, string>;
+  }) {
+    const requiredHeaders = [
+      "paypal-auth-algo",
+      "paypal-cert-url",
+      "paypal-transmission-id",
+      "paypal-transmission-sig",
+      "paypal-transmission-time",
+    ];
+    if (requiredHeaders.some((name) => !input.headers[name])) return false;
+    let webhookEvent: unknown;
+    try {
+      webhookEvent = JSON.parse(input.rawBody);
+    } catch {
+      return false;
+    }
+    const token = await this.accessToken();
+    const response = await this.fetchImpl(
+      `${this.baseUrl}/v1/notifications/verify-webhook-signature`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          auth_algo: input.headers["paypal-auth-algo"],
+          cert_url: input.headers["paypal-cert-url"],
+          transmission_id: input.headers["paypal-transmission-id"],
+          transmission_sig: input.headers["paypal-transmission-sig"],
+          transmission_time: input.headers["paypal-transmission-time"],
+          webhook_id: this.options.webhookId,
+          webhook_event: webhookEvent,
+        }),
+      },
+    );
+    if (!response.ok) return false;
+    let value: unknown;
+    try {
+      value = await response.json();
+    } catch {
+      return false;
+    }
+    return value !== null && typeof value === "object" &&
+      (value as { verification_status?: unknown }).verification_status ===
+        "SUCCESS";
+  }
+
+  private async accessToken() {
+    const response = await this.fetchImpl(`${this.baseUrl}/v1/oauth2/token`, {
+      method: "POST",
+      headers: {
+        authorization: `Basic ${
+          btoa(
+            `${this.options.clientId}:${this.options.clientSecret}`,
+          )
+        }`,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: "grant_type=client_credentials",
+    });
+    const value = await responseJson(response, "paypal_authentication_failed");
+    return requiredString(value.access_token, "paypal_authentication_failed");
+  }
+}
+
 export interface PayPalWebhookResult {
   accepted: true;
   duplicate: boolean;
@@ -115,6 +348,9 @@ export class PayPalService {
 
   async captureOrder(accountId: string, orderId: string): Promise<PublicOrder> {
     const order = await this.billing.orderForAccount(accountId, orderId);
+    if (!order.providerOrderId) {
+      throw new AccountError(409, "order_provider_pending");
+    }
     await this.provider.captureOrder({
       providerOrderId: order.providerOrderId,
     });
@@ -125,7 +361,7 @@ export class PayPalService {
       approvalUrl: order.approvalUrl,
       status: order.status,
       createdAt: order.createdAt,
-      updatedAt: order.createdAt,
+      updatedAt: order.updatedAt ?? order.createdAt,
     };
   }
 

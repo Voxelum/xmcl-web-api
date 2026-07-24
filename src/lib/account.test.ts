@@ -4,7 +4,12 @@ import sharedBackupStoragePolicyFixture from "../../contracts/shared/v1/fixtures
   type: "json",
 };
 import type { AppEnv } from "../types.ts";
-import { AccountService, MemoryAccountRepository, sha256 } from "./account.ts";
+import {
+  AccountError,
+  AccountService,
+  MemoryAccountRepository,
+  sha256,
+} from "./account.ts";
 import { AccountMergeService } from "./accountMerge.ts";
 import type { AccountRuntime } from "./accountRuntime.ts";
 import { accountApiFixtures } from "./account.fixtures.ts";
@@ -14,7 +19,11 @@ import {
   OAuthProviderError,
   type VerifiedIdentity,
 } from "./oauth/types.ts";
-import { SessionService, USER_SESSION_SCOPES } from "./session.ts";
+import {
+  ACCESS_TOKEN_TTL_MS,
+  SessionService,
+  USER_SESSION_SCOPES,
+} from "./session.ts";
 import { createAccountRoutes } from "../routes/account.ts";
 import { createAiRoutes } from "../routes/ai.ts";
 import { createModpackDeploymentRoutes } from "../routes/modpackDeployments.ts";
@@ -154,6 +163,47 @@ Deno.test("launcher exchange creates an account and rejects transaction replay",
   );
   assert.equal(replay.status, 409);
   assert.equal((await replay.json()).error, "launcher_transaction_replayed");
+});
+
+Deno.test("XMCL access tokens expire after 24 hours when issued and refreshed", async () => {
+  let now = new Date("2026-07-23T12:00:00.000Z");
+  const repository = new MemoryAccountRepository();
+  const sessions = new SessionService(repository, secret, () => now);
+  const issued = await sessions.issue("acct_access_ttl");
+
+  assert.equal(
+    Date.parse(issued.expiresAt) - Date.parse(issued.issuedAt),
+    ACCESS_TOKEN_TTL_MS,
+  );
+
+  now = new Date("2026-07-24T12:00:00.000Z");
+  const refreshed = await sessions.refresh(
+    issued.sessionId,
+    issued.refreshToken,
+  );
+  assert.equal(
+    Date.parse(refreshed.expiresAt) - Date.parse(refreshed.issuedAt),
+    ACCESS_TOKEN_TTL_MS,
+  );
+});
+
+Deno.test("launcher exchange restores an identity when its optional XMCL bearer is expired", async () => {
+  const { app, runtime } = setup();
+  runtime.sessions.verify = async () => {
+    throw new AccountError(401, "access_token_expired");
+  };
+
+  const response = await launcher(
+    app,
+    "microsoft",
+    "ms-subject-expired-session",
+    "Bearer expired-xmcl-access-token",
+  );
+
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.bindingDisposition, "created");
+  assert.ok(result.session.accessToken);
 });
 
 Deno.test("browser OAuth binds redirect, state, nonce and PKCE to a one-time transaction", async () => {

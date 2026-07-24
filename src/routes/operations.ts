@@ -7,6 +7,7 @@ import {
   AdminOperationService,
   assertAdminPermission,
 } from "../lib/operations.ts";
+import type { BillingService } from "../lib/billing.ts";
 import type { AppEnv } from "../types.ts";
 
 const accountAction = (path: string): AdminOperationAction =>
@@ -139,6 +140,28 @@ operations.get("/v1/admin/reconciliation", async (c) => {
     return c.json(
       (await c.var.adminOperationReconciliation.latest()) ?? { items: [] },
     );
+  } catch (cause) {
+    return error(c, cause);
+  }
+});
+
+operations.get("/v1/admin/shared-hosting/reconciliation", async (c) => {
+  try {
+    assertAdminPermission(
+      c.var.adminPrincipal,
+      "read_reconciliation",
+      new Date().toISOString(),
+    );
+    const billing = c.var.billingService as BillingService | undefined;
+    const shared = c.var.sharedHostingService;
+    const scheduler = c.var.sharedHostingScheduler;
+    if (!billing || !shared || !scheduler) throw new Error("unavailable");
+    return c.json({
+      generatedAt: new Date().toISOString(),
+      subscriptions: await shared.adminSubscriptions(),
+      services: await scheduler.reconciliationServices(),
+      ledger: await billing.adminLedger(),
+    });
   } catch (cause) {
     return error(c, cause);
   }
