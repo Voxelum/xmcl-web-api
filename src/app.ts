@@ -4,6 +4,7 @@ import { HTTPException } from "hono/http-exception";
 
 import appinstaller from "./routes/appinstaller.ts";
 import appx from "./routes/appx.ts";
+import account from "./routes/account.ts";
 import elyby from "./routes/elyby.ts";
 import flights from "./routes/flights.ts";
 import group from "./routes/group.ts";
@@ -14,6 +15,7 @@ import notifications from "./routes/notifications.ts";
 import prebuilds from "./routes/prebuilds.ts";
 import releases from "./routes/releases.ts";
 import rtc from "./routes/rtc.ts";
+import session from "./routes/session.ts";
 import translation from "./routes/translation.ts";
 import zulu from "./routes/zulu.ts";
 import type { AppEnv } from "./types.ts";
@@ -48,6 +50,8 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
   app.route("/", appx);
   app.route("/", appinstaller);
   app.route("/", prebuilds);
+  app.route("/", session);
+  app.route("/", account);
 
   // Index: list the registered routes (mirrors the original `/`).
   app.get("/", (c) => {

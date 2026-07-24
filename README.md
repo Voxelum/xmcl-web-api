@@ -94,6 +94,8 @@ All runtimes serve the same routes (defined once in [`src/app.ts`](src/app.ts)):
   at the latest stable release. Replaces the static
   `xmcl.blob.core.windows.net/releases/xmcl.appinstaller` mirror.
 - `/prebuilds` - GitHub Actions prebuild workflow runs and artifacts
+- `/v1/auth/*`, `/v1/sessions/*`, `/v1/account/*` - XMCL account, OAuth, and
+  session APIs
 
 
 ## Environment Variables
@@ -111,6 +113,19 @@ The same variables are used across every runtime (read via `hono/adapter`:
 - `TURNS` - TURN server configuration (format: "realm:ip,realm:ip")
 - `CLOUDFLARE_API_TOKEN` - Cloudflare TURN API token (optional, `/rtc?type=cloudflare`)
 - `CLOUDFLARE_APP_ID` - Cloudflare TURN app id (optional)
+- `XMCL_SESSION_SECRET` - At least 32 characters used to sign XMCL session
+  access tokens
+- `XMCL_MICROSOFT_CLIENT_ID`, `XMCL_MICROSOFT_CLIENT_SECRET` - Microsoft OAuth
+  application credentials
+- `XMCL_MODRINTH_CLIENT_ID`, `XMCL_MODRINTH_CLIENT_SECRET` - Modrinth OAuth
+  credentials; the client ID defaults to XMCL's registered client
+- `XMCL_GOOGLE_CLIENT_ID`, `XMCL_GOOGLE_CLIENT_SECRET` - Google OAuth
+  application credentials
+- `XMCL_DISCORD_CLIENT_ID`, `XMCL_DISCORD_CLIENT_SECRET` - Discord OAuth
+  application credentials
+- `XMCL_OAUTH_REDIRECT_URIS` - Comma-separated exact HTTPS website callbacks.
+  Register every callback in each enabled provider; the launcher uses its
+  code-owned loopback callback and needs no configuration.
 
 ### Cloudflare-only bindings (wrangler.toml)
 

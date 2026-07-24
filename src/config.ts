@@ -26,6 +26,20 @@ export interface AppConfig {
    * to the public `Voxelum/xmcl-community-content-i18n-extra` repo.
    */
   TRANSLATION_I18N_BASE?: string;
+  XMCL_SESSION_SECRET?: string;
+  XMCL_MICROSOFT_CLIENT_ID?: string;
+  XMCL_MICROSOFT_CLIENT_SECRET?: string;
+  XMCL_MODRINTH_CLIENT_ID?: string;
+  XMCL_MODRINTH_CLIENT_SECRET?: string;
+  XMCL_GOOGLE_CLIENT_ID?: string;
+  XMCL_GOOGLE_CLIENT_SECRET?: string;
+  XMCL_DISCORD_CLIENT_ID?: string;
+  XMCL_DISCORD_CLIENT_SECRET?: string;
+  /**
+   * Optional comma-separated exact HTTPS callbacks for website OAuth.
+   * Launcher loopback callbacks are code-owned and require no configuration.
+   */
+  XMCL_OAUTH_REDIRECT_URIS?: string;
 }
 
 export function getConfig(c: Context): AppConfig {
