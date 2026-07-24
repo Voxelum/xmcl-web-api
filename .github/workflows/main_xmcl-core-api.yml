@@ -27,9 +27,12 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install Cloudflare dependencies
+      - name: Install API dependencies
+        run: npm ci
+
+      - name: Install Cloudflare toolchain
         working-directory: cloudflare
-        run: npm install
+        run: npm install --no-package-lock
 
       - name: Type-check Worker
         working-directory: cloudflare
