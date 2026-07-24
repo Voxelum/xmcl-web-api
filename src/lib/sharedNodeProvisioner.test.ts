@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import {
   MemorySharedNodeProvisioningRepository,
   renderSharedNodeCloudInit,
+  type SharedNodeVmProfile,
   VultrSharedNodeProvisioner,
 } from "./sharedNodeProvisioner.ts";
+import { sharedNodeProfileFromConfig } from "./sharedHostingRuntime.ts";
 import {
   MemorySharedHostingSchedulerRepository,
   SharedHostingScheduler,
@@ -45,7 +47,11 @@ function schedulerFixture(calls: { dispatches: number }) {
         throw new Error("unused");
       },
     },
-    { dispatch: async () => { calls.dispatches += 1; } },
+    {
+      dispatch: async () => {
+        calls.dispatches += 1;
+      },
+    },
     undefined,
     { region: "sgp" },
   );
@@ -60,6 +66,7 @@ function providerFixture() {
     volumeDetach: 0,
     volumeDelete: 0,
     firewallGroupIds: [] as (string | undefined)[],
+    userData: [] as string[],
     order: [] as string[],
   };
   const instances = new Map<string, VultrInstance>();
@@ -69,6 +76,7 @@ function providerFixture() {
     createInstance: async (input) => {
       calls.instanceCreate += 1;
       calls.firewallGroupIds.push(input.firewallGroupId);
+      calls.userData.push(input.userData);
       assert.match(input.userData, /XMCL_SHARED_NODE_VOLUME_ID='volume_1'/);
       assert.match(input.userData, /XMCL_SHARED_NODE_REGION='sgp'/);
       assert.deepEqual(input.tags, [
@@ -142,6 +150,7 @@ function providerFixture() {
 
 function provisionerFixture(options: {
   drainTimeoutMs?: number;
+  profiles?: readonly SharedNodeVmProfile[];
   registration?: (
     nodeId: string,
     volumeProvider: SharedNodeVolumeProvider,
@@ -153,6 +162,11 @@ function provisionerFixture(options: {
   const repository = new MemorySharedNodeProvisioningRepository();
   const enrollmentRepository = new MemorySharedNodeCredentialRepository();
   const providers = providerFixture();
+  const registrationProfile = options.profiles?.[0] ?? {
+    totalMemoryMiB: 12 * 1024,
+    totalSharedCpu: 8,
+    totalWorkspaceGiB: 128,
+  };
   let registrationCalls = 0;
   const provisioner = new VultrSharedNodeProvisioner({
     provider: providers.provider,
@@ -173,13 +187,14 @@ function provisionerFixture(options: {
           nodeId,
           region: "sgp",
           status: "ready",
-          totalMemoryMiB: 12 * 1024,
-          totalSharedCpu: 8,
-          totalWorkspaceGiB: 128,
+          totalMemoryMiB: registrationProfile.totalMemoryMiB,
+          totalSharedCpu: registrationProfile.totalSharedCpu,
+          totalWorkspaceGiB: registrationProfile.totalWorkspaceGiB,
         });
       },
     },
     config,
+    profiles: options.profiles,
     drainTimeoutMs: options.drainTimeoutMs,
     pollIntervalMs: 0,
     sleep: async () => {},
@@ -192,9 +207,38 @@ function provisionerFixture(options: {
       return registrationCalls;
     },
     repository,
+    enrollmentRepository,
     provisioner,
   };
 }
+
+Deno.test("configured shared-node capacity is required during agent enrollment", async () => {
+  const profile = sharedNodeProfileFromConfig({
+    VULTR_SHARED_NODE_PLAN: "vc2-6c-16gb",
+    VULTR_SHARED_NODE_TOTAL_MEMORY_MIB: "16384",
+    VULTR_SHARED_NODE_TOTAL_SHARED_CPU: "6",
+    VULTR_SHARED_NODE_TOTAL_WORKSPACE_GIB: "128",
+  });
+  assert(profile);
+  const fixture = provisionerFixture({ profiles: [profile] });
+
+  await fixture.provisioner.requestCapacity(capacityRequest);
+
+  assert.equal(fixture.instances.get("instance_1")?.plan, "vc2-6c-16gb");
+  assert.match(fixture.calls.userData[0], /XMCL_TOTAL_MEMORY_MIB=16384/);
+  assert.match(fixture.calls.userData[0], /XMCL_TOTAL_SHARED_CPU=6/);
+  assert.match(fixture.calls.userData[0], /XMCL_TOTAL_WORKSPACE_GIB=128/);
+  assert.deepEqual(
+    (await fixture.enrollmentRepository.findEnrollment(
+      "shared-node-shared-capacity:service_1",
+    ))?.expectedCapacity,
+    {
+      totalMemoryMiB: 16384,
+      totalSharedCpu: 6,
+      totalWorkspaceGiB: 128,
+    },
+  );
+});
 
 Deno.test("shared node volume is persisted, attached, and confirmed before registration", async () => {
   const fixture = provisionerFixture({
@@ -233,10 +277,12 @@ Deno.test("shared node volume is persisted, attached, and confirmed before regis
 });
 
 Deno.test("missing or wrong firewall group never attaches storage or registers a node", async () => {
-  for (const [firewallGroupId, outcome, status] of [
-    [undefined, "unknown", "unknown"],
-    ["another-firewall-group", "definitive", "failed"],
-  ] as const) {
+  for (
+    const [firewallGroupId, outcome, status] of [
+      [undefined, "unknown", "unknown"],
+      ["another-firewall-group", "definitive", "failed"],
+    ] as const
+  ) {
     const fixture = provisionerFixture();
     const create = fixture.provider.createInstance;
     fixture.provider.createInstance = async (input) => ({
@@ -298,7 +344,9 @@ Deno.test("a changed firewall group on a durable record fails before provider ch
     scheduler: fixture.scheduler,
     repository: fixture.repository,
     enrollmentRepository: new MemorySharedNodeCredentialRepository(),
-    registration: { isRegistered: (nodeId) => fixture.scheduler.hasNode(nodeId) },
+    registration: {
+      isRegistered: (nodeId) => fixture.scheduler.hasNode(nodeId),
+    },
     config: { ...config, firewallGroupId: "firewall-group-2" },
     pollIntervalMs: 0,
     sleep: async () => {},
@@ -377,11 +425,13 @@ Deno.test("an unknown VM create reconciles its durable volume and VM before retr
 });
 
 Deno.test("wrong volume region, size, or type fails definitively before VM creation", async () => {
-  for (const invalid of [
-    { region: "ewr", sizeGiB: 192, blockType: "high_perf" },
-    { region: "sgp", sizeGiB: 128, blockType: "high_perf" },
-    { region: "sgp", sizeGiB: 192, blockType: "storage_opt" },
-  ]) {
+  for (
+    const invalid of [
+      { region: "ewr", sizeGiB: 192, blockType: "high_perf" },
+      { region: "sgp", sizeGiB: 128, blockType: "high_perf" },
+      { region: "sgp", sizeGiB: 192, blockType: "storage_opt" },
+    ]
+  ) {
     const fixture = provisionerFixture();
     fixture.volumeProvider.createVolume = async (input) => ({
       id: "volume_1",
@@ -428,9 +478,10 @@ Deno.test("wrong attachment target fails without deleting the request volume", a
 Deno.test("drain blocks deletion while services are active", async () => {
   const fixture = provisionerFixture({ drainTimeoutMs: 0 });
   await fixture.provisioner.requestCapacity(capacityRequest);
-  fixture.scheduler.activeServicesOnNode = async () => [{
-    serviceId: "shared_service_active",
-  }] as never;
+  fixture.scheduler.activeServicesOnNode = async () =>
+    [{
+      serviceId: "shared_service_active",
+    }] as never;
 
   await assert.rejects(
     () =>
@@ -471,14 +522,20 @@ Deno.test("shared cloud-init safely waits for its exact Vultr volume", () => {
 
   assert.match(value, /XMCL_SHARED_NODE_VOLUME_ID='vol-abc'/);
   assert.match(value, /XMCL_SHARED_NODE_REGION='sgp'/);
-  assert.match(value, /XMCL_WORKSPACE_ROOT='\/var\/lib\/xmcl-shared\/workspaces'/);
+  assert.match(
+    value,
+    /XMCL_WORKSPACE_ROOT='\/var\/lib\/xmcl-shared\/workspaces'/,
+  );
   assert.match(value, /\/dev\/disk\/by-id\/scsi-0Vultr_Block_Storage_/);
   assert.match(value, /refusing to use the root filesystem device/);
   assert.match(value, /SECONDS \+ 300/);
   assert.match(value, /mkfs\.xfs/);
   assert.match(value, /defaults,pquota/);
   assert.match(value, /xmcl-shared-volume-setup\.service/);
-  assert.match(value, /Requires=docker\.service xmcl-shared-volume-setup\.service/);
+  assert.match(
+    value,
+    /Requires=docker\.service xmcl-shared-volume-setup\.service/,
+  );
   assert.match(value, /\/etc\/xmcl-shared-node-agent\/quota-helper\.json/);
   assert.equal(value.includes("XMCL_XFS_DEVICE"), false);
   assert.equal(value.includes("/dev/vdb"), false);

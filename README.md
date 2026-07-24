@@ -223,9 +223,19 @@ The same variables are used across every runtime (read via `hono/adapter`:
   over HTTPS and SHA-256 verified. The quota helper is installed root-owned at
   `/usr/local/libexec/xmcl-quota-helper`; its configuration is root-owned and
   non-writable by the agent.
+- `VULTR_SHARED_NODE_TOTAL_MEMORY_MIB`,
+  `VULTR_SHARED_NODE_TOTAL_SHARED_CPU`, and
+  `VULTR_SHARED_NODE_TOTAL_WORKSPACE_GIB` are required positive integers with
+  no defaults. They must exactly describe the selected
+  `VULTR_SHARED_NODE_PLAN`; the scheduler enrollment and placement limits use
+  these values. For Singapore staging with `vc2-6c-16gb`, set `16384`, `6`,
+  and `128` respectively. These are deployment settings, not a plan allowlist
+  in code.
 - `VULTR_SHARED_NODE_BLOCK_STORAGE_GIB` is a required positive integer with no
   default. It must at least cover the selected profile's advertised workspace
-  capacity and include headroom for restore/archive/sync staging.
+  capacity and include headroom for restore/archive/sync staging. The
+  `vc2-6c-16gb` Singapore staging profile uses `192` GiB for headroom above
+  its `128` GiB workspace capacity.
   `VULTR_SHARED_NODE_BLOCK_STORAGE_TYPE` is also required and must be
   `high_perf` or `storage_opt`. Size and type directly affect recurring Vultr
   Block Storage charges. Cloud-init receives the created volume ID, resolves

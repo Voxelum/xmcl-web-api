@@ -59,6 +59,9 @@ VULTR_API_TOKEN
 VULTR_SHARED_NODE_REGION_ID=sgp
 VULTR_SHARED_NODE_PLAN
 VULTR_SHARED_NODE_IMAGE_ID
+VULTR_SHARED_NODE_TOTAL_MEMORY_MIB
+VULTR_SHARED_NODE_TOTAL_SHARED_CPU
+VULTR_SHARED_NODE_TOTAL_WORKSPACE_GIB
 XMCL_SHARED_AGENT_RELEASE_URL
 XMCL_SHARED_AGENT_RELEASE_SHA256
 XMCL_CONTROL_PLANE_URL
@@ -76,6 +79,11 @@ VULTR_SHARED_NODE_REGION_ID=sgp
 XMCL_VULTR_OBJECT_STORAGE_ENDPOINT=https://sgp1.vultrobjects.com
 XMCL_VULTR_OBJECT_STORAGE_REGION=sgp
 XMCL_SHARED_NODE_REGION=sgp  # cloud-init owned; operators do not set it manually
+VULTR_SHARED_NODE_PLAN=vc2-6c-16gb
+VULTR_SHARED_NODE_TOTAL_MEMORY_MIB=16384
+VULTR_SHARED_NODE_TOTAL_SHARED_CPU=6
+VULTR_SHARED_NODE_TOTAL_WORKSPACE_GIB=128
+VULTR_SHARED_NODE_BLOCK_STORAGE_GIB=192
 ```
 
 Use platform secret storage for every secret. The API must keep commercial
@@ -88,6 +96,14 @@ headroom for workspace restore, archive, and sync staging. It has no default.
 class (`high_perf` or `storage_opt`) and also has no default. Larger volumes and
 the higher-performance class increase Vultr Block Storage charges; select them
 deliberately for the expected concurrent workspace and I/O load.
+
+`VULTR_SHARED_NODE_TOTAL_MEMORY_MIB`,
+`VULTR_SHARED_NODE_TOTAL_SHARED_CPU`, and
+`VULTR_SHARED_NODE_TOTAL_WORKSPACE_GIB` are required positive integers with no
+defaults. Set all three to the actual selected VM plan's schedulable capacity:
+the runtime uses them when it creates the expected enrollment and scheduler
+capacity profile. The Singapore values above are a staging recommendation, not
+a hardcoded plan restriction.
 
 Do not configure a Linux disk path. The platform creates the volume in the
 node's configured Vultr region and cloud-init receives only its Vultr volume

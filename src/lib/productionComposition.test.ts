@@ -36,8 +36,11 @@ Deno.test("production composition mounts only the authenticated node transport f
     BILLING_RATES_JSON: "[]",
     VULTR_API_TOKEN: "provider-token",
     VULTR_SHARED_NODE_REGION_ID: "sgp",
-    VULTR_SHARED_NODE_PLAN: "vc2-4c-16gb",
+    VULTR_SHARED_NODE_PLAN: "vc2-6c-16gb",
     VULTR_SHARED_NODE_IMAGE_ID: "1743",
+    VULTR_SHARED_NODE_TOTAL_MEMORY_MIB: "16384",
+    VULTR_SHARED_NODE_TOTAL_SHARED_CPU: "6",
+    VULTR_SHARED_NODE_TOTAL_WORKSPACE_GIB: "128",
     XMCL_SHARED_AGENT_RELEASE_URL: "https://release.example/agent",
     XMCL_SHARED_AGENT_RELEASE_SHA256: "a".repeat(64),
     XMCL_SHARED_QUOTA_HELPER_RELEASE_URL:
@@ -89,19 +92,29 @@ Deno.test("production composition mounts only the authenticated node transport f
     ).sharedNodeTransportRoutes,
     false,
   );
-  for (const invalidSetting of [
-    { VULTR_SHARED_NODE_REGION_ID: undefined },
-    { VULTR_SHARED_NODE_REGION_ID: "SGP" },
-    { VULTR_SHARED_NODE_REGION_ID: "sgp!" },
-    { VULTR_SHARED_NODE_FIREWALL_GROUP_ID: undefined },
-    { VULTR_SHARED_NODE_FIREWALL_GROUP_ID: "not a provider id" },
-    { XMCL_SHARED_NODE_INGRESS_PORT_MIN: undefined },
-    { XMCL_SHARED_NODE_INGRESS_PORT_MAX: "65536" },
-    {
-      XMCL_SHARED_NODE_INGRESS_PORT_MIN: "25665",
-      XMCL_SHARED_NODE_INGRESS_PORT_MAX: "25565",
-    },
-  ]) {
+  for (
+    const invalidSetting of [
+      { VULTR_SHARED_NODE_REGION_ID: undefined },
+      { VULTR_SHARED_NODE_REGION_ID: "SGP" },
+      { VULTR_SHARED_NODE_REGION_ID: "sgp!" },
+      { VULTR_SHARED_NODE_TOTAL_MEMORY_MIB: undefined },
+      { VULTR_SHARED_NODE_TOTAL_MEMORY_MIB: "0" },
+      { VULTR_SHARED_NODE_TOTAL_MEMORY_MIB: "16384.5" },
+      { VULTR_SHARED_NODE_TOTAL_SHARED_CPU: undefined },
+      { VULTR_SHARED_NODE_TOTAL_SHARED_CPU: "-6" },
+      { VULTR_SHARED_NODE_TOTAL_WORKSPACE_GIB: undefined },
+      { VULTR_SHARED_NODE_TOTAL_WORKSPACE_GIB: "0" },
+      { VULTR_SHARED_NODE_TOTAL_WORKSPACE_GIB: "128GiB" },
+      { VULTR_SHARED_NODE_FIREWALL_GROUP_ID: undefined },
+      { VULTR_SHARED_NODE_FIREWALL_GROUP_ID: "not a provider id" },
+      { XMCL_SHARED_NODE_INGRESS_PORT_MIN: undefined },
+      { XMCL_SHARED_NODE_INGRESS_PORT_MAX: "65536" },
+      {
+        XMCL_SHARED_NODE_INGRESS_PORT_MIN: "25665",
+        XMCL_SHARED_NODE_INGRESS_PORT_MAX: "25565",
+      },
+    ]
+  ) {
     assert.equal(
       productionAppOptions(
         { ...config, ...invalidSetting },

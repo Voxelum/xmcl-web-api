@@ -11,23 +11,24 @@ import {
   MongoSharedNodeIngressRepository,
   MongoSharedWorkspaceManifestRepository,
   SharedNodeIngressAssignmentProvider,
-  type SharedNodeWorkspaceSigner,
   SharedNodeTransportService,
+  type SharedNodeWorkspaceSigner,
 } from "./sharedNodeTransport.ts";
 import {
   hasValidSharedNodeBlockStorageSettings,
   hasValidSharedNodeFirewallSettings,
   MongoSharedNodeProvisioningRepository,
+  type SharedNodeVmProfile,
   VultrSharedNodeProvisioner,
 } from "./sharedNodeProvisioner.ts";
 import {
+  isSharedNodeRegion,
   MongoSharedHostingSchedulerRepository,
   SharedHostingScheduler,
-  isSharedNodeRegion,
 } from "./sharedHostingScheduler.ts";
 import {
-  sharedHostingBillingWork,
   type SharedHostingBillingScheduledWork,
+  sharedHostingBillingWork,
 } from "./sharedHostingScheduling.ts";
 import { VultrV2Adapter } from "./vultr.ts";
 
@@ -39,12 +40,49 @@ export interface SharedHostingRuntime {
   billingScheduledWork: SharedHostingBillingScheduledWork;
 }
 
+function positiveSafeInteger(value: string | undefined) {
+  if (!value || !/^[1-9][0-9]*$/.test(value)) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
+export function sharedNodeProfileFromConfig(
+  config: AppConfig,
+): SharedNodeVmProfile | undefined {
+  if (!config.VULTR_SHARED_NODE_PLAN) return undefined;
+  const totalMemoryMiB = positiveSafeInteger(
+    config.VULTR_SHARED_NODE_TOTAL_MEMORY_MIB,
+  );
+  const totalSharedCpu = positiveSafeInteger(
+    config.VULTR_SHARED_NODE_TOTAL_SHARED_CPU,
+  );
+  const totalWorkspaceGiB = positiveSafeInteger(
+    config.VULTR_SHARED_NODE_TOTAL_WORKSPACE_GIB,
+  );
+  if (
+    totalMemoryMiB === undefined ||
+    totalSharedCpu === undefined ||
+    totalWorkspaceGiB === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    profileId:
+      `shared-${config.VULTR_SHARED_NODE_PLAN}-${totalMemoryMiB}m-${totalSharedCpu}c-${totalWorkspaceGiB}g`,
+    providerPlan: config.VULTR_SHARED_NODE_PLAN,
+    totalMemoryMiB,
+    totalSharedCpu,
+    totalWorkspaceGiB,
+  };
+}
+
 export function hasSharedNodeSettings(config: AppConfig) {
+  const profile = sharedNodeProfileFromConfig(config);
   return Boolean(
     config.BILLING_RATES_JSON &&
       config.VULTR_API_TOKEN &&
-    isSharedNodeRegion(config.VULTR_SHARED_NODE_REGION_ID) &&
-      config.VULTR_SHARED_NODE_PLAN &&
+      isSharedNodeRegion(config.VULTR_SHARED_NODE_REGION_ID) &&
+      profile &&
       config.VULTR_SHARED_NODE_IMAGE_ID &&
       config.XMCL_SHARED_AGENT_RELEASE_URL &&
       config.XMCL_SHARED_AGENT_RELEASE_SHA256 &&
@@ -58,6 +96,7 @@ export function hasSharedNodeSettings(config: AppConfig) {
       hasValidSharedNodeBlockStorageSettings(
         config.VULTR_SHARED_NODE_BLOCK_STORAGE_GIB,
         config.VULTR_SHARED_NODE_BLOCK_STORAGE_TYPE,
+        profile?.totalWorkspaceGiB,
       ) &&
       hasValidSharedNodeFirewallSettings(
         config.VULTR_SHARED_NODE_FIREWALL_GROUP_ID,
@@ -75,6 +114,7 @@ export function createSharedHostingRuntime(
   if (!hasSharedNodeSettings(config)) {
     throw new Error("shared node production settings are incomplete");
   }
+  const profile = sharedNodeProfileFromConfig(config)!;
   const billing = createBillingRuntime(db, config);
   const credentialRepository = new MongoSharedNodeCredentialRepository(db);
   const outbox = new MongoSharedNodeCommandOutbox(db);
@@ -114,13 +154,12 @@ export function createSharedHostingRuntime(
       isRegistered: (nodeId) => scheduler.hasNode(nodeId),
     },
     config: {
-      providerPlan: config.VULTR_SHARED_NODE_PLAN,
+      providerPlan: profile.providerPlan,
       firewallGroupId: config.VULTR_SHARED_NODE_FIREWALL_GROUP_ID!,
       releaseUrl: config.XMCL_SHARED_AGENT_RELEASE_URL!,
       releaseSha256: config.XMCL_SHARED_AGENT_RELEASE_SHA256!,
       quotaHelperReleaseUrl: config.XMCL_SHARED_QUOTA_HELPER_RELEASE_URL!,
-      quotaHelperReleaseSha256:
-        config.XMCL_SHARED_QUOTA_HELPER_RELEASE_SHA256!,
+      quotaHelperReleaseSha256: config.XMCL_SHARED_QUOTA_HELPER_RELEASE_SHA256!,
       controlPlaneUrl: config.XMCL_CONTROL_PLANE_URL!,
       region: config.VULTR_SHARED_NODE_REGION_ID!,
       blockStorageSizeGiB: Number(
@@ -139,6 +178,7 @@ export function createSharedHostingRuntime(
         ? Number(config.XMCL_XFS_PROJECT_BASE)
         : undefined,
     },
+    profiles: [profile],
   });
   scheduler.attachProvisioner(provisioner);
   const transport = new SharedNodeTransportService({
@@ -155,7 +195,10 @@ export function createSharedHostingRuntime(
     scheduler,
     transport,
     provisioner,
-    billingScheduledWork: sharedHostingBillingWork(billing.sharedHosting, scheduler),
+    billingScheduledWork: sharedHostingBillingWork(
+      billing.sharedHosting,
+      scheduler,
+    ),
   };
 }
 
