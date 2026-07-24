@@ -154,7 +154,7 @@ export interface SharedNodeProvisioningConfig {
   objectStorageEndpoint?: string;
   objectStorageRegion?: string;
   objectStorageBucket?: string;
-  containerImage?: string;
+  containerImage: string;
   workspaceRoot?: string;
   rconStopTimeoutSeconds?: number;
   xfsProjectBase?: number;
@@ -507,7 +507,9 @@ export class VultrSharedNodeProvisioner
     expectedVolume: VultrVolume,
     instance: VultrInstance,
   ) {
-    const volume = await this.options.volumeProvider.getVolume(expectedVolume.id);
+    const volume = await this.options.volumeProvider.getVolume(
+      expectedVolume.id,
+    );
     if (!volume) {
       await this.markUnknown(record);
       throw new ProviderError("provider_unknown", "unknown");
@@ -549,7 +551,9 @@ export class VultrSharedNodeProvisioner
   ) {
     const deadline = Date.now() + this.attachmentTimeoutMs;
     while (true) {
-      const volume = await this.options.volumeProvider.getVolume(record.volumeId!);
+      const volume = await this.options.volumeProvider.getVolume(
+        record.volumeId!,
+      );
       if (!volume) {
         await this.markUnknown(record);
         throw new ProviderError("provider_unknown", "unknown");
@@ -615,7 +619,9 @@ export class VultrSharedNodeProvisioner
   }
 
   private async deleteInstance(record: SharedNodeProvisioningRecord) {
-    const instance = await this.options.provider.getInstance(record.instanceId!);
+    const instance = await this.options.provider.getInstance(
+      record.instanceId!,
+    );
     if (!instance) {
       record.instanceStatus = "deleted";
       await this.save(record);
@@ -639,7 +645,9 @@ export class VultrSharedNodeProvisioner
       }
       this.validateInstance(
         record,
-        this.profiles.find((profile) => profile.profileId === record.profileId)!,
+        this.profiles.find((profile) =>
+          profile.profileId === record.profileId
+        )!,
         current,
       );
       if (Date.now() >= deadline) {
@@ -689,7 +697,9 @@ export class VultrSharedNodeProvisioner
     await this.options.volumeProvider.deleteVolume(record.volumeId!);
     const deadline = Date.now() + this.drainTimeoutMs;
     while (true) {
-      const current = await this.options.volumeProvider.getVolume(record.volumeId!);
+      const current = await this.options.volumeProvider.getVolume(
+        record.volumeId!,
+      );
       if (!current) {
         record.volumeStatus = "deleted";
         await this.save(record);
@@ -772,7 +782,7 @@ export function renderSharedNodeCloudInit(input: {
   objectStorageEndpoint?: string;
   objectStorageRegion?: string;
   objectStorageBucket?: string;
-  containerImage?: string;
+  containerImage: string;
   workspaceRoot?: string;
   rconStopTimeoutSeconds?: number;
   xfsProjectBase?: number;
@@ -800,11 +810,7 @@ export function renderSharedNodeCloudInit(input: {
       shellValue(input.workspaceRoot ?? "/var/lib/xmcl-shared/workspaces")
     }`,
     "XMCL_STATE_ROOT='/var/lib/xmcl-shared/state'",
-    `XMCL_CONTAINER_IMAGE=${
-      shellValue(
-        input.containerImage ?? "ghcr.io/voxelum/xmcl-minecraft:stable",
-      )
-    }`,
+    `XMCL_CONTAINER_IMAGE=${shellValue(input.containerImage)}`,
     `XMCL_RCON_STOP_TIMEOUT_SECONDS=${input.rconStopTimeoutSeconds ?? 60}`,
     "XMCL_QUOTA_MOUNT_PATH='/var/lib/xmcl-shared'",
     `XMCL_QUOTA_PROJECT_BASE=${input.xfsProjectBase ?? 100000}`,
@@ -813,11 +819,15 @@ export function renderSharedNodeCloudInit(input: {
     `XMCL_TOTAL_WORKSPACE_GIB=${input.totalWorkspaceGiB}`,
     "XMCL_METRICS_ADDR='127.0.0.1:9464'",
   ].join("\n") + "\n";
-  const quotaConfig = JSON.stringify({
-    workspaceRoot: input.workspaceRoot ?? "/var/lib/xmcl-shared/workspaces",
-    mountPath: "/var/lib/xmcl-shared",
-    projectBase: input.xfsProjectBase ?? 100000,
-  }, undefined, 2);
+  const quotaConfig = JSON.stringify(
+    {
+      workspaceRoot: input.workspaceRoot ?? "/var/lib/xmcl-shared/workspaces",
+      mountPath: "/var/lib/xmcl-shared",
+      projectBase: input.xfsProjectBase ?? 100000,
+    },
+    undefined,
+    2,
+  );
   const volumeSetupService = `[Unit]
 Description=XMCL shared node Block Storage setup
 After=local-fs.target
@@ -1079,7 +1089,8 @@ function validateConfig(input: SharedNodeProvisioningConfig) {
     !Number.isSafeInteger(input.blockStorageSizeGiB) ||
     input.blockStorageSizeGiB <= 0 ||
     !isBlockStorageType(input.blockStorageType) ||
-    !validWorkspaceRoot(input.workspaceRoot)
+    !validWorkspaceRoot(input.workspaceRoot) ||
+    !isImmutableSharedRuntimeImage(input.containerImage)
   ) {
     throw new Error("shared node provisioning configuration is invalid");
   }
@@ -1095,6 +1106,7 @@ function validateCloudInitInput(input: {
   controlPlaneCredential: string;
   volumeId: string;
   region: string;
+  containerImage: string;
   workspaceRoot?: string;
 }) {
   if (
@@ -1109,7 +1121,16 @@ function validateCloudInitInput(input: {
     region: input.region,
     blockStorageSizeGiB: 1,
     blockStorageType: "high_perf",
+    containerImage: input.containerImage,
   });
+}
+
+export function isImmutableSharedRuntimeImage(value: string | undefined) {
+  return typeof value === "string" &&
+    /^ghcr\.io\/voxelum\/xmcl-shared-minecraft-runtime@sha256:[a-f0-9]{64}$/
+      .test(
+        value,
+      );
 }
 
 function validWorkspaceRoot(value: string | undefined) {

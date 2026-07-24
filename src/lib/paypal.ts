@@ -1,5 +1,9 @@
 import { AccountError } from "./account.ts";
-import type { BillingService, PublicOrder } from "./billing.ts";
+import type {
+  BillingService,
+  PayPalReconciliationResult,
+  PublicOrder,
+} from "./billing.ts";
 import type { Money } from "./ledger.ts";
 
 export interface PayPalOrderProvider {
@@ -344,6 +348,50 @@ export class PayPalService {
           amount,
         }),
     });
+  }
+
+  /**
+   * Trusted scheduled recovery for locally persisted PayPal intents. No raw
+   * PayPal response is retained or logged; only the durable order fields are
+   * conditionally finalized by BillingService.
+   */
+  async reconcilePendingOrders(
+    at: Date,
+    limit?: number,
+  ): Promise<{
+    attempted: string[];
+    finalized: string[];
+    stillPending: string[];
+    failed: string[];
+  }> {
+    const candidates = await this.billing.stalePendingPayPalOrders(at, limit);
+    const result = {
+      attempted: [] as string[],
+      finalized: [] as string[],
+      stillPending: [] as string[],
+      failed: [] as string[],
+    };
+    for (const candidate of candidates) {
+      const outcome: PayPalReconciliationResult = await this.billing
+        .reconcilePendingPayPalOrder(
+          candidate.orderId,
+          (orderId, amount) =>
+            this.provider.createOrder({
+              orderId,
+              accountId: candidate.accountId,
+              amount,
+            }),
+        );
+      if (outcome.attempted) result.attempted.push(outcome.orderId);
+      if (outcome.outcome === "finalized") {
+        result.finalized.push(outcome.orderId);
+      }
+      if (outcome.outcome === "still_pending") {
+        result.stillPending.push(outcome.orderId);
+      }
+      if (outcome.outcome === "failed") result.failed.push(outcome.orderId);
+    }
+    return result;
   }
 
   async captureOrder(accountId: string, orderId: string): Promise<PublicOrder> {

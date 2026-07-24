@@ -17,6 +17,7 @@ import {
 import {
   hasValidSharedNodeBlockStorageSettings,
   hasValidSharedNodeFirewallSettings,
+  isImmutableSharedRuntimeImage,
   MongoSharedNodeProvisioningRepository,
   type SharedNodeVmProfile,
   VultrSharedNodeProvisioner,
@@ -92,7 +93,7 @@ export function hasSharedNodeSettings(config: AppConfig) {
       config.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT &&
       config.XMCL_VULTR_OBJECT_STORAGE_REGION &&
       config.XMCL_VULTR_OBJECT_STORAGE_BUCKET &&
-      config.XMCL_SHARED_NODE_CONTAINER_IMAGE &&
+      isImmutableSharedRuntimeImage(config.XMCL_SHARED_NODE_CONTAINER_IMAGE) &&
       hasValidSharedNodeBlockStorageSettings(
         config.VULTR_SHARED_NODE_BLOCK_STORAGE_GIB,
         config.VULTR_SHARED_NODE_BLOCK_STORAGE_TYPE,
@@ -169,7 +170,7 @@ export function createSharedHostingRuntime(
       objectStorageEndpoint: config.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT,
       objectStorageRegion: config.XMCL_VULTR_OBJECT_STORAGE_REGION,
       objectStorageBucket: config.XMCL_VULTR_OBJECT_STORAGE_BUCKET,
-      containerImage: config.XMCL_SHARED_NODE_CONTAINER_IMAGE,
+      containerImage: config.XMCL_SHARED_NODE_CONTAINER_IMAGE!,
       workspaceRoot: config.XMCL_WORKSPACE_ROOT,
       rconStopTimeoutSeconds: config.XMCL_RCON_STOP_TIMEOUT_SECONDS
         ? Number(config.XMCL_RCON_STOP_TIMEOUT_SECONDS)

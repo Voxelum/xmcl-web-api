@@ -27,6 +27,18 @@ export interface PublicOrder {
   updatedAt: string;
 }
 
+export interface PendingPayPalOrder {
+  orderId: string;
+  accountId: string;
+  amount: Money;
+}
+
+export interface PayPalReconciliationResult {
+  orderId: string;
+  attempted: boolean;
+  outcome: "finalized" | "still_pending" | "failed";
+}
+
 export interface AdminOperation {
   operationId: string;
   action: "refund" | "balance_adjust";
@@ -317,6 +329,7 @@ export class BillingService {
         claim.scope,
         claim.attemptId,
         fingerprint,
+        error,
       );
       throw error;
     }
@@ -346,9 +359,124 @@ export class BillingService {
         claim.scope,
         claim.attemptId,
         fingerprint,
+        error,
       );
       throw error;
     }
+  }
+
+  /**
+   * Returns a bounded, stable projection of pending provider intents. This is a
+   * read of the single billing aggregate, not a collection scan.
+   */
+  async stalePendingPayPalOrders(
+    at: Date,
+    limit = 25,
+  ): Promise<PendingPayPalOrder[]> {
+    if (!Number.isFinite(at.getTime())) {
+      throw new Error("Invalid reconciliation time");
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) {
+      throw new Error("PayPal reconciliation limit must be a positive integer");
+    }
+    const boundedLimit = Math.min(limit, 100);
+    const cutoff = at.getTime() - this.providerCreationRecoveryMs;
+    return await this.store.read((state) =>
+      [...state.orders.values()]
+        .filter((order) => {
+          if (order.status !== "pending" || order.providerOrderId) return false;
+          const staleAt = order.providerCreation?.startedAt ??
+            order.providerCreationFailure?.failedAt;
+          return staleAt !== undefined && Date.parse(staleAt) <= cutoff;
+        })
+        .sort((left, right) => {
+          const leftAt = left.providerCreation?.startedAt ??
+            left.providerCreationFailure?.failedAt ?? "";
+          const rightAt = right.providerCreation?.startedAt ??
+            right.providerCreationFailure?.failedAt ?? "";
+          return leftAt.localeCompare(rightAt) ||
+            left.orderId.localeCompare(right.orderId);
+        })
+        .slice(0, boundedLimit)
+        .map((order) => ({
+          orderId: order.orderId,
+          accountId: order.accountId,
+          amount: structuredClone(order.amount),
+        }))
+    );
+  }
+
+  /**
+   * Replays a stale provider creation attempt using the immutable local order
+   * ID as the provider request identity. The provider call is deliberately
+   * between two short aggregate transactions.
+   */
+  async reconcilePendingPayPalOrder(
+    orderId: string,
+    createProviderOrder: (orderId: string, amount: Money) => Promise<{
+      providerOrderId: string;
+      approvalUrl: string;
+    }>,
+  ): Promise<PayPalReconciliationResult> {
+    const claim = await this.store.transaction((state) => {
+      const order = state.orders.get(orderId);
+      if (!order || order.status !== "pending" || order.providerOrderId) {
+        return { kind: "complete" as const };
+      }
+      if (
+        order.providerCreation &&
+        !this.canRecoverProviderCreation(order.providerCreation.startedAt)
+      ) {
+        return { kind: "pending" as const };
+      }
+      const attemptId = this.createId("paypal_attempt");
+      order.providerCreation = {
+        attemptId,
+        startedAt: this.now().toISOString(),
+      };
+      order.updatedAt = this.now().toISOString();
+      this.updateOrderIdempotencyResponses(state, order);
+      return {
+        kind: "provider" as const,
+        attemptId,
+        order: structuredClone(order),
+      };
+    });
+    if (claim.kind === "complete") {
+      return { orderId, attempted: false, outcome: "finalized" };
+    }
+    if (claim.kind === "pending") {
+      return { orderId, attempted: false, outcome: "still_pending" };
+    }
+    let provider: { providerOrderId: string; approvalUrl: string };
+    try {
+      provider = await createProviderOrder(
+        claim.order.orderId,
+        claim.order.amount,
+      );
+      if (!provider.providerOrderId || !provider.approvalUrl) {
+        fail(502, "provider_invalid_response");
+      }
+    } catch (error) {
+      await this.recordProviderCreationFailure(orderId, claim.attemptId, error);
+      return { orderId, attempted: true, outcome: "failed" };
+    }
+    const outcome = await this.store.transaction((state) => {
+      const order = state.orders.get(orderId);
+      if (!order || order.providerOrderId) return "finalized" as const;
+      if (order.providerCreation?.attemptId !== claim.attemptId) {
+        return "still_pending" as const;
+      }
+      order.providerOrderId = provider.providerOrderId;
+      order.approvalUrl = provider.approvalUrl;
+      order.providerCreation = undefined;
+      order.providerCreationFailure = undefined;
+      order.updatedAt = this.now().toISOString();
+      state.ordersByProviderId.set(provider.providerOrderId, order.orderId);
+      this.updateOrderIdempotencyResponses(state, order);
+      return "finalized" as const;
+    });
+    return { orderId, attempted: true, outcome };
   }
 
   async orders(accountId: string): Promise<PublicOrder[]> {
@@ -503,16 +631,71 @@ export class BillingService {
     scope: string,
     attemptId: string,
     fingerprint: string,
+    error: unknown,
   ) {
     await this.store.transaction((state) => {
       const order = state.orders.get(orderId);
       if (!order || order.providerCreation?.attemptId !== attemptId) return;
       order.providerCreation = undefined;
+      order.providerCreationFailure = {
+        attemptId,
+        failedAt: this.now().toISOString(),
+        code: this.providerFailureCode(error),
+      };
       order.updatedAt = this.now().toISOString();
       state.idempotencies.set(scope, {
         fingerprint,
         response: publicOrder(order),
       });
     });
+  }
+
+  private async recordProviderCreationFailure(
+    orderId: string,
+    attemptId: string,
+    error: unknown,
+  ) {
+    await this.store.transaction((state) => {
+      const order = state.orders.get(orderId);
+      if (!order || order.providerCreation?.attemptId !== attemptId) return;
+      order.providerCreation = undefined;
+      order.providerCreationFailure = {
+        attemptId,
+        failedAt: this.now().toISOString(),
+        code: this.providerFailureCode(error),
+      };
+      order.updatedAt = this.now().toISOString();
+      this.updateOrderIdempotencyResponses(state, order);
+    });
+  }
+
+  private providerFailureCode(
+    error: unknown,
+  ): NonNullable<BillingOrder["providerCreationFailure"]>["code"] {
+    if (
+      error instanceof AccountError &&
+      error.code === "provider_invalid_response"
+    ) {
+      return "provider_invalid_response";
+    }
+    if (error instanceof AccountError && error.status === 503) {
+      return "provider_unavailable";
+    }
+    return "provider_error";
+  }
+
+  private updateOrderIdempotencyResponses(
+    state: BillingState,
+    order: BillingOrder,
+  ) {
+    for (const [scope, replay] of state.idempotencies) {
+      const response = replay.response as { orderId?: unknown };
+      if (response?.orderId === order.orderId) {
+        state.idempotencies.set(scope, {
+          ...replay,
+          response: publicOrder(order),
+        });
+      }
+    }
   }
 }

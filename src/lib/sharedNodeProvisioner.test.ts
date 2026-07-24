@@ -29,6 +29,7 @@ const config = {
   blockStorageSizeGiB: 192,
   blockStorageType: "high_perf",
   firewallGroupId: "firewall-group-1",
+  containerImage: "ghcr.io/voxelum/xmcl-shared-minecraft-runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 };
 
 const capacityRequest = {

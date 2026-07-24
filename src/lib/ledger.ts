@@ -67,6 +67,14 @@ export interface BillingOrder {
     attemptId: string;
     startedAt: string;
   };
+  providerCreationFailure?: {
+    attemptId: string;
+    failedAt: string;
+    code:
+      | "provider_unavailable"
+      | "provider_invalid_response"
+      | "provider_error";
+  };
   status: "pending" | "completed" | "failed";
   createdAt: string;
   updatedAt?: string;

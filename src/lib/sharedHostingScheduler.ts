@@ -24,6 +24,27 @@ export type SharedServiceStatus =
 
 const sharedNodeRegionPattern = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
 
+function validateRuntimeContent(content: SharedRuntimeContent) {
+  if (
+    !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(content.deploymentId) ||
+    !/^[a-f0-9]{64}$/.test(content.manifestSha256) ||
+    !/^[a-f0-9]{64}$/.test(content.sha256) ||
+    !Number.isSafeInteger(content.compressedSize) ||
+    content.compressedSize <= 0 ||
+    !Number.isSafeInteger(content.logicalSize) || content.logicalSize < 0 ||
+    content.paths.length === 0 || content.paths.length > 100_000 ||
+    typeof content.eulaAccepted !== "boolean" ||
+    !content.key.startsWith("shared-hosting/") ||
+    !content.key.endsWith(".tar.zst") ||
+    content.paths.some((path) =>
+      !path || path.startsWith("/") || path.includes("\\") ||
+      path.split("/").some((part) => !part || part === "." || part === "..")
+    )
+  ) {
+    throw new AccountError(422, "invalid_runtime_content");
+  }
+}
+
 export function isSharedNodeRegion(value: unknown): value is string {
   return typeof value === "string" && sharedNodeRegionPattern.test(value);
 }
@@ -47,6 +68,22 @@ export interface SharedWorkspace {
   syncedAt?: string;
 }
 
+/**
+ * An immutable compiler-owned content archive. This deliberately carries no
+ * image, command, environment, URL, or storage credential chosen by a user.
+ */
+export interface SharedRuntimeContent {
+  deploymentId: string;
+  manifestSha256: string;
+  key: string;
+  sha256: string;
+  compressedSize: number;
+  logicalSize: number;
+  paths: readonly string[];
+  /** Set by the server-side terms policy adapter, never compiler/customer data. */
+  eulaAccepted: boolean;
+}
+
 export interface SharedHostingServiceRecord {
   serviceId: string;
   accountId: string;
@@ -54,6 +91,8 @@ export interface SharedHostingServiceRecord {
   planId: SharedHostingPlan["planId"];
   status: SharedServiceStatus;
   workspace: SharedWorkspace;
+  /** Selected only while stopped; the node receives it on the next restore. */
+  runtimeContent?: SharedRuntimeContent;
   runtime?: {
     startedAt: string;
     settledHours: number;
@@ -121,6 +160,8 @@ export interface SharedNodeCommand {
   assignmentId: string;
   accountId: string;
   workspace: SharedWorkspace;
+  runtimeContent?: SharedRuntimeContent;
+  eulaAccepted?: true;
   resources: {
     memoryMiB: number;
     sharedCpu: number;
@@ -262,6 +303,10 @@ function commandFor(
     assignmentId: value.assignmentId,
     accountId: value.accountId,
     workspace: clone(value.workspace),
+    ...(value.runtimeContent
+      ? { runtimeContent: clone(value.runtimeContent) }
+      : {}),
+    ...(value.runtimeContent?.eulaAccepted ? { eulaAccepted: true } : {}),
     resources: {
       memoryMiB: selected.memoryMiB,
       sharedCpu: selected.sharedCpu,
@@ -427,6 +472,59 @@ export class SharedHostingScheduler {
       .map(clone);
   }
 
+  /**
+   * Returns the account-owned service for a deployment adapter without exposing
+   * node placement or object-store details to an HTTP route.
+   */
+  async getService(accountId: string, serviceId: string) {
+    return await this.requireService(accountId, serviceId);
+  }
+
+  /**
+   * Swaps an already-published compiler content layer only while the service is
+   * stopped. World/config revisions are intentionally not touched.
+   */
+  async selectRuntimeContent(input: {
+    accountId: string;
+    serviceId: string;
+    content: SharedRuntimeContent;
+    idempotencyKey: string;
+  }) {
+    validateRuntimeContent(input.content);
+    const now = this.now().toISOString();
+    return await this.repository.transact((state) => {
+      const value = service(state, input.serviceId);
+      if (!value || value.accountId !== input.accountId) {
+        throw new AccountError(404, "shared_service_not_found");
+      }
+      if (value.status !== "ready") {
+        throw new AccountError(409, "shared_service_must_be_stopped");
+      }
+      const key = `${input.accountId}:runtime-content:${input.idempotencyKey}`;
+      const requestFingerprint = fingerprint({
+        serviceId: input.serviceId,
+        content: input.content,
+      });
+      const replay = state.idempotency.find((item) => item.key === key);
+      if (replay) {
+        if (replay.fingerprint !== requestFingerprint) {
+          throw new AccountError(409, "idempotency_conflict");
+        }
+        return clone(service(state, replay.serviceId)!);
+      }
+      value.runtimeContent = clone(input.content);
+      value.statusReason = "runtime_content_selected";
+      value.updatedAt = now;
+      state.idempotency.push({
+        accountId: input.accountId,
+        key,
+        fingerprint: requestFingerprint,
+        serviceId: input.serviceId,
+      });
+      return clone(value);
+    });
+  }
+
   attachProvisioner(provisioner: SharedNodeProvisioner) {
     this.provisioner = provisioner;
   }
@@ -435,6 +533,7 @@ export class SharedHostingScheduler {
     if (!this.provisioner) {
       throw new Error("shared node provisioner unavailable");
     }
+
     let processed = 0;
     while (processed < limit) {
       const request = await this.repository.transact((state) => {

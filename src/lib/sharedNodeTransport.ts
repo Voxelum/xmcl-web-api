@@ -1,10 +1,10 @@
 import type { Db } from "../db.ts";
 import {
+  isSharedNodeRegion,
   type SharedHostingScheduler,
   type SharedNodeCommand,
   type SharedNodeCommandGateway,
   type SharedWorkspace,
-  isSharedNodeRegion,
 } from "./sharedHostingScheduler.ts";
 import type { S3PresignedObject } from "./s3SigV4.ts";
 
@@ -173,6 +173,21 @@ export interface SharedWorkspaceManifestRepository {
   }): Promise<void>;
 }
 
+/**
+ * Compiler content is authorized independently of node workspace manifests.
+ * Implementations must check that the service currently selected this exact
+ * published deployment/content descriptor before a node GET is signed.
+ */
+export interface SharedRuntimeContentGrantAuthority {
+  authorizeNodeRestore(input: {
+    accountId: string;
+    serviceId: string;
+    deploymentId: string;
+    manifestSha256: string;
+    content: SharedWorkspaceBlobDescriptor;
+  }): Promise<boolean>;
+}
+
 export interface SharedNodeHeartbeat {
   contractVersion: typeof SHARED_NODE_TRANSPORT_CONTRACT_VERSION;
   status: "ready" | "draining";
@@ -210,9 +225,11 @@ export interface SharedNodePublicEndpoint {
 }
 
 export interface SharedNodeIngressRepository {
-  reserve(input: Omit<SharedNodeIngressReservation, "createdAt" | "releasedAt"> & {
-    createdAt: string;
-  }): Promise<SharedNodeIngressReservation>;
+  reserve(
+    input: Omit<SharedNodeIngressReservation, "createdAt" | "releasedAt"> & {
+      createdAt: string;
+    },
+  ): Promise<SharedNodeIngressReservation>;
   findByAssignment(
     nodeId: string,
     assignmentId: string,
@@ -220,12 +237,19 @@ export interface SharedNodeIngressRepository {
   findActiveByService(
     serviceId: string,
   ): Promise<SharedNodeIngressReservation | undefined>;
-  release(nodeId: string, assignmentId: string, releasedAt: string): Promise<void>;
+  release(
+    nodeId: string,
+    assignmentId: string,
+    releasedAt: string,
+  ): Promise<void>;
 }
 
 export class MemorySharedNodeIngressRepository
   implements SharedNodeIngressRepository {
-  private readonly reservations = new Map<string, SharedNodeIngressReservation>();
+  private readonly reservations = new Map<
+    string,
+    SharedNodeIngressReservation
+  >();
   private tail: Promise<void> = Promise.resolve();
 
   async reserve(input: SharedNodeIngressReservation) {
@@ -249,17 +273,21 @@ export class MemorySharedNodeIngressRepository
   }
 
   async findByAssignment(nodeId: string, assignmentId: string) {
-    return clone([...this.reservations.values()].find((reservation) =>
-      reservation.nodeId === nodeId &&
-      reservation.assignmentId === assignmentId &&
-      !reservation.releasedAt
-    ));
+    return clone(
+      [...this.reservations.values()].find((reservation) =>
+        reservation.nodeId === nodeId &&
+        reservation.assignmentId === assignmentId &&
+        !reservation.releasedAt
+      ),
+    );
   }
 
   async findActiveByService(serviceId: string) {
-    return clone([...this.reservations.values()].find((reservation) =>
-      reservation.serviceId === serviceId && !reservation.releasedAt
-    ));
+    return clone(
+      [...this.reservations.values()].find((reservation) =>
+        reservation.serviceId === serviceId && !reservation.releasedAt
+      ),
+    );
   }
 
   async release(nodeId: string, assignmentId: string, releasedAt: string) {
@@ -1114,13 +1142,17 @@ export class MemorySharedWorkspaceManifestRepository
 
   async find(serviceId: string, revision: number) {
     await this.tail;
-    return clone(this.records.get(workspaceManifestRecordKey(serviceId, revision)));
+    return clone(
+      this.records.get(workspaceManifestRecordKey(serviceId, revision)),
+    );
   }
 
   async findPublishedContent(serviceId: string, key: string) {
     await this.tail;
     for (const record of this.records.values()) {
-      if (record.serviceId !== serviceId || record.status !== "published") continue;
+      if (record.serviceId !== serviceId || record.status !== "published") {
+        continue;
+      }
       if (record.manifest.content?.key === key) {
         return clone(record.manifest.content);
       }
@@ -1131,7 +1163,9 @@ export class MemorySharedWorkspaceManifestRepository
   async findPublishedBlob(serviceId: string, key: string) {
     await this.tail;
     for (const record of this.records.values()) {
-      if (record.serviceId !== serviceId || record.status !== "published") continue;
+      if (record.serviceId !== serviceId || record.status !== "published") {
+        continue;
+      }
       const descriptor = manifestBlobDescriptors(record.manifest).find((item) =>
         item.key === key
       );
@@ -1211,7 +1245,9 @@ export class MongoSharedWorkspaceManifestRepository
       status: "published",
       "manifest.content.key": key,
     }) as SharedWorkspaceManifestRecord | undefined;
-    return record?.manifest.content ? clone(record.manifest.content) : undefined;
+    return record?.manifest.content
+      ? clone(record.manifest.content)
+      : undefined;
   }
 
   async findPublishedBlob(serviceId: string, key: string) {
@@ -1225,9 +1261,11 @@ export class MongoSharedWorkspaceManifestRepository
       ],
     }) as SharedWorkspaceManifestRecord | undefined;
     return record
-      ? clone(manifestBlobDescriptors(record.manifest).find((item) =>
-        item.key === key
-      ))
+      ? clone(
+        manifestBlobDescriptors(record.manifest).find((item) =>
+          item.key === key
+        ),
+      )
       : undefined;
   }
 
@@ -1318,6 +1356,7 @@ export interface SharedNodeTransportOptions {
   workspaceManifestRepository?: SharedWorkspaceManifestRepository;
   workspaceGrantTtlMs?: number;
   ingressRepository?: SharedNodeIngressRepository;
+  runtimeContentGrantAuthority?: SharedRuntimeContentGrantAuthority;
 }
 
 export class SharedNodeTransportService {
@@ -1340,7 +1379,9 @@ export class SharedNodeTransportService {
       this.workspaceGrantTtlMs < 1_000 ||
       this.workspaceGrantTtlMs > 15 * 60_000
     ) {
-      throw new Error("workspace grant TTL must be between one second and fifteen minutes");
+      throw new Error(
+        "workspace grant TTL must be between one second and fifteen minutes",
+      );
     }
   }
 
@@ -1359,8 +1400,10 @@ export class SharedNodeTransportService {
     input: SharedNodeRegistration,
     request: SharedNodeSignedRequest & { bootstrapCredential?: string },
   ) {
-    if (!isSharedNodeRegion(input.region) ||
-      !this.options.scheduler.isPoolRegion(input.region)) {
+    if (
+      !isSharedNodeRegion(input.region) ||
+      !this.options.scheduler.isPoolRegion(input.region)
+    ) {
       throw new SharedNodeTransportError("invalid_request");
     }
     const credential = request.bootstrapCredential;
@@ -1595,7 +1638,10 @@ export class SharedNodeTransportService {
         throw new SharedNodeTransportError("workspace_grant_denied");
       }
       return await this.grants([
-        manifestObjectKey(command.workspace.objectPrefix, command.workspace.revision),
+        manifestObjectKey(
+          command.workspace.objectPrefix,
+          command.workspace.revision,
+        ),
       ], "GET");
     }
     if (
@@ -1605,6 +1651,16 @@ export class SharedNodeTransportService {
     ) {
       throw new SharedNodeTransportError("invalid_request");
     }
+    const runtimeContent = await this.selectedRuntimeContent(command);
+    if (command.workspace.revision === 0) {
+      if (
+        !runtimeContent || input.keys.length !== 1 ||
+        input.keys[0] !== runtimeContent.key
+      ) {
+        throw new SharedNodeTransportError("workspace_grant_denied");
+      }
+      return await this.grants([runtimeContent.key], "GET");
+    }
     const record = await manifests.find(
       command.serviceId,
       command.workspace.revision,
@@ -1613,6 +1669,7 @@ export class SharedNodeTransportService {
       throw new SharedNodeTransportError("workspace_grant_denied");
     }
     const permitted = new Set(manifestBlobKeys(record.manifest));
+    if (runtimeContent) permitted.add(runtimeContent.key);
     const requested = uniqueKeys(input.keys);
     if (requested.some((key) => !permitted.has(key))) {
       throw new SharedNodeTransportError("workspace_grant_denied");
@@ -1637,10 +1694,12 @@ export class SharedNodeTransportService {
     if (input.stage || input.keys?.length) {
       throw new SharedNodeTransportError("invalid_request");
     }
+    const runtimeContent = await this.selectedRuntimeContent(command);
     await validateWorkspaceManifestDescriptor(
       input.manifest,
       command,
       input.manifestSha256,
+      runtimeContent,
     );
     const manifests = this.requireWorkspaceManifests();
     const record = await manifests.prepare({
@@ -1656,6 +1715,9 @@ export class SharedNodeTransportService {
     });
     const grants: string[] = [];
     for (const descriptor of manifestBlobDescriptors(record.manifest)) {
+      if (runtimeContent && sameDescriptor(descriptor, runtimeContent)) {
+        continue;
+      }
       const existing = await manifests.findPublishedBlob(
         command.serviceId,
         descriptor.key,
@@ -1666,7 +1728,9 @@ export class SharedNodeTransportService {
       if (
         descriptor !== record.manifest.content &&
         !descriptor.key.startsWith(
-          `${validWorkspacePrefix(command.workspace.objectPrefix)}/revisions/${record.manifest.revision}/`,
+          `${
+            validWorkspacePrefix(command.workspace.objectPrefix)
+          }/revisions/${record.manifest.revision}/`,
         )
       ) {
         // References to prior revision layers are legal only when the exact
@@ -1695,10 +1759,12 @@ export class SharedNodeTransportService {
     if (input.stage || input.keys?.length) {
       throw new SharedNodeTransportError("invalid_request");
     }
+    const runtimeContent = await this.selectedRuntimeContent(command);
     await validateWorkspaceManifestDescriptor(
       input.manifest,
       command,
       input.manifestSha256,
+      runtimeContent,
     );
     const record = await this.requireWorkspaceManifests().find(
       command.serviceId,
@@ -1714,7 +1780,10 @@ export class SharedNodeTransportService {
       throw new SharedNodeTransportError("workspace_grant_denied");
     }
     return await this.grants([
-      manifestObjectKey(command.workspace.objectPrefix, input.manifest.revision),
+      manifestObjectKey(
+        command.workspace.objectPrefix,
+        input.manifest.revision,
+      ),
     ], "PUT");
   }
 
@@ -1751,10 +1820,39 @@ export class SharedNodeTransportService {
   }
 
   private requireWorkspaceManifests() {
-    if (!this.options.workspaceSigner || !this.options.workspaceManifestRepository) {
+    if (
+      !this.options.workspaceSigner || !this.options.workspaceManifestRepository
+    ) {
       throw new SharedNodeTransportError("unavailable");
     }
     return this.options.workspaceManifestRepository;
+  }
+
+  private async selectedRuntimeContent(command: SharedNodeCommand) {
+    const selected = command.runtimeContent;
+    if (!selected) return undefined;
+    if (
+      !this.options.runtimeContentGrantAuthority ||
+      !validateRuntimeContentDescriptor(selected, command)
+    ) {
+      throw new SharedNodeTransportError("workspace_grant_denied");
+    }
+    const allowed = await this.options.runtimeContentGrantAuthority
+      .authorizeNodeRestore({
+        accountId: command.accountId,
+        serviceId: command.serviceId,
+        deploymentId: selected.deploymentId,
+        manifestSha256: selected.manifestSha256,
+        content: {
+          key: selected.key,
+          sha256: selected.sha256,
+          compressedSize: selected.compressedSize,
+          logicalSize: selected.logicalSize,
+          paths: selected.paths,
+        },
+      });
+    if (!allowed) throw new SharedNodeTransportError("workspace_grant_denied");
+    return selected;
   }
 
   private async grants(
@@ -1784,9 +1882,10 @@ export class SharedNodeTransportService {
   }
 
   async endpointForService(serviceId: string) {
-    const reservation = await this.options.ingressRepository?.findActiveByService(
-      serviceId,
-    );
+    const reservation = await this.options.ingressRepository
+      ?.findActiveByService(
+        serviceId,
+      );
     return reservation && {
       host: reservation.host,
       port: reservation.port,
@@ -1926,6 +2025,7 @@ async function validateWorkspaceManifestDescriptor(
   manifest: SharedWorkspaceManifestDescriptor,
   command: SharedNodeCommand,
   manifestSha256: string,
+  runtimeContent?: SharedNodeCommand["runtimeContent"],
 ) {
   if (!isWorkspaceManifestDescriptor(manifest)) {
     throw new SharedNodeTransportError("workspace_grant_denied");
@@ -1978,9 +2078,15 @@ async function validateWorkspaceManifestDescriptor(
   ) {
     throw new SharedNodeTransportError("workspace_grant_denied");
   }
+  const contentIsCompilerSelected = Boolean(
+    manifest.content && runtimeContent &&
+      sameDescriptor(manifest.content, runtimeContent),
+  );
   if (
     manifest.content &&
-    manifest.content.key !== `${prefix}/content/${manifest.content.sha256}.tar.zst`
+    manifest.content.key !==
+      `${prefix}/content/${manifest.content.sha256}.tar.zst` &&
+    !contentIsCompilerSelected
   ) {
     throw new SharedNodeTransportError("workspace_grant_denied");
   }
@@ -2007,7 +2113,9 @@ async function validateWorkspaceManifestDescriptor(
   for (const descriptor of manifest.world) {
     if (
       !new RegExp(
-        `^${escapeRegExp(prefix)}/revisions/([0-9]+)/world/[A-Za-z0-9][A-Za-z0-9._-]{0,127}\\.tar\\.zst$`,
+        `^${
+          escapeRegExp(prefix)
+        }/revisions/([0-9]+)/world/[A-Za-z0-9][A-Za-z0-9._-]{0,127}\\.tar\\.zst$`,
       ).test(descriptor.key)
     ) {
       throw new SharedNodeTransportError("workspace_grant_denied");
@@ -2044,7 +2152,8 @@ function isWorkspaceManifestDescriptor(
     manifest.world.every(isWorkspaceBlobDescriptor) &&
     (manifest.content === undefined ||
       isWorkspaceBlobDescriptor(manifest.content)) &&
-    (manifest.config === undefined || isWorkspaceBlobDescriptor(manifest.config));
+    (manifest.config === undefined ||
+      isWorkspaceBlobDescriptor(manifest.config));
 }
 
 function isWorkspaceBlobDescriptor(
@@ -2070,10 +2179,28 @@ function validateBlobDescriptor(value: SharedWorkspaceBlobDescriptor) {
     value.paths.every(validWorkspacePath);
 }
 
-async function aggregateManifestDescriptors(manifest: SharedWorkspaceManifestDescriptor) {
+function validateRuntimeContentDescriptor(
+  value: NonNullable<SharedNodeCommand["runtimeContent"]>,
+  command: SharedNodeCommand,
+) {
+  const prefix =
+    `shared-hosting/${command.accountId}/${command.serviceId}/compiler-content/`;
+  return validIdentifier(value.deploymentId) &&
+    validSha256(value.manifestSha256) &&
+    validateBlobDescriptor(value) &&
+    value.key.startsWith(prefix) && value.key.endsWith(".tar.zst") &&
+    value.paths.includes(".xmcl/runtime.json") &&
+    value.paths.includes(".xmcl/launch.sh") &&
+    value.paths.every(isContentPath);
+}
+
+async function aggregateManifestDescriptors(
+  manifest: SharedWorkspaceManifestDescriptor,
+) {
   let value = "";
   for (const descriptor of manifestBlobDescriptors(manifest)) {
-    value += `${descriptor.key}\0${descriptor.sha256}\0${descriptor.compressedSize}:${descriptor.logicalSize}\0`;
+    value +=
+      `${descriptor.key}\0${descriptor.sha256}\0${descriptor.compressedSize}:${descriptor.logicalSize}\0`;
     for (const path of descriptor.paths) value += `${path}\0`;
     value += "\n";
   }
@@ -2117,7 +2244,10 @@ function validSha256(value: unknown): value is string {
 }
 
 function uniqueKeys(values: readonly string[]) {
-  if (values.some((value) => typeof value !== "string") || new Set(values).size !== values.length) {
+  if (
+    values.some((value) => typeof value !== "string") ||
+    new Set(values).size !== values.length
+  ) {
     throw new SharedNodeTransportError("invalid_request");
   }
   return [...values];

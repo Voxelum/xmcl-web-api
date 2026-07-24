@@ -33,6 +33,10 @@ import type {
   WorkerDeploymentGateway,
 } from "./lib/deploymentTasks.ts";
 import type { ModpackDeploymentRuntime } from "./lib/modpackDeploymentRuntime.ts";
+import type {
+  CompilerGrantAuthority,
+  SharedModdedRuntimeService,
+} from "./lib/sharedModdedRuntime.ts";
 
 export interface MicrosoftMinecraftProfile {
   id: string;
@@ -105,6 +109,12 @@ export interface AppVariables {
   /** Authenticated internal transport for shared-node agents. */
   sharedNodeTransport?: SharedNodeTransportService;
   sharedNodeProvisioner?: VultrSharedNodeProvisioner;
+  /** Compiler-owned shared modpack deployment composition; never browser supplied. */
+  sharedModdedRuntime?: SharedModdedRuntimeService;
+  /** Compiler callback middleware sets this only after server-side authentication. */
+  sharedModdedCompilerPrincipal?: { compilerId: string };
+  /** Compiler grant issuer is separate from all node command grants. */
+  sharedModdedCompilerGrants?: CompilerGrantAuthority;
   /** Complete ServerControl composition; absent routes and scheduled work fail explicitly. */
   serverControlRuntime?: ServerControlRuntime;
   /** Platform composition injects ServerControl/Billing-backed Worker worker adapters here. */

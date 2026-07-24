@@ -21,7 +21,7 @@ const config = {
   XMCL_VULTR_OBJECT_STORAGE_ENDPOINT: "https://sgp1.vultrobjects.com",
   XMCL_VULTR_OBJECT_STORAGE_REGION: "sgp",
   XMCL_VULTR_OBJECT_STORAGE_BUCKET: "shared",
-  XMCL_SHARED_NODE_CONTAINER_IMAGE: "ghcr.io/voxelum/xmcl:stable",
+  XMCL_SHARED_NODE_CONTAINER_IMAGE: "ghcr.io/voxelum/xmcl-shared-minecraft-runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   VULTR_SHARED_NODE_BLOCK_STORAGE_GIB: "192",
   VULTR_SHARED_NODE_BLOCK_STORAGE_TYPE: "high_perf",
   VULTR_SHARED_NODE_FIREWALL_GROUP_ID: "firewall-group-1",
@@ -58,4 +58,11 @@ Deno.test("shared-node production settings reject missing and invalid capacities
       undefined,
     );
   }
+  assert.equal(
+    hasSharedNodeSettings({
+      ...config,
+      XMCL_SHARED_NODE_CONTAINER_IMAGE: "itzg/minecraft-server:latest",
+    }),
+    false,
+  );
 });

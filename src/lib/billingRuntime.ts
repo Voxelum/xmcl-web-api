@@ -34,31 +34,72 @@ export interface SharedRuntimeSettlementResult {
   cancelled: string[];
   runtimeSettled: string[];
   runtimePaymentDue: string[];
+  paypalReconciliation: BillingReconciliationResult;
 }
 
 export interface SharedRuntimeSettlementWork {
   renewDue(at: Date): Promise<SharedRuntimeSettlementResult>;
+  runHourly(
+    at: Date,
+    paypalLimit?: number,
+  ): Promise<SharedRuntimeSettlementResult>;
+}
+
+export interface BillingReconciliationResult {
+  attempted: string[];
+  finalized: string[];
+  stillPending: string[];
+  failed: string[];
+}
+
+export interface BillingReconciliationWork {
+  reconcilePendingPayPalOrders(
+    at: Date,
+    limit?: number,
+  ): Promise<BillingReconciliationResult>;
 }
 
 /**
  * Produces trusted scheduled work for a fully composed shared-hosting runtime.
- * The scheduler must durably dispatch stop commands from both payment-due paths.
+ * Runtime settlement uses durable elapsed-hour watermarks. Repeating an hour is
+ * safe; missed invocations catch up through those watermarks.
  */
 export function createSharedRuntimeSettlementWork(
   runtime: Pick<BillingRuntime, "sharedHosting">,
   scheduler: SharedRuntimeSettlementScheduler,
+  reconciliation?: BillingReconciliationWork,
 ): SharedRuntimeSettlementWork {
+  const runHourly = async (at: Date, paypalLimit?: number) => {
+    const renewal = await runtime.sharedHosting.renewDue(at);
+    const runtimeSettlement = await scheduler.settleRunningRuntime(at);
+    await scheduler.enforcePaymentDue([
+      ...new Set([
+        ...renewal.paymentDue,
+        ...runtimeSettlement.paymentDue,
+      ]),
+    ]);
+    const paypalReconciliation = reconciliation
+      ? await reconciliation.reconcilePendingPayPalOrders(at, paypalLimit)
+      : { attempted: [], finalized: [], stillPending: [], failed: [] };
+    return {
+      ...renewal,
+      runtimeSettled: runtimeSettlement.settled,
+      runtimePaymentDue: runtimeSettlement.paymentDue,
+      paypalReconciliation,
+    };
+  };
   return {
-    renewDue: async (at) => {
-      const renewal = await runtime.sharedHosting.renewDue(at);
-      await scheduler.enforcePaymentDue(renewal.paymentDue);
-      const runtimeSettlement = await scheduler.settleRunningRuntime(at);
-      return {
-        ...renewal,
-        runtimeSettled: runtimeSettlement.settled,
-        runtimePaymentDue: runtimeSettlement.paymentDue,
-      };
-    },
+    runHourly,
+    renewDue: runHourly,
+  };
+}
+
+export function createBillingReconciliationWork(
+  paypal: Pick<PayPalService, "reconcilePendingOrders">,
+): BillingReconciliationWork {
+  return {
+    reconcilePendingPayPalOrders: (at, limit) =>
+      paypal.reconcilePendingOrders(at, limit),
   };
 }
 

@@ -7,10 +7,17 @@ export interface SharedHostingBillingSweepResult {
   cancelled: string[];
   runtimeSettled?: string[];
   runtimePaymentDue?: string[];
+  paypalReconciliation?: {
+    attempted: string[];
+    finalized: string[];
+    stillPending: string[];
+    failed: string[];
+  };
 }
 
 export interface SharedHostingBillingScheduledWork {
   renewDue(at: Date): Promise<SharedHostingBillingSweepResult>;
+  runHourly?(at: Date): Promise<SharedHostingBillingSweepResult>;
 }
 
 export class SharedHostingBillingSchedulingConfigurationError extends Error {
@@ -22,9 +29,8 @@ export class SharedHostingBillingSchedulingConfigurationError extends Error {
 }
 
 /**
- * Runs the trusted UTC scheduler operation. `renewDue` is intentionally
- * idempotent, so a daily midnight tick can safely recover missed invocations
- * and process every calendar-month boundary that has elapsed.
+ * Runs trusted UTC billing work. Deployment must invoke this hourly or more
+ * often: runtime payment-due enforcement cannot wait for a daily sweep.
  */
 export async function runSharedHostingBillingScheduledSweep(
   work: SharedHostingBillingScheduledWork | undefined,
@@ -37,7 +43,7 @@ export async function runSharedHostingBillingScheduledSweep(
   if (!Number.isFinite(parsed.getTime())) {
     throw new SharedHostingBillingSchedulingConfigurationError();
   }
-  return await work.renewDue(parsed);
+  return await (work.runHourly ?? work.renewDue)(parsed);
 }
 
 export function sharedHostingBillingWork(
