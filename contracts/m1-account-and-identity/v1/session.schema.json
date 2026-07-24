@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xmcl.app/contracts/m1-account-and-identity/v1/session.schema.json",
+  "title": "XMCL Session v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sessionId",
+    "accountId",
+    "scopes",
+    "issuedAt",
+    "expiresAt",
+    "accessToken",
+    "refreshToken"
+  ],
+  "properties": {
+    "sessionId": { "type": "string", "minLength": 1 },
+    "accountId": { "type": "string", "minLength": 1 },
+    "scopes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "enum": ["account:read", "account:write", "session:manage"] }
+    },
+    "issuedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "accessToken": { "type": "string", "minLength": 1 },
+    "refreshToken": { "type": "string", "minLength": 1 }
+  }
+}

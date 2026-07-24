@@ -1,4 +1,6 @@
 import type { Db } from "./db.ts";
+import type { AccountRuntime } from "./lib/accountRuntime.ts";
+import type { XmclPrincipal } from "./lib/session.ts";
 import type { TranslationJob } from "./translation_service.ts";
 
 export interface MicrosoftMinecraftProfile {
@@ -27,6 +29,9 @@ export interface AppVariables {
    * route translates inline. Azure has no queue and always translates inline.
    */
   enqueueTranslation?: (job: TranslationJob) => Promise<boolean>;
+  /** Optional Account test/platform override; production builds it from DB + env. */
+  accountRuntime?: AccountRuntime;
+  xmclPrincipal?: XmclPrincipal;
 }
 
 /**
