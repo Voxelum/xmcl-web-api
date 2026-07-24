@@ -41,7 +41,9 @@ export async function getAccountRuntime(
     }),
     modrinth: createModrinthOAuth({
       clientId: config.XMCL_MODRINTH_CLIENT_ID,
-      clientSecret: config.XMCL_MODRINTH_CLIENT_SECRET,
+      // Existing Workers use MODRINTH_SECRET. Prefer the XMCL-scoped secret,
+      // but retain the legacy value while deployments migrate.
+      clientSecret: config.XMCL_MODRINTH_CLIENT_SECRET ?? config.MODRINTH_SECRET,
       redirectUris: redirects,
     }),
     google: createGoogleOAuth({

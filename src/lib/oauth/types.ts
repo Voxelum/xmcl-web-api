@@ -73,6 +73,7 @@ export function isOAuthProvider(value: unknown): value is OAuthProvider {
 export interface RemoteOAuthOptions {
   declaration: OAuthProviderDeclaration;
   clientSecret?: string;
+  clientSecretLocation?: "body" | "authorization";
   fetch?: typeof globalThis.fetch;
   mapUser(
     body: Record<string, unknown>,
@@ -82,12 +83,14 @@ export interface RemoteOAuthOptions {
 export class RemoteOAuthAdapter implements OAuthProviderAdapter {
   readonly declaration: OAuthProviderDeclaration;
   private readonly clientSecret?: string;
+  private readonly clientSecretLocation: "body" | "authorization";
   private readonly remoteFetch: typeof globalThis.fetch;
   private readonly mapUser: RemoteOAuthOptions["mapUser"];
 
   constructor(options: RemoteOAuthOptions) {
     this.declaration = options.declaration;
     this.clientSecret = options.clientSecret;
+    this.clientSecretLocation = options.clientSecretLocation ?? "body";
     // Cloudflare's fetch requires the Worker global as its receiver. Keeping an
     // unbound reference works in Node/Deno but throws an illegal-invocation
     // error in Workers when an OAuth adapter calls it later.
@@ -124,13 +127,22 @@ export class RemoteOAuthAdapter implements OAuthProviderAdapter {
       code_verifier: input.codeVerifier,
       redirect_uri: input.redirectUri,
     });
-    if (this.clientSecret) body.set("client_secret", this.clientSecret);
+    const headers: Record<string, string> = {
+      "content-type": "application/x-www-form-urlencoded",
+    };
+    if (this.clientSecret) {
+      if (this.clientSecretLocation === "authorization") {
+        headers.authorization = this.clientSecret;
+      } else {
+        body.set("client_secret", this.clientSecret);
+      }
+    }
 
     let response: Response;
     try {
       response = await this.remoteFetch(this.declaration.tokenEndpoint, {
         method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
+        headers,
         body,
         signal: AbortSignal.timeout(PROVIDER_REQUEST_TIMEOUT_MS),
       });
