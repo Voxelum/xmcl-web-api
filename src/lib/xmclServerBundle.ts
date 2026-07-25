@@ -4,7 +4,7 @@ import {
   type ModpackZipLimits,
   readModpackZip,
 } from "./modpackImport.ts";
-import { isRuntimeCatalogJava, runtimeCatalog } from "./runtimeCatalog.ts";
+import { isReviewedRuntimeToolchain, runtimeCatalog } from "./runtimeCatalog.ts";
 
 export interface XmclServerBundleFile {
   path: string;
@@ -296,8 +296,11 @@ function validateCompatibility(
 ) {
   if (
     manifest.runtimeCatalog.sha256 !== runtimeCatalog.sha256 ||
-    !isRuntimeCatalogJava(manifest.javaRequirement) ||
-    !validMinecraftVersion(manifest.minecraftVersion) ||
+    !isReviewedRuntimeToolchain({
+      minecraftVersion: manifest.minecraftVersion,
+      loader: manifest.loader,
+      java: manifest.javaRequirement,
+    }) ||
     (manifest.loader.kind === "neoforge" &&
       !minecraftAtLeast(manifest.minecraftVersion, 20, 2))
   ) {
@@ -416,11 +419,12 @@ function validLoaderVersion(value: unknown): value is string {
 }
 
 function validMinecraftVersion(value: unknown): value is string {
-  return typeof value === "string" && /^1\.\d+\.\d+$/.test(value);
+  return typeof value === "string" &&
+    /^(?:1\.(?:0|[1-9]\d{0,2})\.(?:0|[1-9]\d{0,2})|[1-9]\d{1,3}\.(?:0|[1-9]\d{0,2})(?:\.(?:0|[1-9]\d{0,2}))?)$/.test(value);
 }
 
 function minecraftAtLeast(value: string, minor: number, patch: number) {
-  const match = /^1\.(\d+)\.(\d+)$/.exec(value);
+  const match = /^1\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$/.exec(value);
   return !!match && (
     Number(match[1]) > minor ||
     (Number(match[1]) === minor && Number(match[2]) >= patch)

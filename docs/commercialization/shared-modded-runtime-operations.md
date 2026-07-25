@@ -19,8 +19,11 @@ records the expected SHA-256 and size before issuing one short-lived exact PUT;
 it does not accept a browser-supplied object key.
 
 Completion re-reads that exact object, validates ZIP safety, every manifest
-path/hash, the exact reviewed runtime-catalog SHA, Java component/major, and
-loader metadata. It freezes only a compiler input grant for the service-owned
+path/hash, and an exact reviewed toolchain tuple (canonical Minecraft version,
+loader kind/version, Java component/major, and runtime-catalog SHA). `26.2`
+with Fabric `0.19.3` and Java 25 is a reviewed tuple. Version identifiers are
+bounded canonical numeric IDs only; paths, whitespace/control characters, URLs,
+commands, and non-catalog versions reject. It freezes only a compiler input grant for the service-owned
 archive key and one immutable `If-None-Match: *` content PUT. Local Java
 paths, JVM arguments, Docker choices, URLs, `server.sh`/`server.bat`, worlds,
 and account/private data are not executable input. World migration remains a

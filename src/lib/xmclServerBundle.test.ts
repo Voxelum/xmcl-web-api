@@ -20,11 +20,13 @@ function artifactIntent(path: string) {
 
 async function bundle(options: {
   catalogSha256?: string;
+  minecraftVersion?: string;
   includeScript?: boolean;
   includeEula?: boolean;
   includeLegacyServerArtifact?: boolean;
   wrongHash?: boolean;
 } = {}) {
+  const minecraftVersion = options.minecraftVersion ?? "26.2";
   const payload = [
     { path: "instance/config/server.cfg", bytes: jsonBytes({ dedicated: true }) },
     { path: "instance/mods/example.jar", bytes: new Uint8Array([1, 2, 3]) },
@@ -45,9 +47,9 @@ async function bundle(options: {
       path: "resolved/loader.json",
       bytes: jsonBytes({
         schemaVersion: 1,
-        minecraftVersion: "1.21.1",
-        loader: { kind: "fabric", version: "0.16.10" },
-        javaRequirement: { component: "java-runtime-delta", major: 21 },
+        minecraftVersion,
+        loader: { kind: "fabric", version: "0.19.3" },
+        javaRequirement: { component: "java-runtime-epsilon", major: 25 },
         runtimeCatalog: { sha256: options.catalogSha256 ?? runtimeCatalog.sha256 },
       }),
     },
@@ -63,8 +65,8 @@ async function bundle(options: {
       path: "resolved/version.json",
       bytes: jsonBytes({
         schemaVersion: 1,
-        minecraftVersion: "1.21.1",
-        javaVersion: { component: "java-runtime-delta", majorVersion: 21 },
+        minecraftVersion,
+        javaVersion: { component: "java-runtime-epsilon", majorVersion: 25 },
       }),
     },
   ];
@@ -88,9 +90,9 @@ async function bundle(options: {
   const manifest = {
     schemaVersion: 1,
     instanceName: "Local pack",
-    minecraftVersion: "1.21.1",
-    loader: { kind: "fabric", version: "0.16.10" },
-    javaRequirement: { component: "java-runtime-delta", major: 21 },
+    minecraftVersion,
+    loader: { kind: "fabric", version: "0.19.3" },
+    javaRequirement: { component: "java-runtime-epsilon", major: 25 },
     runtimeCatalog: { sha256: options.catalogSha256 ?? runtimeCatalog.sha256 },
     files: manifestFiles,
   };
@@ -106,6 +108,8 @@ Deno.test("validates a manifest-complete local server bundle", async () => {
     archive: await bundle(),
   });
   assert.equal(validated.report.status, "valid");
+  assert.equal(validated.manifest?.minecraftVersion, "26.2");
+  assert.equal(validated.manifest?.javaRequirement.major, 25);
   assert.equal(validated.manifest?.loader.kind, "fabric");
   assert.equal(validated.configFiles.length, 1);
   assert.equal(validated.files.length, 9);
@@ -124,5 +128,24 @@ Deno.test("rejects catalog, hash, generated scripts, and legacy server artifacts
       archive,
     });
     assert.equal(validated.report.status, "invalid");
+  }
+});
+
+Deno.test("rejects unsafe and unreviewed Minecraft version identifiers", async () => {
+  for (const minecraftVersion of [
+    " 26.2",
+    "26.2 ",
+    "26.02",
+    "../26.2",
+    "https://example.test/26.2",
+    "26.2;cmd",
+    "26.2\n",
+    "26.3",
+  ]) {
+    const validated = await validateXmclServerBundle({
+      importId: "import_1",
+      archive: await bundle({ minecraftVersion }),
+    });
+    assert.equal(validated.report.status, "invalid", minecraftVersion);
   }
 });

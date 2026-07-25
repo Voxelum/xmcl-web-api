@@ -21,7 +21,7 @@ import {
   validateXmclServerBundle,
 } from "./xmclServerBundle.ts";
 import {
-  isRuntimeCatalogJava,
+  isReviewedRuntimeToolchain,
   runtimeCatalog,
   type RuntimeCatalogJava,
 } from "./runtimeCatalog.ts";
@@ -1030,14 +1030,11 @@ export function resolveRuntimeCompatibility(input: {
   }
   const version = parseMinecraftVersion(input.minecraftVersion);
   if (!version) throw new SharedModdedRuntimeError("unsupported_compatibility");
-  if (version.major !== 1) {
-    throw new SharedModdedRuntimeError("unsupported_compatibility");
-  }
   // NeoForge starts at Minecraft 1.20.2. Reject an invented older mapping
   // rather than silently treating it as Forge.
   if (
     loader === "neoforge" &&
-    (version.minor < 20 ||
+    version.major === 1 && (version.minor < 20 ||
       (version.minor === 20 && version.patch < 2))
   ) {
     throw new SharedModdedRuntimeError("unsupported_compatibility");
@@ -1055,7 +1052,11 @@ export function resolveRuntimeJava(input: {
   const compatibility = resolveRuntimeCompatibility(input);
   if (
     input.runtimeCatalogSha256 !== runtimeCatalog.sha256 ||
-    !isRuntimeCatalogJava(input.java)
+    !isReviewedRuntimeToolchain({
+      minecraftVersion: input.minecraftVersion,
+      loader: { kind: input.loader.toLowerCase(), version: input.loaderVersion! },
+      java: input.java,
+    })
   ) {
     throw new SharedModdedRuntimeError("unsupported_compatibility");
   }
@@ -1408,14 +1409,14 @@ function claimKey(value: Pick<Claim, "accountId" | "scope" | "key">) {
 }
 
 function parseMinecraftVersion(value: string) {
-  const match = /^1\.(\d+)\.(\d+)$/.exec(value);
-  if (!match) return undefined;
-  const minor = Number(match[1]);
-  const patch = Number(match[2]);
-  if (!Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) {
-    return undefined;
+  const legacy = /^1\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$/.exec(value);
+  if (legacy) {
+    return { major: 1, minor: Number(legacy[1]), patch: Number(legacy[2]) };
   }
-  return { major: 1, minor, patch };
+  if (/^[1-9]\d{1,3}\.(?:0|[1-9]\d{0,2})(?:\.(?:0|[1-9]\d{0,2}))?$/.test(value)) {
+    return { major: 2, minor: 0, patch: 0 };
+  }
+  return undefined;
 }
 
 function validLoaderVersion(value: string) {

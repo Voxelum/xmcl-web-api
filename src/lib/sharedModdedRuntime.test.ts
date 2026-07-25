@@ -22,6 +22,9 @@ import type { ModpackSourceResolver } from "./modpackSources/types.ts";
 
 const sha = "a".repeat(64);
 const now = "2026-07-25T00:00:00.000Z";
+const reviewedMrpackManifest = structuredClone(validMrpackManifest);
+reviewedMrpackManifest.dependencies.minecraft = "1.20.1";
+reviewedMrpackManifest.dependencies["fabric-loader"] = "0.15.11";
 
 const resolver: ModpackSourceResolver = {
   provider: "modrinth",
@@ -80,7 +83,7 @@ function fixture(
   );
   const archive = options.archive ?? createStoredZip([{
     path: "modrinth.index.json",
-    bytes: jsonBytes(validMrpackManifest),
+    bytes: jsonBytes(reviewedMrpackManifest),
   }, {
     path: "config/server.properties",
     bytes: jsonBytes({ online: true }),
@@ -150,10 +153,10 @@ async function publishedFixture() {
   );
   const descriptor: RuntimeDescriptor = {
     schemaVersion: 1,
-    minecraftVersion: "1.21.1",
-    java: { component: "java-runtime-delta", major: 21 },
+    minecraftVersion: "1.20.1",
+    java: { component: "java-runtime-gamma", major: 17 },
     runtimeCatalog: { sha256: runtimeCatalog.sha256 },
-    loader: { kind: "fabric", version: "0.16.10" },
+    loader: { kind: "fabric", version: "0.15.11" },
     launch: {
       kind: "generated-server-launcher",
       path: ".xmcl/launch.sh",
@@ -196,9 +199,9 @@ async function localBundleArchive() {
     path: "resolved/loader.json",
     bytes: jsonBytes({
       schemaVersion: 1,
-      minecraftVersion: "1.21.1",
-      loader: { kind: "fabric", version: "0.16.10" },
-      javaRequirement: { component: "java-runtime-delta", major: 21 },
+      minecraftVersion: "1.20.1",
+      loader: { kind: "fabric", version: "0.15.11" },
+      javaRequirement: { component: "java-runtime-gamma", major: 17 },
       runtimeCatalog: { sha256: runtimeCatalog.sha256 },
     }),
   }, {
@@ -211,8 +214,8 @@ async function localBundleArchive() {
     path: "resolved/version.json",
     bytes: jsonBytes({
       schemaVersion: 1,
-      minecraftVersion: "1.21.1",
-      javaVersion: { component: "java-runtime-delta", majorVersion: 21 },
+      minecraftVersion: "1.20.1",
+      javaVersion: { component: "java-runtime-gamma", majorVersion: 17 },
     }),
   }];
   const fileManifest = await Promise.all(files.map(async (file) => ({
@@ -226,9 +229,9 @@ async function localBundleArchive() {
     bytes: jsonBytes({
       schemaVersion: 1,
       instanceName: "Local pack",
-      minecraftVersion: "1.21.1",
-      loader: { kind: "fabric", version: "0.16.10" },
-      javaRequirement: { component: "java-runtime-delta", major: 21 },
+      minecraftVersion: "1.20.1",
+      loader: { kind: "fabric", version: "0.15.11" },
+      javaRequirement: { component: "java-runtime-gamma", major: 17 },
       runtimeCatalog: { sha256: runtimeCatalog.sha256 },
       files: fileManifest,
     }),
@@ -242,29 +245,29 @@ async function sha256Bytes(bytes: Uint8Array) {
     .join("");
 }
 
-Deno.test("validates every reviewed catalog Java requirement without a version mapping", () => {
+Deno.test("validates only exact reviewed runtime/toolchain tuples", () => {
   const majors = new Set<number>();
-  for (const java of runtimeCatalog.requirements) {
+  for (const toolchain of runtimeCatalog.toolchains) {
     assert.deepEqual(
       resolveRuntimeJava({
-        minecraftVersion: "1.21.1",
-        loader: "fabric",
-        loaderVersion: "0.16.10",
-        java,
+        minecraftVersion: toolchain.minecraftVersion,
+        loader: toolchain.loader.kind,
+        loaderVersion: toolchain.loader.version,
+        java: toolchain.java,
         runtimeCatalogSha256: runtimeCatalog.sha256,
       }).java,
-      java,
+      toolchain.java,
     );
-    majors.add(java.major);
+    majors.add(toolchain.java.major);
   }
   assert.ok(majors.has(25));
   assert.throws(
     () =>
       resolveRuntimeJava({
-        minecraftVersion: "1.20",
-        loader: "forge",
-        loaderVersion: "47.0.0",
-        java: { component: "java-runtime-gamma", major: 17 },
+        minecraftVersion: "26.2",
+        loader: "fabric",
+        loaderVersion: "0.19.4",
+        java: { component: "java-runtime-epsilon", major: 25 },
         runtimeCatalogSha256: runtimeCatalog.sha256,
       }),
     (error) =>
@@ -274,10 +277,10 @@ Deno.test("validates every reviewed catalog Java requirement without a version m
   assert.throws(
     () =>
       resolveRuntimeJava({
-        minecraftVersion: "1.12.2",
-        loader: "neoforge",
-        loaderVersion: "21.1.1",
-        java: { component: "jre-legacy", major: 8 },
+        minecraftVersion: "../26.2",
+        loader: "fabric",
+        loaderVersion: "0.19.3",
+        java: { component: "java-runtime-epsilon", major: 25 },
         runtimeCatalogSha256: runtimeCatalog.sha256,
       }),
     (error) =>
@@ -289,10 +292,10 @@ Deno.test("validates every reviewed catalog Java requirement without a version m
 Deno.test("rejects Java component, major, and catalog-revision mismatches", () => {
   const descriptor: RuntimeDescriptor = {
     schemaVersion: 1,
-    minecraftVersion: "1.21.1",
-    java: { component: "java-runtime-delta", major: 21 },
+    minecraftVersion: "1.20.1",
+    java: { component: "java-runtime-gamma", major: 17 },
     runtimeCatalog: { sha256: runtimeCatalog.sha256 },
-    loader: { kind: "fabric", version: "0.16.10" },
+    loader: { kind: "fabric", version: "0.15.11" },
     launch: {
       kind: "generated-server-launcher",
       path: ".xmcl/launch.sh",
@@ -301,7 +304,7 @@ Deno.test("rejects Java component, major, and catalog-revision mismatches", () =
     contentSha256: "b".repeat(64),
   };
   for (const invalid of [
-    { ...descriptor, java: { component: "java-runtime-delta", major: 25 } },
+    { ...descriptor, java: { component: "java-runtime-gamma", major: 25 } },
     { ...descriptor, java: { component: "unreviewed-component", major: 21 } },
     {
       ...descriptor,
@@ -356,8 +359,8 @@ Deno.test("freezes validated local server bundles with exact catalog Java and co
   });
   assert.equal(deployment.frozenManifest.sourceFormat, "xmcl_server_bundle");
   assert.deepEqual(deployment.frozenManifest.compatibility.java, {
-    component: "java-runtime-delta",
-    major: 21,
+    component: "java-runtime-gamma",
+    major: 17,
   });
   assert.match(deployment.frozenManifest.archive.key, /\.xmcl-server-bundle$/);
   const grants = await f.runtime.compilerGrants(
@@ -545,10 +548,10 @@ Deno.test("a missing server-side terms acceptance cannot select content", async 
   });
   const descriptor: RuntimeDescriptor = {
     schemaVersion: 1,
-    minecraftVersion: "1.21.1",
-    java: { component: "java-runtime-delta", major: 21 },
+    minecraftVersion: "1.20.1",
+    java: { component: "java-runtime-gamma", major: 17 },
     runtimeCatalog: { sha256: runtimeCatalog.sha256 },
-    loader: { kind: "fabric", version: "0.16.10" },
+    loader: { kind: "fabric", version: "0.15.11" },
     launch: {
       kind: "generated-server-launcher",
       path: ".xmcl/launch.sh",
