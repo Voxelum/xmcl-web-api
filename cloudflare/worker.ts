@@ -40,6 +40,7 @@ export const PAYPAL_WEBHOOK_AZURE_TARGET = "/api/v1/webhooks/paypal";
 export const PAYPAL_WEBHOOK_STAGING_HOST =
   "xmcl-web-api-shared-sgp-staging.cijhn.workers.dev";
 const PAYPAL_WEBHOOK_PROXY_TIMEOUT_MS = 10_000;
+const PAYPAL_WEBHOOK_PROXY_MAX_RESPONSE_BYTES = 64 * 1024;
 const payPalForwardedHeaders = [
   "paypal-auth-algo",
   "paypal-cert-url",
@@ -169,7 +170,11 @@ export async function proxyPayPalWebhook(
     const responseHeaders = new Headers();
     const contentType = response.headers.get("content-type");
     if (contentType) responseHeaders.set("content-type", contentType);
-    return new Response(response.body, {
+    const responseBody = new Uint8Array(await response.arrayBuffer());
+    if (responseBody.byteLength > PAYPAL_WEBHOOK_PROXY_MAX_RESPONSE_BYTES) {
+      throw new Error("backend response exceeds proxy limit");
+    }
+    return new Response(responseBody, {
       status: response.status,
       headers: responseHeaders,
     });
