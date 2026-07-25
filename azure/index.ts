@@ -12,7 +12,7 @@ import { getDb } from "../src/platform/db_npm.ts";
 // Azure Functions entry point. Reuses the shared Hono app and injects the
 // Azure-specific platform behaviour:
 //  - geo is resolved from the proxy-forwarded IP via geoip-country.
-//  - MongoDB is accessed via the npm driver (MikroORM).
+//  - MongoDB is accessed through the npm MongoDB driver.
 //  - translation cache misses are recorded for the external batch worker.
 //  - there is no realtime support, so /group/:id returns 501.
 const hono = createProductionApp((a) => {

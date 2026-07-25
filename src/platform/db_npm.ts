@@ -1,12 +1,11 @@
 // deno-lint-ignore-file no-explicit-any
-import { MikroORM } from "@mikro-orm/mongodb";
 import type { AppConfig } from "../config.ts";
 import type { Db, DbFactory, MongoCollection } from "../db.ts";
 
 /**
- * npm MongoDB driver via MikroORM. Works on Cloudflare Workers, Node.js, Bun,
- * and Azure Functions. Does NOT work with Cosmos DB on Deno Deploy (use
- * db_deno.ts there instead).
+ * Native MongoDB driver. The module is loaded inside `connect` so Workers do
+ * not evaluate BSON before a request. MongoDB 6 with nodejs_compat_v2 uses
+ * workerd's supported Node socket APIs; the BSON 7 browser bundle does not.
  */
 let dbPromise: Promise<Db> | undefined;
 const DB_CONNECT_TIMEOUT_MS = 10_000;
@@ -24,7 +23,7 @@ function withConnectionTimeout<T>(operation: Promise<T>): Promise<T> {
   });
 }
 
-function connect(config: AppConfig): Promise<Db> {
+async function connect(config: AppConfig): Promise<Db> {
   let clientUrl = config.MONGO_CONNECION_STRING;
   if (!clientUrl) {
     throw new Error("MONGO_CONNECION_STRING is not set");
@@ -42,25 +41,20 @@ function connect(config: AppConfig): Promise<Db> {
       encodeURIComponent(pass)
     }@${rest}`;
   }
-  return withConnectionTimeout(MikroORM.init({
-    clientUrl,
-    dbName: config.MONGODB_NAME || "coturn",
-    entities: [],
-    discovery: { warnWhenNoEntities: false },
-    driverOptions: {
-      retryWrites: false,
-      connectTimeoutMS: DB_CONNECT_TIMEOUT_MS,
-      serverSelectionTimeoutMS: DB_CONNECT_TIMEOUT_MS,
-      socketTimeoutMS: DB_CONNECT_TIMEOUT_MS,
-    },
-  })).then((orm) => {
-    const connection = orm.em.getConnection();
-    return {
-      collection(name: string): MongoCollection {
-        return connection.getCollection(name) as unknown as MongoCollection;
-      },
-    };
+  const { MongoClient } = await import("mongodb");
+  const client = new MongoClient(clientUrl, {
+    retryWrites: false,
+    connectTimeoutMS: DB_CONNECT_TIMEOUT_MS,
+    serverSelectionTimeoutMS: DB_CONNECT_TIMEOUT_MS,
+    socketTimeoutMS: DB_CONNECT_TIMEOUT_MS,
   });
+  await withConnectionTimeout(client.connect());
+  const database = client.db(config.MONGODB_NAME || "coturn");
+  return {
+    collection(name: string): MongoCollection {
+      return database.collection(name) as unknown as MongoCollection;
+    },
+  };
 }
 
 /**
