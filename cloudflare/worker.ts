@@ -109,6 +109,7 @@ export async function proxyPayPalWebhook(
   ) {
     return new Response("Not Found", { status: 404 });
   }
+  if (!settings) return undefined;
   if (
     !webhookTarget || request.method !== "POST" || incoming.search
   ) {
