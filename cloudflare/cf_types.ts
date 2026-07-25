@@ -18,19 +18,24 @@ export interface DurableObjectNamespace {
 
 export interface DurableObjectState {
   readonly id: DurableObjectId;
+  readonly storage: {
+    get<T>(key: string): Promise<T | undefined>;
+    put<T>(key: string, value: T): Promise<void>;
+    setAlarm(scheduledTime: number): Promise<void>;
+    deleteAlarm(): Promise<void>;
+    deleteAll(): Promise<void>;
+  };
+  acceptWebSocket(socket: CfWebSocket): void;
+  getWebSockets(): CfWebSocket[];
   waitUntil?(promise: Promise<unknown>): void;
 }
 
 /** Cloudflare's server-side WebSocket (superset of the DOM WebSocket). */
 export interface CfWebSocket {
-  accept(): void;
   send(message: string | ArrayBuffer | ArrayBufferView): void;
   close(code?: number, reason?: string): void;
-  addEventListener(
-    type: "message",
-    listener: (event: { data: string | ArrayBuffer }) => void,
-  ): void;
-  addEventListener(type: "close" | "error", listener: () => void): void;
+  serializeAttachment(value: unknown): void;
+  deserializeAttachment<T>(): T | null;
 }
 
 export interface CfWebSocketPair {

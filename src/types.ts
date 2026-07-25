@@ -41,9 +41,9 @@ export interface AppVariables {
  * `AppConfig`, so they are intentionally loose here.
  */
 export interface AppBindings {
-  GROUP_ROOM?: unknown;
   TRANSLATION_KV?: unknown;
   TRANSLATION_QUEUE?: unknown;
+  MULTIPLAYER_ROOM?: unknown;
   [key: string]: unknown;
 }
 

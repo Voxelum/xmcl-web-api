@@ -5,20 +5,28 @@ compatibility_flags = ["nodejs_compat"]
 
 # Non-secret defaults. Secrets (GITHUB_PAT, MONGO_CONNECION_STRING, RTC_SECRET,
 # AGNES_API_KEY, CURSEFORGE_KEY, MODRINTH_SECRET,
-# CLOUDFLARE_API_TOKEN, CLOUDFLARE_APP_ID) must be set with
+# CLOUDFLARE_API_TOKEN, CLOUDFLARE_APP_ID,
+# XMCL_MULTIPLAYER_TICKET_SECRET) must be set with
 # `wrangler secret put <NAME>` or via the dashboard. See .dev.vars.example.
 [vars]
 MONGODB_NAME = "xmcl-api"
 TURNS = ""
 
-# Durable Object backing /group/:id realtime rooms (replaces BroadcastChannel).
 [[durable_objects.bindings]]
-name = "GROUP_ROOM"
-class_name = "GroupRoom"
+name = "MULTIPLAYER_ROOM"
+class_name = "MultiplayerRoom"
 
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["GroupRoom"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["MultiplayerRoom"]
+
+[[migrations]]
+tag = "v3"
+deleted_classes = ["GroupRoom"]
 
 # KV holds the per-(lang,id) translation semaphore (replaces the Deno.Kv lock).
 [[kv_namespaces]]

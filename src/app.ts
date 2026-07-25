@@ -8,6 +8,7 @@ import account from "./routes/account.ts";
 import elyby from "./routes/elyby.ts";
 import flights from "./routes/flights.ts";
 import group from "./routes/group.ts";
+import multiplayer from "./routes/multiplayer.ts";
 import kookBadge from "./routes/kookBadge.ts";
 import latest from "./routes/latest.ts";
 import modrinth from "./routes/modrinth.ts";
@@ -42,6 +43,7 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
   app.route("/", flights);
   app.route("/", translation);
   app.route("/", group);
+  app.route("/", multiplayer);
   app.route("/", rtc);
   app.route("/", zulu);
   app.route("/", elyby);
@@ -71,7 +73,10 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
       return err.getResponse();
     }
     console.error(err);
-    return c.json({ error: "Internal Server Error", message: err.message }, 500);
+    return c.json(
+      { error: "Internal Server Error", message: err.message },
+      500,
+    );
   });
 
   return app;
