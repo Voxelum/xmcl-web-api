@@ -197,6 +197,15 @@ Deno.test("Azure M3 verifies durable HMAC before account auth, then uses shared 
   assert.equal(missingIdentity.status, 401);
   assert.equal(getAuthCalls(), 0);
 
+  const missingSession = await app.request(await signedRequest(
+    "GET",
+    "/v1/billing/balance",
+    new Uint8Array(),
+    { authorization: "" },
+  ));
+  assert.equal(missingSession.status, 401);
+  assert.equal((await missingSession.json()).error, "authentication_required");
+
   const balance = await app.request(await signedRequest(
     "GET",
     "/v1/billing/balance",

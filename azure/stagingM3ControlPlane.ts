@@ -1,6 +1,8 @@
 import type { Hono } from "hono";
 import type { AppConfig } from "../src/config.ts";
 import type { Db } from "../src/db.ts";
+import { AccountError } from "../src/lib/account.ts";
+import { handleAccountError } from "../src/lib/accountHttp.ts";
 import type { BillingService } from "../src/lib/billing.ts";
 import {
   HmacStagingM3ProxyIdentity,
@@ -106,10 +108,15 @@ export class AzureStagingM3ControlPlane {
       }
       await next();
     });
-    app.use(
-      "/v1/billing/*",
-      xmclAuth([], this.dependencies.resolveAccountRuntime),
-    );
+    const authenticate = xmclAuth([], this.dependencies.resolveAccountRuntime);
+    app.use("/v1/billing/*", async (c, next) => {
+      try {
+        await authenticate(c, next);
+      } catch (error) {
+        if (error instanceof AccountError) return handleAccountError(error, c);
+        throw error;
+      }
+    });
 
     app.route("/", createBillingRoutes(
       this.dependencies.billing,
