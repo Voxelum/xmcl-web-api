@@ -148,14 +148,24 @@ export async function proxyPayPalWebhook(
       headers.set(name, value);
     }
     phase = "backend_fetch";
-    const response = await fetchImpl(settings.url, {
-      method: "POST",
-      headers,
-      body: raw as unknown as BodyInit,
-      signal: AbortSignal.timeout(PAYPAL_WEBHOOK_PROXY_TIMEOUT_MS),
-      redirect: "error",
-      credentials: "omit",
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      PAYPAL_WEBHOOK_PROXY_TIMEOUT_MS,
+    );
+    let response: Response;
+    try {
+      response = await fetchImpl(settings.url, {
+        method: "POST",
+        headers,
+        body: raw as unknown as BodyInit,
+        signal: controller.signal,
+        redirect: "error",
+        credentials: "omit",
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
     const responseHeaders = new Headers();
     const contentType = response.headers.get("content-type");
     if (contentType) responseHeaders.set("content-type", contentType);
