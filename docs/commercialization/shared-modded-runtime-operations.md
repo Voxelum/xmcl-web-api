@@ -123,10 +123,13 @@ METHOD\nPATH_AND_QUERY\nUNIX_MILLISECONDS\nNONCE\nSHA256(BODY)
 Use `Authorization: HMAC <key-id>:<base64url signature>`,
 `X-Xmcl-Timestamp`, and `X-Xmcl-Nonce`. Clocks allow ±60 seconds. Azure stores
 each accepted nonce atomically in Mongo collection
-`shared_runtime_compiler_nonces`; create a TTL index before rollout:
+`shared_runtime_compiler_nonces`. Cosmos Mongo supports TTL only on its internal
+`_ts` field, so create a five-minute cleanup index before rollout. The
+application's atomic nonce record and explicit `expiresAt` check enforce the
+actual 60-second replay window; TTL is cleanup only:
 
 ```javascript
-db.shared_runtime_compiler_nonces.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+db.shared_runtime_compiler_nonces.createIndex({ _ts: 1 }, { name: "compiler_nonce_cleanup", expireAfterSeconds: 300 })
 ```
 
 Do not log identity secrets, signed archive URLs, compiler grants, callback
