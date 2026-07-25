@@ -23,7 +23,7 @@ installed.
    published deployment.
 5. Publish the generic runtime image from
    `xmcl-shared-node-agent/deploy/runtime/Dockerfile` with verified Java
-   8/17/21 assets and configure the agent with its immutable GHCR digest.
+   8/16/17/21 assets and configure the agent with its immutable GHCR digest.
 6. Connect the server-side EULA/terms acceptance policy to
    `eulaAccepted`. The runtime launcher rejects starts without that trusted
    command field; user content cannot set it.

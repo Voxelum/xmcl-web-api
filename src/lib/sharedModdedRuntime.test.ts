@@ -174,7 +174,7 @@ async function publishedFixture() {
   return { ...f, service, deployment, compilerGrants };
 }
 
-Deno.test("resolves Java 8, 17 and 21 only from supported loader compatibility", () => {
+Deno.test("resolves Java 8, 16, 17 and 21 only from supported loader compatibility", () => {
   assert.equal(
     resolveRuntimeJava({
       minecraftVersion: "1.12.2",
@@ -182,6 +182,14 @@ Deno.test("resolves Java 8, 17 and 21 only from supported loader compatibility",
       loaderVersion: "14.23.5.2860",
     }).javaMajor,
     8,
+  );
+  assert.equal(
+    resolveRuntimeJava({
+      minecraftVersion: "1.17.1",
+      loader: "forge",
+      loaderVersion: "37.1.1",
+    }).javaMajor,
+    16,
   );
   assert.equal(
     resolveRuntimeJava({

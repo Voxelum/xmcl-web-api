@@ -24,7 +24,7 @@ export type RuntimeLoaderKind = "forge" | "fabric" | "neoforge" | "quilt";
 export interface RuntimeDescriptor {
   schemaVersion: 1;
   minecraftVersion: string;
-  javaMajor: 8 | 17 | 21;
+  javaMajor: 8 | 16 | 17 | 21;
   loader: { kind: RuntimeLoaderKind; version: string };
   launch: {
     kind: "generated-server-launcher";
@@ -52,7 +52,7 @@ export interface SharedRuntimeFrozenManifest {
     minecraftVersion: string;
     loader: RuntimeLoaderKind;
     loaderVersion: string;
-    javaMajor: 8 | 17 | 21;
+    javaMajor: 8 | 16 | 17 | 21;
   };
   configFiles: Array<{ path: string; sha256: string; sizeBytes: number }>;
   dataFiles: Array<{ path: string; sha256: string; sizeBytes: number }>;
@@ -936,7 +936,7 @@ export function resolveRuntimeJava(input: {
   minecraftVersion: string;
   loader: string;
   loaderVersion?: string;
-}): { loader: RuntimeLoaderKind; javaMajor: 8 | 17 | 21 } {
+}): { loader: RuntimeLoaderKind; javaMajor: 8 | 16 | 17 | 21 } {
   const loader = input.loader.toLowerCase();
   if (
     !["forge", "fabric", "neoforge", "quilt"].includes(loader) ||
@@ -946,11 +946,12 @@ export function resolveRuntimeJava(input: {
   }
   const version = parseMinecraftVersion(input.minecraftVersion);
   if (!version) throw new SharedModdedRuntimeError("unsupported_compatibility");
-  let javaMajor: 8 | 17 | 21;
+  let javaMajor: 8 | 16 | 17 | 21;
   if (version.major !== 1) {
     throw new SharedModdedRuntimeError("unsupported_compatibility");
   }
   if (version.minor <= 16) javaMajor = 8;
+  else if (version.minor === 17) javaMajor = 16;
   else if (
     version.minor >= 17 && version.minor <= 20 &&
     (version.minor < 20 || version.patch <= 4)
@@ -990,7 +991,7 @@ export function validateRuntimeDescriptor(value: unknown): RuntimeDescriptor {
     descriptor.schemaVersion !== 1 ||
     typeof descriptor.minecraftVersion !== "string" ||
     !parseMinecraftVersion(descriptor.minecraftVersion) ||
-    ![8, 17, 21].includes(descriptor.javaMajor as number) ||
+    ![8, 16, 17, 21].includes(descriptor.javaMajor as number) ||
     !validSha256(descriptor.contentSha256)
   ) {
     throw new SharedModdedRuntimeError("content_invalid");
@@ -1035,7 +1036,7 @@ export function validateRuntimeDescriptor(value: unknown): RuntimeDescriptor {
   return {
     schemaVersion: 1,
     minecraftVersion: descriptor.minecraftVersion,
-    javaMajor: descriptor.javaMajor as 8 | 17 | 21,
+    javaMajor: descriptor.javaMajor as 8 | 16 | 17 | 21,
     loader: {
       kind: loaderRecord.kind as RuntimeLoaderKind,
       version: loaderRecord.version,

@@ -164,7 +164,7 @@ Build and publish a trusted image owned by XMCL, e.g.
 ghcr.io/voxelum/xmcl-shared-minecraft-runtime:<immutable digest>
 ```
 
-It contains pinned Java 8, 17, and 21 runtimes plus a small non-root launcher.
+It contains pinned Java 8, 16, 17, and 21 runtimes plus a small non-root launcher.
 It must:
 
 - run as UID/GID 1000 and use `/data` as its only writable application state;
@@ -241,7 +241,7 @@ deployment.
 
 Web API:
 
-1. Legacy and modern compatibility resolve Java 8/17/21 correctly; unknown
+1. Legacy and modern compatibility resolve Java 8/16/17/21 correctly; unknown
    combinations fail explicitly.
 2. A compiler request has immutable input identity, safe artifact allowlisting,
    hash validation, bounded retries, and no cross-account/service key access.
@@ -256,7 +256,7 @@ Runtime/agent:
 
 1. Descriptor validation rejects path traversal, arbitrary command/flags,
    unknown loader/JRE, digest mismatch, and untrusted launcher.
-2. Java 8, 17, and 21 descriptor fixtures select only their bundled JRE.
+2. Java 8, 16, 17, and 21 descriptor fixtures select only their bundled JRE.
 3. A Forge, Fabric, NeoForge, and Quilt prebuilt fixture starts without
    outbound dependency download.
 4. Existing Docker hardening stays effective.
