@@ -9,6 +9,11 @@ import { createS3SigV4Presigner } from "../src/lib/s3SigV4.ts";
 import { createDbMiddleware } from "../src/middleware/db.ts";
 import { geoipMiddleware } from "../src/middleware/geoip.ts";
 import { getDb } from "../src/platform/db_npm.ts";
+import {
+  createAzureSharedHostingHourlyTimerHandler,
+  createAzureSharedHostingHourlyWorkFactory,
+  SHARED_HOSTING_HOURLY_TIMER_SCHEDULE,
+} from "./sharedHostingTimer.ts";
 
 // Azure Functions entry point. Reuses the shared Hono app and injects the
 // Azure-specific platform behaviour:
@@ -25,10 +30,14 @@ const workspaceSigner = createS3SigV4Presigner({
   secretKey: environment.XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY,
 });
 
-const hono = createProductionApp((a) => {
-  a.use("*", geoipMiddleware);
-  a.use("*", createDbMiddleware(getDb));
-}, environment, { SHARED_NODE_WORKSPACE_SIGNER: workspaceSigner });
+const hono = createProductionApp(
+  (a) => {
+    a.use("*", geoipMiddleware);
+    a.use("*", createDbMiddleware(getDb));
+  },
+  environment,
+  { SHARED_NODE_WORKSPACE_SIGNER: workspaceSigner },
+);
 
 async function toRequest(req: HttpRequest): Promise<Request> {
   const method = req.method;
@@ -81,4 +90,12 @@ azureApp.http("api", {
       return { status: 500, jsonBody: { error: "Internal Server Error" } };
     }
   },
+});
+
+azureApp.timer("shared-hosting-hourly", {
+  schedule: SHARED_HOSTING_HOURLY_TIMER_SCHEDULE,
+  useMonitor: true,
+  handler: createAzureSharedHostingHourlyTimerHandler(
+    createAzureSharedHostingHourlyWorkFactory(),
+  ),
 });

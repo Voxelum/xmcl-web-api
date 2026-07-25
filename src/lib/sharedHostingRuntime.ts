@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import { type AppConfig, getConfig } from "../config.ts";
 import type { Db } from "../db.ts";
 import type { AppEnv } from "../types.ts";
-import { createBillingRuntime } from "./billingRuntime.ts";
+import { type BillingRuntime, createBillingRuntime } from "./billingRuntime.ts";
 import type { SharedHostingService } from "./sharedHosting.ts";
 import {
   DurableSharedNodeCommandGateway,
@@ -34,6 +34,7 @@ import {
 import { VultrV2Adapter } from "./vultr.ts";
 
 export interface SharedHostingRuntime {
+  billing: BillingRuntime["billing"];
   sharedHosting: SharedHostingService;
   scheduler: SharedHostingScheduler;
   transport: SharedNodeTransportService;
@@ -192,6 +193,7 @@ export function createSharedHostingRuntime(
     ingressRepository,
   });
   return {
+    billing: billing.billing,
     sharedHosting: billing.sharedHosting,
     scheduler,
     transport,
@@ -211,8 +213,10 @@ export async function getSharedHostingRuntime(
   const scheduler = c.get("sharedHostingScheduler");
   const sharedHosting = c.get("sharedHostingService");
   const provisioner = c.get("sharedNodeProvisioner");
-  if (transport && scheduler && sharedHosting && provisioner) {
+  const billing = c.get("billingService");
+  if (transport && scheduler && sharedHosting && provisioner && billing) {
     return {
+      billing,
       sharedHosting,
       scheduler,
       transport,
@@ -231,6 +235,7 @@ export async function getSharedHostingRuntime(
   c.set("sharedHostingScheduler", runtime.scheduler);
   c.set("sharedNodeProvisioner", runtime.provisioner);
   c.set("sharedHostingBillingScheduledWork", runtime.billingScheduledWork);
+  c.set("billingService", runtime.billing);
   c.set("sharedHostingService", runtime.sharedHosting);
   return runtime;
 }
