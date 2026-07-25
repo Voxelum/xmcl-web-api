@@ -45,6 +45,18 @@ function validateRuntimeContent(content: SharedRuntimeContent) {
   }
 }
 
+function validateInitialWorld(world: SharedInitialWorld) {
+  if (
+    !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(world.seedId) ||
+    !/^[a-f0-9]{64}$/.test(world.sha256) ||
+    !Number.isSafeInteger(world.sizeBytes) || world.sizeBytes < 1 ||
+    typeof world.worldName !== "string" || !world.worldName.trim() ||
+    world.worldName.length > 255
+  ) {
+    throw new AccountError(422, "invalid_initial_world");
+  }
+}
+
 export function isSharedNodeRegion(value: unknown): value is string {
   return typeof value === "string" && sharedNodeRegionPattern.test(value);
 }
@@ -84,6 +96,14 @@ export interface SharedRuntimeContent {
   eulaAccepted: boolean;
 }
 
+/** Immutable local-world archive selected only before the service's first start. */
+export interface SharedInitialWorld {
+  seedId: string;
+  sha256: string;
+  sizeBytes: number;
+  worldName: string;
+}
+
 export interface SharedHostingServiceRecord {
   serviceId: string;
   accountId: string;
@@ -93,6 +113,12 @@ export interface SharedHostingServiceRecord {
   workspace: SharedWorkspace;
   /** Selected only while stopped; the node receives it on the next restore. */
   runtimeContent?: SharedRuntimeContent;
+  /** Selected only before first start; the node restores it with the first workspace. */
+  initialWorld?: SharedInitialWorld;
+  /** Set once its first-start command has carried the seed; never resend it. */
+  initialWorldSent?: true;
+  /** Durable first-start fence: a seed must never replace a runtime world. */
+  hasStarted?: true;
   runtime?: {
     startedAt: string;
     settledHours: number;
@@ -161,6 +187,7 @@ export interface SharedNodeCommand {
   accountId: string;
   workspace: SharedWorkspace;
   runtimeContent?: SharedRuntimeContent;
+  initialWorld?: SharedInitialWorld;
   eulaAccepted?: true;
   resources: {
     memoryMiB: number;
@@ -305,6 +332,9 @@ function commandFor(
     workspace: clone(value.workspace),
     ...(value.runtimeContent
       ? { runtimeContent: clone(value.runtimeContent) }
+      : {}),
+    ...(value.initialWorld && !value.initialWorldSent
+      ? { initialWorld: clone(value.initialWorld) }
       : {}),
     ...(value.runtimeContent?.eulaAccepted ? { eulaAccepted: true } : {}),
     resources: {
@@ -480,6 +510,15 @@ export class SharedHostingScheduler {
     return await this.requireService(accountId, serviceId);
   }
 
+  async assertInitialWorldEligible(accountId: string, serviceId: string) {
+    const value = await this.requireService(accountId, serviceId);
+    await this.subscriptions.activeSubscription(accountId, value.subscriptionId);
+    if (value.status !== "ready" || value.hasStarted || value.workspace.revision !== 0) {
+      throw new AccountError(409, "shared_initial_world_not_selectable");
+    }
+    return value;
+  }
+
   /**
    * Swaps an already-published compiler content layer only while the service is
    * stopped. World/config revisions are intentionally not touched.
@@ -514,6 +553,49 @@ export class SharedHostingScheduler {
       }
       value.runtimeContent = clone(input.content);
       value.statusReason = "runtime_content_selected";
+      value.updatedAt = now;
+      state.idempotency.push({
+        accountId: input.accountId,
+        key,
+        fingerprint: requestFingerprint,
+        serviceId: input.serviceId,
+      });
+      return clone(value);
+    });
+  }
+
+  /**
+   * A world seed is a first-start-only pointer. Runtime stop/sync revisions
+   * remain authoritative once this service has ever been assigned.
+   */
+  async selectInitialWorld(input: {
+    accountId: string;
+    serviceId: string;
+    world: SharedInitialWorld;
+    idempotencyKey: string;
+  }) {
+    validateInitialWorld(input.world);
+    await this.assertInitialWorldEligible(input.accountId, input.serviceId);
+    const now = this.now().toISOString();
+    return await this.repository.transact((state) => {
+      const value = service(state, input.serviceId);
+      if (!value || value.accountId !== input.accountId) {
+        throw new AccountError(404, "shared_service_not_found");
+      }
+      if (value.status !== "ready" || value.hasStarted || value.workspace.revision !== 0) {
+        throw new AccountError(409, "shared_initial_world_not_selectable");
+      }
+      const key = `${input.accountId}:initial-world:${input.idempotencyKey}`;
+      const requestFingerprint = fingerprint({ serviceId: input.serviceId, world: input.world });
+      const replay = state.idempotency.find((item) => item.key === key);
+      if (replay) {
+        if (replay.fingerprint !== requestFingerprint) {
+          throw new AccountError(409, "idempotency_conflict");
+        }
+        return clone(service(state, replay.serviceId)!);
+      }
+      value.initialWorld = clone(input.world);
+      value.statusReason = "initial_world_selected";
       value.updatedAt = now;
       state.idempotency.push({
         accountId: input.accountId,
@@ -874,6 +956,7 @@ export class SharedHostingScheduler {
       if (!["ready", "queued", "failed"].includes(value.status)) {
         throw new AccountError(409, "shared_service_not_startable");
       }
+      if (value.status === "ready") value.hasStarted = true;
       state.idempotency.push({
         accountId,
         key: scope,
@@ -1154,17 +1237,20 @@ export class SharedHostingScheduler {
     }
     value.nodeId = node.nodeId;
     value.assignmentId = this.createId("assignment");
+    value.hasStarted = true;
     value.status = "starting";
     value.statusReason = "workspace_restore_requested";
     value.capacityRequestedAt = undefined;
     value.updatedAt = now;
+    const command = commandFor(
+      value,
+      selected,
+      "workspace.restore_and_start",
+    );
+    if (value.initialWorld) value.initialWorldSent = true;
     return {
       service: clone(value),
-      command: commandFor(
-        value,
-        selected,
-        "workspace.restore_and_start",
-      ),
+      command,
       capacityRequest: undefined,
     };
   }

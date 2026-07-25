@@ -32,6 +32,7 @@ import sharedHosting from "./routes/sharedHosting.ts";
 import sharedHostingServices from "./routes/sharedHostingServices.ts";
 import sharedNodeTransport from "./routes/sharedNodeTransport.ts";
 import sharedModdedRuntime from "./routes/sharedModdedRuntime.ts";
+import sharedWorldSeeds from "./routes/sharedWorldSeeds.ts";
 import type { AppEnv } from "./types.ts";
 
 /**
@@ -102,6 +103,7 @@ export function createApp(
     app.route("/", sharedHosting);
     app.route("/", sharedHostingServices);
     app.route("/", sharedModdedRuntime);
+    app.route("/", sharedWorldSeeds);
   }
   if (options.sharedNodeTransportRoutes === true) {
     app.route("/", sharedNodeTransport);

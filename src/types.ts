@@ -37,6 +37,7 @@ import type {
   CompilerGrantAuthority,
   SharedModdedRuntimeService,
 } from "./lib/sharedModdedRuntime.ts";
+import type { SharedWorldSeedService } from "./lib/sharedWorldSeed.ts";
 
 export interface MicrosoftMinecraftProfile {
   id: string;
@@ -111,6 +112,8 @@ export interface AppVariables {
   sharedNodeProvisioner?: VultrSharedNodeProvisioner;
   /** Compiler-owned shared modpack deployment composition; never browser supplied. */
   sharedModdedRuntime?: SharedModdedRuntimeService;
+  /** Service-owned local world seed lifecycle; no browser storage credentials. */
+  sharedWorldSeedService?: SharedWorldSeedService;
   /** Compiler callback middleware sets this only after server-side authentication. */
   sharedModdedCompilerPrincipal?: { compilerId: string };
   /** Compiler grant issuer is separate from all node command grants. */
