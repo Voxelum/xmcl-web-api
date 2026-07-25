@@ -161,11 +161,14 @@ export async function proxyPayPalWebhook(
         headers,
         body: raw as unknown as BodyInit,
         signal: controller.signal,
-        redirect: "error",
+        redirect: "manual",
         credentials: "omit",
       });
     } finally {
       clearTimeout(timeout);
+    }
+    if (response.status >= 300 && response.status < 400) {
+      throw new Error("backend redirect rejected");
     }
     const responseHeaders = new Headers();
     const contentType = response.headers.get("content-type");
@@ -185,10 +188,6 @@ export async function proxyPayPalWebhook(
         ? "timeout"
         : "fetch_failure",
       phase,
-      exception: error instanceof Error ? error.name : "unknown",
-      message: error instanceof Error
-        ? error.message.replace(/[\r\n]/g, " ").slice(0, 160)
-        : "unknown",
     });
     const status = error instanceof DOMException && error.name === "TimeoutError"
       ? 503

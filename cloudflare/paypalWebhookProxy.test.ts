@@ -95,7 +95,7 @@ Deno.test("Cloudflare proxies only the exact PayPal POST, preserving bytes and a
   assert.equal(outgoing.headers.get("webhook-id"), "provider-webhook-id");
   assert.equal(outgoing.headers.get("x-not-forwarded"), null);
   assert.equal(outgoing.headers.get("x-xmcl-original-target"), null);
-  assert.equal(options?.redirect, "error");
+  assert.equal(options?.redirect, "manual");
   assert.equal(options?.credentials, "omit");
   assert(options?.signal instanceof AbortSignal);
 
@@ -189,4 +189,15 @@ Deno.test("Cloudflare returns sanitized errors when the fixed backend fails or t
   assert.deepEqual(await timedOut.json(), {
     error: "paypal_webhook_proxy_unavailable",
   });
+
+  const redirected = await proxyPayPalWebhook(
+    request(),
+    config,
+    async () => new Response(null, {
+      status: 302,
+      headers: { location: "https://redirect.example/" },
+    }),
+  );
+  assert(redirected);
+  assert.equal(redirected.status, 502);
 });
