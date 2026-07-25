@@ -137,6 +137,7 @@ export async function proxyPayPalWebhook(
     keyId: settings.keyId,
     secret: settings.secret,
   });
+  let phase = "identity";
   try {
     const identityHeaders = await identity.signOutgoing({
       method: "POST",
@@ -146,6 +147,7 @@ export async function proxyPayPalWebhook(
     for (const [name, value] of Object.entries(identityHeaders)) {
       headers.set(name, value);
     }
+    phase = "backend_fetch";
     const response = await fetchImpl(settings.url, {
       method: "POST",
       headers,
@@ -167,6 +169,7 @@ export async function proxyPayPalWebhook(
       error: error instanceof DOMException && error.name === "TimeoutError"
         ? "timeout"
         : "fetch_failure",
+      phase,
     });
     const status = error instanceof DOMException && error.name === "TimeoutError"
       ? 503
