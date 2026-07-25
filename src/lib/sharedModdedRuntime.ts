@@ -140,6 +140,18 @@ export interface SharedModdedDeployment {
   status: SharedModdedDeploymentStatus;
   content?: SharedRuntimeContentDescriptor;
   descriptor?: RuntimeDescriptor;
+  /**
+   * A worker can lose the response to a published callback after the immutable
+   * upload succeeds. This durable payload is reconciled without rebuilding.
+   */
+  pendingCompilerPublication?: {
+    deploymentId: string;
+    compilerRequestId: string;
+    manifestSha256: string;
+    content: SharedRuntimeContentDescriptor;
+    descriptor: RuntimeDescriptor;
+    receivedAt: string;
+  };
   compilerRequestId: string;
   error?:
     | "unsupported_compatibility"
@@ -167,6 +179,26 @@ export class SharedModdedRuntimeError extends Error {
   ) {
     super(code);
     this.name = "SharedModdedRuntimeError";
+  }
+}
+
+/**
+ * A trusted compiler response proves the immutable artifact was published but
+ * cannot prove that its callback response arrived. It is never a compile
+ * failure and must be reconciled using this exact stable payload.
+ */
+export class CompilerPublicationUncertain extends Error {
+  constructor(
+    readonly publication: {
+      deploymentId: string;
+      compilerRequestId: string;
+      manifestSha256: string;
+      content: SharedRuntimeContentDescriptor;
+      descriptor: RuntimeDescriptor;
+    },
+  ) {
+    super("published_callback_uncertain");
+    this.name = "CompilerPublicationUncertain";
   }
 }
 
@@ -747,6 +779,14 @@ export class SharedModdedRuntimeService {
       if (!existing || existing.accountId !== input.accountId) {
         throw new SharedModdedRuntimeError("state_conflict");
       }
+      if (
+        existing.status === "compiling" &&
+        existing.pendingCompilerPublication
+      ) {
+        return await this.reconcileUncertainPublication(
+          existing.pendingCompilerPublication,
+        );
+      }
       return existing;
     }
     const timestamp = this.now();
@@ -787,6 +827,9 @@ export class SharedModdedRuntimeService {
       return await this.options.repository.getDeployment(deploymentId) ??
         compiling ?? deployment;
     } catch (error) {
+      if (error instanceof CompilerPublicationUncertain) {
+        return await this.reconcileUncertainPublication(error.publication);
+      }
       const failed = await this.options.repository.updateDeployment(
         deploymentId,
         ["compiling"],
@@ -893,7 +936,7 @@ export class SharedModdedRuntimeService {
       current.deploymentId,
       ["compiling"],
       (value) => ({
-        ...value,
+        ...withoutPendingPublication(value),
         status: "published",
         content: clone(input.content),
         descriptor: clone(input.descriptor),
@@ -1101,6 +1144,54 @@ export class SharedModdedRuntimeService {
     );
     if (!deployment) throw new SharedModdedRuntimeError("not_found");
     return deployment;
+  }
+
+  private async reconcileUncertainPublication(input: {
+    deploymentId: string;
+    compilerRequestId: string;
+    manifestSha256: string;
+    content: SharedRuntimeContentDescriptor;
+    descriptor: RuntimeDescriptor;
+  }) {
+    const current = await this.requireDeployment(input.deploymentId);
+    if (
+      current.compilerRequestId !== input.compilerRequestId ||
+      current.manifestSha256 !== input.manifestSha256 ||
+      current.expectedContentKey !== input.content.key
+    ) {
+      throw new SharedModdedRuntimeError("state_conflict");
+    }
+    validateCompiledContent(input.content, input.descriptor, current);
+    if (current.status === "published") {
+      return await this.publishCompilerResult(input);
+    }
+    if (current.status !== "compiling") {
+      throw new SharedModdedRuntimeError("state_conflict");
+    }
+    const pending = await this.options.repository.updateDeployment(
+      current.deploymentId,
+      ["compiling"],
+      (value) => ({
+        ...value,
+        pendingCompilerPublication: {
+          deploymentId: input.deploymentId,
+          compilerRequestId: input.compilerRequestId,
+          manifestSha256: input.manifestSha256,
+          content: clone(input.content),
+          descriptor: clone(input.descriptor),
+          receivedAt: this.now(),
+        },
+        updatedAt: this.now(),
+      }),
+    );
+    if (!pending) {
+      const raced = await this.requireDeployment(input.deploymentId);
+      if (raced.status === "published") {
+        return await this.publishCompilerResult(input);
+      }
+      throw new SharedModdedRuntimeError("state_conflict");
+    }
+    return await this.publishCompilerResult(input);
   }
 }
 
@@ -1565,7 +1656,14 @@ function deepFreeze<T>(value: T): Readonly<T> {
     for (const child of Object.values(value as Record<string, unknown>)) {
       deepFreeze(child);
     }
+
     Object.freeze(value);
   }
+
   return value;
+}
+
+function withoutPendingPublication(value: SharedModdedDeployment) {
+  const { pendingCompilerPublication: _, ...deployment } = value;
+  return deployment;
 }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   CompilerGrantAuthority,
+  CompilerPublicationUncertain,
   MemorySharedModdedRuntimeRepository,
   resolveRuntimeJava,
   type RuntimeDescriptor,
@@ -42,6 +43,7 @@ const resolver: ModpackSourceResolver = {
 function fixture(
   options: {
     compilerFails?: boolean;
+    uncertainPublication?: boolean;
     termsAccepted?: boolean;
     archive?: Uint8Array;
   } = {},
@@ -89,6 +91,7 @@ function fixture(
     bytes: jsonBytes({ online: true }),
   }]);
   const repository = new MemorySharedModdedRuntimeRepository();
+  let submissions = 0;
   const runtime = new SharedModdedRuntimeService({
     repository,
     scheduler,
@@ -102,15 +105,48 @@ function fixture(
       readVerified: async () => archive,
     },
     compiler: {
-      submit: async () => {
+      submit: async (input) => {
+        submissions++;
         if (options.compilerFails) throw new Error("compiler offline");
+        if (options.uncertainPublication) {
+          throw new CompilerPublicationUncertain({
+            deploymentId: input.deploymentId,
+            compilerRequestId: input.compilerRequestId,
+            manifestSha256: input.manifestSha256,
+            content: {
+              key: input.expectedContentKey,
+              sha256: "b".repeat(64),
+              compressedSize: 1_024,
+              logicalSize: 2_048,
+              paths: [
+                ".xmcl/runtime.json",
+                ".xmcl/launch.sh",
+                "runtime/server.jar",
+                "mods/example.jar",
+              ],
+            },
+            descriptor: {
+              schemaVersion: 1,
+              minecraftVersion: "1.20.1",
+              java: { component: "java-runtime-gamma", major: 17 },
+              runtimeCatalog: { sha256: runtimeCatalog.sha256 },
+              loader: { kind: "fabric", version: "0.15.11" },
+              launch: {
+                kind: "generated-server-launcher",
+                path: ".xmcl/launch.sh",
+                arguments: [],
+              },
+              contentSha256: "b".repeat(64),
+            },
+          });
+        }
       },
     },
     terms: { accepted: async () => options.termsAccepted !== false },
     now: () => now,
     createId: (prefix) => `${prefix}_${++sequence}`,
   });
-  return { scheduler, runtime, repository, commands };
+  return { scheduler, runtime, repository, commands, submissions: () => submissions };
 }
 
 async function publishedFixture() {
@@ -496,6 +532,41 @@ Deno.test("compiler failure cannot select or overwrite current content", async (
       .runtimeContent,
     undefined,
   );
+});
+
+Deno.test("uncertain published callbacks reconcile their stable payload without resubmitting", async () => {
+  const f = fixture({ uncertainPublication: true });
+  const service = await f.scheduler.createService({
+    accountId: "account_1",
+    subscriptionId: "subscription_1",
+    idempotencyKey: "service",
+  });
+  const imported = await f.runtime.createImport({
+    accountId: "account_1",
+    serviceId: service.serviceId,
+    sourceFormat: "mrpack",
+    expectedSha256: sha,
+    expectedSizeBytes: 200,
+    idempotencyKey: "import",
+  });
+  await f.runtime.completeImport("account_1", imported.importId);
+  const published = await f.runtime.createDeployment({
+    accountId: "account_1",
+    serviceId: service.serviceId,
+    importId: imported.importId,
+    idempotencyKey: "deployment",
+  });
+  assert.equal(published.status, "published");
+  assert.equal(published.pendingCompilerPublication, undefined);
+  assert.equal(f.submissions(), 1);
+  const retried = await f.runtime.createDeployment({
+    accountId: "account_1",
+    serviceId: service.serviceId,
+    importId: imported.importId,
+    idempotencyKey: "deployment",
+  });
+  assert.equal(retried.status, "published");
+  assert.equal(f.submissions(), 1);
 });
 
 Deno.test("compiler callbacks are request-bound and idempotent only for the same result", async () => {

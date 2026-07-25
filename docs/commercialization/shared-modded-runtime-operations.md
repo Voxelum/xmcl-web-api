@@ -154,6 +154,14 @@ catalog configuration from that reviewed lock and deploy it with the matching
 immutable image digest; user uploads and compiler callbacks cannot select a
 catalog URL or revision.
 
+After the immutable output PUT, the compiler can return HTTP 200 with
+`published_callback_uncertain` if its published-callback response was lost. The
+Azure adapter accepts that response only when its exact five-field schema binds
+the current deployment and manifest. It durably records then reconciles the
+same publication payload through the normal idempotent publish transition; it
+never resubmits the job, rebuilds, or records a compiler failure. Other HTTP
+200 response shapes are rejected.
+
 The compiler callback endpoints are deliberately separate from account routes:
 
 ```text

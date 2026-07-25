@@ -8,6 +8,10 @@ import type {
   CompilerGrantSet,
   SharedModdedDeployment,
 } from "./sharedModdedRuntime.ts";
+import {
+  CompilerPublicationUncertain,
+  SharedModdedRuntimeError,
+} from "./sharedModdedRuntime.ts";
 
 const now = new Date("2026-07-25T08:00:00.000Z");
 const secret = "compiler-submission-secret-at-least-thirty-two-bytes";
@@ -144,4 +148,98 @@ Deno.test("HTTP compiler submission sends a closed versioned envelope with exact
   assert.equal(envelope.job.compilerRequestId, deployment.compilerRequestId);
   assert.deepEqual(envelope.grants, grants);
   assert.equal(Date.parse(envelope.expiresAt) - Date.parse(envelope.issuedAt), 300_000);
+});
+
+Deno.test("HTTP compiler submission surfaces only an exact uncertain publication for reconciliation", async () => {
+  let submissions = 0;
+  const compiler = new HttpSharedModdedCompiler({
+    endpoint: "https://compiler.example/v1/compiler-jobs",
+    repository: { getDeployment: async () => deployment },
+    grants: { issue: async () => grants },
+    identity: new HmacCompilerServiceIdentity({
+      keyId: "compiler-v1",
+      secret,
+      nonceStore: new Nonces(),
+      now: () => now.getTime(),
+    }),
+    timeoutMs: 10_000,
+    now: () => now,
+    fetchImpl: async () => {
+      submissions++;
+      return new Response(JSON.stringify({
+        status: "published_callback_uncertain",
+        deploymentId: deployment.deploymentId,
+        manifestSha256: deployment.manifestSha256,
+        content: {
+          key: deployment.expectedContentKey,
+          sha256: "d".repeat(64),
+          compressedSize: 1,
+          logicalSize: 1,
+          paths: [".xmcl/runtime.json", ".xmcl/launch.sh"],
+        },
+        descriptor: {
+          schemaVersion: 1,
+          minecraftVersion: "1.20.1",
+          java: { component: "java-runtime-gamma", major: 17 },
+          runtimeCatalog: { sha256: "c".repeat(64) },
+          loader: { kind: "fabric", version: "0.15.11" },
+          launch: {
+            kind: "generated-server-launcher",
+            path: ".xmcl/launch.sh",
+            arguments: [],
+          },
+          contentSha256: "d".repeat(64),
+        },
+      }));
+    },
+  });
+  await assert.rejects(
+    () =>
+      compiler.submit({
+        deploymentId: deployment.deploymentId,
+        compilerRequestId: deployment.compilerRequestId,
+        accountId: deployment.accountId,
+        serviceId: deployment.serviceId,
+        manifestSha256: deployment.manifestSha256,
+        expectedContentKey: deployment.expectedContentKey,
+        frozenManifest: deployment.frozenManifest,
+      }),
+    (error) =>
+      error instanceof CompilerPublicationUncertain &&
+      error.publication.deploymentId === deployment.deploymentId &&
+      error.publication.manifestSha256 === deployment.manifestSha256,
+  );
+  assert.equal(submissions, 1);
+});
+
+Deno.test("HTTP compiler submission rejects arbitrary successful responses", async () => {
+  const compiler = new HttpSharedModdedCompiler({
+    endpoint: "https://compiler.example/v1/compiler-jobs",
+    repository: { getDeployment: async () => deployment },
+    grants: { issue: async () => grants },
+    identity: new HmacCompilerServiceIdentity({
+      keyId: "compiler-v1",
+      secret,
+      nonceStore: new Nonces(),
+      now: () => now.getTime(),
+    }),
+    timeoutMs: 10_000,
+    now: () => now,
+    fetchImpl: async () => new Response(JSON.stringify({ status: "ok" })),
+  });
+  await assert.rejects(
+    () =>
+      compiler.submit({
+        deploymentId: deployment.deploymentId,
+        compilerRequestId: deployment.compilerRequestId,
+        accountId: deployment.accountId,
+        serviceId: deployment.serviceId,
+        manifestSha256: deployment.manifestSha256,
+        expectedContentKey: deployment.expectedContentKey,
+        frozenManifest: deployment.frozenManifest,
+      }),
+    (error) =>
+      error instanceof SharedModdedRuntimeError &&
+      error.code === "compiler_unavailable",
+  );
 });

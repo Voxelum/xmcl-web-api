@@ -1,7 +1,10 @@
 import { HmacCompilerServiceIdentity } from "./compilerServiceIdentity.ts";
 import {
+  CompilerPublicationUncertain,
   type CompilerGrantAuthority,
   type CompilerGrantSet,
+  type RuntimeDescriptor,
+  type SharedRuntimeContentDescriptor,
   type SharedModdedCompiler,
   type SharedModdedDeployment,
   SharedModdedRuntimeError,
@@ -96,13 +99,24 @@ export class HttpSharedModdedCompiler implements SharedModdedCompiler {
         body,
       });
       const response = await this.post(body, identityHeaders);
-      const failure = await validateCompilerResponse(
+      const result = await validateCompilerResponse(
         response,
-        deployment.deploymentId,
+        deployment,
       );
-      if (failure) throw new SharedModdedRuntimeError(failure);
+      if (typeof result === "string") {
+        throw new SharedModdedRuntimeError(result);
+      }
+      if (result) {
+        throw new CompilerPublicationUncertain({
+          compilerRequestId: deployment.compilerRequestId,
+          ...result,
+        });
+      }
     } catch (error) {
-      if (error instanceof SharedModdedRuntimeError) throw error;
+      if (
+        error instanceof SharedModdedRuntimeError ||
+        error instanceof CompilerPublicationUncertain
+      ) throw error;
       throw new SharedModdedRuntimeError("compiler_unavailable");
     }
   }
@@ -212,11 +226,17 @@ function issuedAtMillis(now: () => Date) {
 
 async function validateCompilerResponse(
   response: Response,
-  deploymentId: string,
+  deployment: SharedModdedDeployment,
 ): Promise<
   | "unsupported_compatibility"
   | "compiler_unavailable"
   | "compiler_failed"
+  | {
+    deploymentId: string;
+    manifestSha256: string;
+    content: SharedRuntimeContentDescriptor;
+    descriptor: RuntimeDescriptor;
+  }
   | undefined
 > {
   const length = response.headers.get("content-length");
@@ -241,7 +261,8 @@ async function validateCompilerResponse(
   }
   const value = payload as Record<string, unknown>;
   if (
-    value.status === "published" && value.deploymentId === deploymentId &&
+    value.status === "published" &&
+    value.deploymentId === deployment.deploymentId &&
     Object.keys(value).length === 2
   ) return undefined;
   if (
@@ -253,5 +274,35 @@ async function validateCompilerResponse(
     | "unsupported_compatibility"
     | "compiler_unavailable"
     | "compiler_failed";
+  if (
+    value.status === "published_callback_uncertain" &&
+    value.deploymentId === deployment.deploymentId &&
+    value.manifestSha256 === deployment.manifestSha256 &&
+    plainObject(value.content) && plainObject(value.descriptor) &&
+    sameKeys(value, [
+      "status",
+      "deploymentId",
+      "manifestSha256",
+      "content",
+      "descriptor",
+    ])
+  ) {
+    return {
+      deploymentId: value.deploymentId,
+      manifestSha256: value.manifestSha256,
+      content: value.content as unknown as SharedRuntimeContentDescriptor,
+      descriptor: value.descriptor as unknown as RuntimeDescriptor,
+    };
+  }
   throw new Error("invalid compiler response");
+}
+
+function plainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function sameKeys(value: Record<string, unknown>, keys: readonly string[]) {
+  const actual = Object.keys(value).sort();
+  return actual.length === keys.length &&
+    actual.every((key, index) => key === [...keys].sort()[index]);
 }
