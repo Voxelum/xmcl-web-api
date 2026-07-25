@@ -1366,6 +1366,9 @@ export class SharedNodeTransportService {
   private readonly commandLeaseMs: number;
   private readonly commandMaxLifetimeMs: number;
   private readonly workspaceGrantTtlMs: number;
+  private runtimeContentGrantAuthority:
+    | SharedRuntimeContentGrantAuthority
+    | undefined;
 
   constructor(private readonly options: SharedNodeTransportOptions) {
     this.now = options.now ?? (() => new Date());
@@ -1374,6 +1377,7 @@ export class SharedNodeTransportService {
     this.commandLeaseMs = options.commandLeaseMs ?? 60_000;
     this.commandMaxLifetimeMs = options.commandMaxLifetimeMs ?? 30 * 60_000;
     this.workspaceGrantTtlMs = options.workspaceGrantTtlMs ?? 10 * 60_000;
+    this.runtimeContentGrantAuthority = options.runtimeContentGrantAuthority;
     if (
       !Number.isSafeInteger(this.workspaceGrantTtlMs) ||
       this.workspaceGrantTtlMs < 1_000 ||
@@ -1383,6 +1387,16 @@ export class SharedNodeTransportService {
         "workspace grant TTL must be between one second and fifteen minutes",
       );
     }
+  }
+
+  /**
+   * Azure composes the modded control plane after the shared scheduler exists.
+   * This authority remains server-owned and is never configurable by a request.
+   */
+  setRuntimeContentGrantAuthority(
+    authority: SharedRuntimeContentGrantAuthority,
+  ) {
+    this.runtimeContentGrantAuthority = authority;
   }
 
   async dispatch(command: SharedNodeCommand) {
@@ -1832,12 +1846,12 @@ export class SharedNodeTransportService {
     const selected = command.runtimeContent;
     if (!selected) return undefined;
     if (
-      !this.options.runtimeContentGrantAuthority ||
+      !this.runtimeContentGrantAuthority ||
       !validateRuntimeContentDescriptor(selected, command)
     ) {
       throw new SharedNodeTransportError("workspace_grant_denied");
     }
-    const allowed = await this.options.runtimeContentGrantAuthority
+    const allowed = await this.runtimeContentGrantAuthority
       .authorizeNodeRestore({
         accountId: command.accountId,
         serviceId: command.serviceId,

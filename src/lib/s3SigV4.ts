@@ -43,6 +43,7 @@ export class S3SigV4Presigner {
     key: string,
     method: "GET" | "PUT",
     expiresInSeconds: number,
+    requiredHeaders?: Record<string, string>,
   ): Promise<S3PresignedObject> {
     if (!validObjectKey(key)) throw new S3SigV4Error("invalid S3 object key");
     if (
@@ -57,12 +58,17 @@ export class S3SigV4Presigner {
     const amzDate = amzTimestamp(now);
     const dateStamp = amzDate.slice(0, 8);
     const scope = `${dateStamp}/${this.config.region}/${service}/aws4_request`;
-    const headers = method === "PUT" ? { "if-none-match": "*" } : undefined;
+    const headers = normalizedHeaders(
+      requiredHeaders ?? (method === "PUT" ? { "if-none-match": "*" } : undefined),
+    );
+    if (method === "GET" && headers) {
+      throw new S3SigV4Error("GET grants cannot require request headers");
+    }
     const canonicalHeaders = [
       `host:${this.endpoint.host.toLowerCase()}`,
-      ...(headers ? ["if-none-match:*"] : []),
+      ...Object.entries(headers ?? {}).map(([key, value]) => `${key}:${value}`),
     ].join("\n") + "\n";
-    const signedHeaders = headers ? "host;if-none-match" : "host";
+    const signedHeaders = ["host", ...Object.keys(headers ?? {})].join(";");
     const query = canonicalQuery({
       "X-Amz-Algorithm": algorithm,
       "X-Amz-Credential": `${this.config.accessKey}/${scope}`,
@@ -146,6 +152,25 @@ function validObjectKey(value: string) {
   return value.length > 0 && value.length <= 1_024 &&
     !value.startsWith("/") && !value.includes("\\") &&
     value.split("/").every((part) => part && part !== "." && part !== "..");
+}
+
+function normalizedHeaders(value?: Record<string, string>) {
+  if (!value) return undefined;
+  const entries = Object.entries(value).map(([name, headerValue]) => {
+    const key = name.toLowerCase();
+    if (
+      !/^[a-z0-9-]+$/.test(key) || key === "host" ||
+      typeof headerValue !== "string" || !headerValue ||
+      headerValue.trim() !== headerValue || /[\r\n]/.test(headerValue)
+    ) {
+      throw new S3SigV4Error("invalid signed request headers");
+    }
+    return [key, headerValue] as const;
+  }).sort(([left], [right]) => left.localeCompare(right));
+  if (new Set(entries.map(([key]) => key)).size !== entries.length) {
+    throw new S3SigV4Error("duplicate signed request header");
+  }
+  return Object.fromEntries(entries);
 }
 
 function canonicalQuery(values: Record<string, string>) {

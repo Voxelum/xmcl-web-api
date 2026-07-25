@@ -139,9 +139,10 @@ async function publishedFixture() {
     idempotencyKey: "deployment",
   });
   assert.equal(deployment.status, "compiling");
-  const compilerGrants = await f.runtime.compilerGrants(
-    deployment.deploymentId,
-    new CompilerGrantAuthority({
+  const compilerGrants = await f.runtime.compilerGrants({
+    deploymentId: deployment.deploymentId,
+    compilerRequestId: deployment.compilerRequestId,
+    authority: new CompilerGrantAuthority({
       presign: async (key, method) => ({
         key,
         method,
@@ -150,7 +151,7 @@ async function publishedFixture() {
         ...(method === "PUT" ? { headers: { "if-none-match": "*" } } : {}),
       }),
     }),
-  );
+  });
   const descriptor: RuntimeDescriptor = {
     schemaVersion: 1,
     minecraftVersion: "1.20.1",
@@ -166,6 +167,7 @@ async function publishedFixture() {
   };
   await f.runtime.publishCompilerResult({
     deploymentId: deployment.deploymentId,
+    compilerRequestId: deployment.compilerRequestId,
     manifestSha256: deployment.manifestSha256,
     content: {
       key: deployment.expectedContentKey,
@@ -363,9 +365,10 @@ Deno.test("freezes validated local server bundles with exact catalog Java and co
     major: 17,
   });
   assert.match(deployment.frozenManifest.archive.key, /\.xmcl-server-bundle$/);
-  const grants = await f.runtime.compilerGrants(
-    deployment.deploymentId,
-    new CompilerGrantAuthority({
+  const grants = await f.runtime.compilerGrants({
+    deploymentId: deployment.deploymentId,
+    compilerRequestId: deployment.compilerRequestId,
+    authority: new CompilerGrantAuthority({
       presign: async (key, method) => ({
         key,
         method,
@@ -374,7 +377,7 @@ Deno.test("freezes validated local server bundles with exact catalog Java and co
         ...(method === "PUT" ? { headers: { "if-none-match": "*" } } : {}),
       }),
     }),
-  );
+  });
   assert.deepEqual(grants.grants.map((grant) => grant.key), [
     deployment.frozenManifest.archive.key,
     deployment.expectedContentKey,
@@ -495,6 +498,35 @@ Deno.test("compiler failure cannot select or overwrite current content", async (
   );
 });
 
+Deno.test("compiler callbacks are request-bound and idempotent only for the same result", async () => {
+  const f = await publishedFixture();
+  const published = await f.runtime.getDeployment(
+    "account_1",
+    f.deployment.deploymentId,
+  );
+  const repeated = await f.runtime.publishCompilerResult({
+    deploymentId: published.deploymentId,
+    compilerRequestId: published.compilerRequestId,
+    manifestSha256: published.manifestSha256,
+    content: published.content!,
+    descriptor: published.descriptor!,
+  });
+  assert.equal(repeated.status, "published");
+  await assert.rejects(
+    () =>
+      f.runtime.publishCompilerResult({
+        deploymentId: published.deploymentId,
+        compilerRequestId: "other_request",
+        manifestSha256: published.manifestSha256,
+        content: published.content!,
+        descriptor: published.descriptor!,
+      }),
+    (error) =>
+      error instanceof SharedModdedRuntimeError &&
+      error.code === "state_conflict",
+  );
+});
+
 Deno.test("durable compiler failure callbacks preserve selected content and world state", async () => {
   const f = await publishedFixture();
   await f.runtime.apply("account_1", f.deployment.deploymentId, "select-current");
@@ -515,6 +547,7 @@ Deno.test("durable compiler failure callbacks preserve selected content and worl
   });
   const failed = await f.runtime.reportCompilerFailure({
     deploymentId: pending.deploymentId,
+    compilerRequestId: pending.compilerRequestId,
     manifestSha256: pending.manifestSha256,
     code: "compiler_failed",
   });
@@ -561,6 +594,7 @@ Deno.test("a missing server-side terms acceptance cannot select content", async 
   };
   await f.runtime.publishCompilerResult({
     deploymentId: deployment.deploymentId,
+    compilerRequestId: deployment.compilerRequestId,
     manifestSha256: deployment.manifestSha256,
     content: {
       key: deployment.expectedContentKey,

@@ -116,6 +116,8 @@ export interface AppVariables {
   sharedWorldSeedService?: SharedWorldSeedService;
   /** Compiler callback middleware sets this only after server-side authentication. */
   sharedModdedCompilerPrincipal?: { compilerId: string };
+  /** Exact bytes verified by compiler workload identity before callback JSON parsing. */
+  sharedModdedCompilerRawBody?: Uint8Array;
   /** Compiler grant issuer is separate from all node command grants. */
   sharedModdedCompilerGrants?: CompilerGrantAuthority;
   /** Complete ServerControl composition; absent routes and scheduled work fail explicitly. */

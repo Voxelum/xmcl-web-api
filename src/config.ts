@@ -76,6 +76,24 @@ export interface AppConfig {
   VULTR_SHARED_NODE_FIREWALL_GROUP_ID?: string;
   XMCL_SHARED_NODE_INGRESS_PORT_MIN?: string;
   XMCL_SHARED_NODE_INGRESS_PORT_MAX?: string;
+  /**
+   * Azure-only fixed compiler worker endpoint. It must be the exact HTTPS
+   * `/v1/compiler-jobs` URL; it is never accepted from a deployment request.
+   */
+  XMCL_SHARED_COMPILER_ENDPOINT?: string;
+  /** Server-to-compiler HMAC workload identity key id. */
+  XMCL_SHARED_COMPILER_KEY_ID?: string;
+  /** Server-to-compiler HMAC workload identity secret (at least 32 UTF-8 bytes). */
+  XMCL_SHARED_COMPILER_HMAC_SECRET?: string;
+  /** Bounded Azure-to-compiler POST lifetime in milliseconds (1000–300000). */
+  XMCL_SHARED_COMPILER_TIMEOUT_MS?: string;
+  /**
+   * Immutable reviewed compiler image reference, pinned to the approved GHCR
+   * digest. Its presence is an explicit operator acknowledgement of review.
+   */
+  XMCL_SHARED_COMPILER_REVIEWED_IMAGE?: string;
+  /** Version of the server-side Minecraft/EULA terms acceptance policy. */
+  XMCL_SHARED_RUNTIME_TERMS_VERSION?: string;
 }
 
 export function getConfig(c: Context): AppConfig {

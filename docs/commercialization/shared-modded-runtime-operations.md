@@ -35,11 +35,11 @@ separate explicit operation after deployment creation.
    workspace, resource/PID limits, no Docker socket or host mounts, approved
    HTTPS artifact origins only, bounded redirects/sizes/timeouts, and network
    removal after acquisition.
-2. Install a `SharedModdedCompiler` adapter that authenticates the compiler
-   callback (mTLS or an equivalent server-side identity) and a
-   `SharedModdedArchiveStore` backed by immutable imported archives. Do not
-   substitute legacy dedicated-worker staging.
-3. Inject `CompilerGrantAuthority` using the server-only S3 signer. Compiler
+2. Azure composes the `SharedModdedCompiler` HTTP adapter, durable callback
+   identity, and `SharedModdedArchiveStore` only after the settings below
+   validate. Other platforms remain fail-closed. Do not substitute legacy
+   dedicated-worker staging.
+3. Azure injects `CompilerGrantAuthority` using the server-only S3 signer. Compiler
    grants provide only the frozen import GET and exact immutable content PUT;
    they cannot list/delete, read worlds, or act as node grants.
 4. Inject the same `SharedModdedRuntimeService` as
@@ -54,6 +54,61 @@ separate explicit operation after deployment creation.
 6. Connect the server-side EULA/terms acceptance policy to
    `eulaAccepted`. The runtime launcher rejects starts without that trusted
    command field; user content cannot set it.
+
+## Azure compiler control-plane activation
+
+Azure mounts no public shared-hosting or modpack routes. It adds only these
+private callback routes, and only if **every** setting below validates:
+
+```text
+POST /v1/internal/shared-runtime-compiler/deployments/:id/grants
+POST /v1/internal/shared-runtime-compiler/deployments/:id/published
+POST /v1/internal/shared-runtime-compiler/deployments/:id/failed
+```
+
+Required Azure settings are the existing complete shared-node configuration
+(`MONGO_CONNECION_STRING`, `BILLING_RATES_JSON`, Vultr node/profile/firewall/
+image/release/control-plane values, and all five
+`XMCL_VULTR_OBJECT_STORAGE_*` settings), plus:
+
+| Setting | Requirement |
+| --- | --- |
+| `CURSEFORGE_KEY` | Server-only reviewed CurseForge resolver key. |
+| `XMCL_SHARED_COMPILER_ENDPOINT` | Exact HTTPS `https://…/v1/compiler-jobs`; no credentials, query, or fragment. |
+| `XMCL_SHARED_COMPILER_KEY_ID` | HMAC workload identity key id (`[A-Za-z0-9][A-Za-z0-9._-]{0,127}`). |
+| `XMCL_SHARED_COMPILER_HMAC_SECRET` | Secret of at least 32 UTF-8 bytes, stored only in Azure secret configuration and the compiler deployment. |
+| `XMCL_SHARED_COMPILER_TIMEOUT_MS` | Server-owned bounded POST timeout from 1000 to 300000 ms. |
+| `XMCL_SHARED_COMPILER_REVIEWED_IMAGE` | Approved immutable `ghcr.io/voxelum/xmcl-shared-minecraft-compiler@sha256:<64-hex>` deployment reference. |
+| `XMCL_SHARED_RUNTIME_TERMS_VERSION` | Versioned Minecraft/EULA policy identifier. |
+
+The separate trusted terms process must store a record in
+`shared_runtime_terms_acceptances` with `_id`
+`<accountId>:<serviceId>:<termsVersion>`, matching `accountId`, `serviceId`,
+and `termsVersion`, `accepted: true`, and a valid `acceptedAt` ISO timestamp.
+Neither a browser, compiler callback, nor node command can create that record.
+
+The compiler identity is HMAC SHA-256 over exact raw bytes:
+
+```text
+METHOD\nPATH_AND_QUERY\nUNIX_MILLISECONDS\nNONCE\nSHA256(BODY)
+```
+
+Use `Authorization: HMAC <key-id>:<base64url signature>`,
+`X-Xmcl-Timestamp`, and `X-Xmcl-Nonce`. Clocks allow ±60 seconds. Azure stores
+each accepted nonce atomically in Mongo collection
+`shared_runtime_compiler_nonces`; create a TTL index before rollout:
+
+```javascript
+db.shared_runtime_compiler_nonces.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+```
+
+Do not log identity secrets, signed archive URLs, compiler grants, callback
+bodies, or storage credentials. Browser imports receive only a short-lived
+single-object immutable PUT. The control plane re-downloads that exact object
+with a server-signed GET and verifies its declared size and SHA-256 before
+validation. Compiler grants remain exactly one input GET and one
+`If-None-Match: *` output PUT; they do not grant list, delete, world, node, or
+master-storage access.
 
 ## Compiler protocol
 

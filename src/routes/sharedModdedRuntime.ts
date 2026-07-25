@@ -239,11 +239,18 @@ export function createSharedModdedCompilerRoutes(
       const authority = grants ?? c.get("sharedModdedCompilerGrants");
       if (!authority) return c.json({ error: "compiler_unavailable" }, 503);
       try {
+        const body = await compilerBody(c);
+        const compilerRequestId = compilerCallbackHeader(
+          body,
+          ["schemaVersion", "compilerRequestId", "deploymentId"],
+          c.req.param("deploymentId"),
+        );
         return c.json(
-          await runtimeFor(c, configured).compilerGrants(
-            c.req.param("deploymentId"),
+          await runtimeFor(c, configured).compilerGrants({
+            deploymentId: c.req.param("deploymentId"),
+            compilerRequestId,
             authority,
-          ),
+          }),
         );
       } catch (error) {
         return compilerError(error, c);
@@ -256,7 +263,21 @@ export function createSharedModdedCompilerRoutes(
       const identity = c.get("sharedModdedCompilerPrincipal");
       if (!identity) return c.json({ error: "unauthorized" }, 401);
       try {
-        const body = await jsonBody(c);
+        const body = await compilerBody(c);
+        const compilerRequestId = compilerCallbackHeader(
+          body,
+          [
+            "schemaVersion",
+            "status",
+            "compilerRequestId",
+            "deploymentId",
+            "manifestSha256",
+            "content",
+            "descriptor",
+          ],
+          c.req.param("deploymentId"),
+          "published",
+        );
         const content = body.content;
         if (!content || typeof content !== "object" || Array.isArray(content)) {
           throw new SharedModdedRuntimeError("invalid_request", {
@@ -266,6 +287,7 @@ export function createSharedModdedCompilerRoutes(
         return c.json(
           await runtimeFor(c, configured).publishCompilerResult({
             deploymentId: c.req.param("deploymentId"),
+            compilerRequestId,
             manifestSha256: requiredString(body, "manifestSha256"),
             content: content as SharedRuntimeContentDescriptor,
             descriptor: body.descriptor as RuntimeDescriptor,
@@ -282,7 +304,20 @@ export function createSharedModdedCompilerRoutes(
       const identity = c.get("sharedModdedCompilerPrincipal");
       if (!identity) return c.json({ error: "unauthorized" }, 401);
       try {
-        const body = await jsonBody(c);
+        const body = await compilerBody(c);
+        const compilerRequestId = compilerCallbackHeader(
+          body,
+          [
+            "schemaVersion",
+            "status",
+            "compilerRequestId",
+            "deploymentId",
+            "manifestSha256",
+            "code",
+          ],
+          c.req.param("deploymentId"),
+          "failed",
+        );
         const code = requiredString(body, "code");
         if (
           code !== "unsupported_compatibility" &&
@@ -294,6 +329,7 @@ export function createSharedModdedCompilerRoutes(
         return c.json(
           await runtimeFor(c, configured).reportCompilerFailure({
             deploymentId: c.req.param("deploymentId"),
+            compilerRequestId,
             manifestSha256: requiredString(body, "manifestSha256"),
             code,
           }),
@@ -301,9 +337,51 @@ export function createSharedModdedCompilerRoutes(
       } catch (error) {
         return compilerError(error, c);
       }
+
     },
   );
   return app;
+}
+
+async function compilerBody(c: {
+  get(name: "sharedModdedCompilerRawBody"): Uint8Array | undefined;
+  req: { raw: Request };
+}) {
+  const raw = c.get("sharedModdedCompilerRawBody") ??
+    new Uint8Array(await c.req.raw.arrayBuffer());
+  if (raw.byteLength > 4 * 1024 * 1024) {
+    throw new SharedModdedRuntimeError("invalid_request");
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
+  } catch {
+    throw new SharedModdedRuntimeError("invalid_request");
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new SharedModdedRuntimeError("invalid_request");
+  }
+  return body as Record<string, unknown>;
+}
+
+function compilerCallbackHeader(
+  body: Record<string, unknown>,
+  keys: readonly string[],
+  deploymentId: string,
+  status?: "published" | "failed",
+) {
+  if (
+    body.schemaVersion !== 1 ||
+    Object.keys(body).length !== keys.length ||
+    Object.keys(body).some((key) => !keys.includes(key)) ||
+    body.deploymentId !== deploymentId ||
+    (status !== undefined && body.status !== status) ||
+    typeof body.compilerRequestId !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(body.compilerRequestId)
+  ) {
+    throw new SharedModdedRuntimeError("invalid_request");
+  }
+  return body.compilerRequestId;
 }
 
 function compilerError(

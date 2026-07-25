@@ -177,7 +177,12 @@ export interface SharedModdedArchiveStore {
     sourceFormat: ModpackSourceFormat;
     expectedSha256: string;
     expectedSizeBytes: number;
-  }): Promise<{ uploadUrl: string; expiresAt: string; maxSizeBytes: number }>;
+  }): Promise<{
+    uploadUrl: string;
+    expiresAt: string;
+    maxSizeBytes: number;
+    headers?: Record<string, string>;
+  }>;
   readVerified(input: {
     importId: string;
     key: string;
@@ -418,6 +423,7 @@ export interface CompilerGrant {
 }
 
 export interface CompilerGrantSet {
+  compilerRequestId: string;
   accountId: string;
   serviceId: string;
   deploymentId: string;
@@ -449,6 +455,7 @@ export class CompilerGrantAuthority {
     );
     const output = await this.sign(deployment.expectedContentKey, "PUT");
     return {
+      compilerRequestId: deployment.compilerRequestId,
       accountId: deployment.accountId,
       serviceId: deployment.serviceId,
       deploymentId: deployment.deploymentId,
@@ -519,6 +526,36 @@ export interface SharedModdedRuntimeOptions {
 
 export interface SharedRuntimeTerms {
   accepted(input: { accountId: string; serviceId: string }): Promise<boolean>;
+}
+
+/**
+ * The external terms-acceptance flow writes this narrow, versioned record.
+ * Compiler callbacks and customer input can never set its acceptance bit.
+ */
+export class MongoSharedRuntimeTerms implements SharedRuntimeTerms {
+  constructor(
+    private readonly db: Db,
+    private readonly termsVersion: string,
+  ) {
+    if (
+      !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(termsVersion)
+    ) {
+      throw new Error("invalid shared runtime terms version");
+    }
+  }
+
+  async accepted(input: { accountId: string; serviceId: string }) {
+    const value = await this.db.collection("shared_runtime_terms_acceptances")
+      .findOne({
+        _id: `${input.accountId}:${input.serviceId}:${this.termsVersion}`,
+        accountId: input.accountId,
+        serviceId: input.serviceId,
+        termsVersion: this.termsVersion,
+        accepted: true,
+      }) as { acceptedAt?: unknown } | undefined;
+    return typeof value?.acceptedAt === "string" &&
+      Number.isFinite(Date.parse(value.acceptedAt));
+  }
 }
 
 export class SharedModdedRuntimeService {
@@ -727,7 +764,7 @@ export class SharedModdedRuntimeService {
         manifestSha256,
       ),
       status: "compile_queued",
-      compilerRequestId: `shared-compile:${manifestSha256}`,
+      compilerRequestId: `shared-compile-${deploymentId}`,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -747,7 +784,8 @@ export class SharedModdedRuntimeService {
         manifestSha256,
         expectedContentKey: deployment.expectedContentKey,
       });
-      return compiling ?? deployment;
+      return await this.options.repository.getDeployment(deploymentId) ??
+        compiling ?? deployment;
     } catch (error) {
       const failed = await this.options.repository.updateDeployment(
         deploymentId,
@@ -762,16 +800,21 @@ export class SharedModdedRuntimeService {
           updatedAt: this.now(),
         }),
       );
-      return failed ?? deployment;
+      return await this.options.repository.getDeployment(deploymentId) ??
+        failed ?? deployment;
     }
   }
 
-  async compilerGrants(
-    deploymentId: string,
-    authority: CompilerGrantAuthority,
-  ) {
-    const deployment = await this.requireDeployment(deploymentId);
-    return await authority.issue(deployment);
+  async compilerGrants(input: {
+    deploymentId: string;
+    compilerRequestId: string;
+    authority: CompilerGrantAuthority;
+  }) {
+    const deployment = await this.requireDeployment(input.deploymentId);
+    if (deployment.compilerRequestId !== input.compilerRequestId) {
+      throw new SharedModdedRuntimeError("state_conflict");
+    }
+    return await input.authority.issue(deployment);
   }
 
   /**
@@ -816,19 +859,36 @@ export class SharedModdedRuntimeService {
    */
   async publishCompilerResult(input: {
     deploymentId: string;
+    compilerRequestId: string;
     manifestSha256: string;
     content: SharedRuntimeContentDescriptor;
     descriptor: RuntimeDescriptor;
   }) {
     const current = await this.requireDeployment(input.deploymentId);
     if (
-      current.status !== "compiling" ||
+      current.compilerRequestId !== input.compilerRequestId ||
       current.manifestSha256 !== input.manifestSha256 ||
       current.expectedContentKey !== input.content.key
     ) {
       throw new SharedModdedRuntimeError("state_conflict");
     }
     validateCompiledContent(input.content, input.descriptor, current);
+    if (current.status === "published") {
+      if (
+        current.content && current.descriptor &&
+        canonicalJson(current.content) === canonicalJson(input.content) &&
+        canonicalJson(current.descriptor) === canonicalJson(
+          validateRuntimeDescriptor(input.descriptor),
+        )
+      ) return current;
+      throw new SharedModdedRuntimeError("state_conflict");
+    }
+    if (
+      current.status !== "compiling" ||
+      current.manifestSha256 !== input.manifestSha256
+    ) {
+      throw new SharedModdedRuntimeError("state_conflict");
+    }
     const published = await this.options.repository.updateDeployment(
       current.deploymentId,
       ["compiling"],
@@ -840,7 +900,19 @@ export class SharedModdedRuntimeService {
         updatedAt: this.now(),
       }),
     );
-    if (!published) throw new SharedModdedRuntimeError("state_conflict");
+    if (!published) {
+      const raced = await this.requireDeployment(input.deploymentId);
+      if (
+        raced.status === "published" &&
+        raced.compilerRequestId === input.compilerRequestId &&
+        raced.content && raced.descriptor &&
+        canonicalJson(raced.content) === canonicalJson(input.content) &&
+        canonicalJson(raced.descriptor) === canonicalJson(
+          validateRuntimeDescriptor(input.descriptor),
+        )
+      ) return raced;
+      throw new SharedModdedRuntimeError("state_conflict");
+    }
     return published;
   }
 
@@ -850,14 +922,22 @@ export class SharedModdedRuntimeService {
    */
   async reportCompilerFailure(input: {
     deploymentId: string;
+    compilerRequestId: string;
     manifestSha256: string;
     code: "unsupported_compatibility" | "compiler_unavailable" | "compiler_failed";
   }) {
     const current = await this.requireDeployment(input.deploymentId);
     if (
-      current.status !== "compiling" ||
+      current.compilerRequestId !== input.compilerRequestId ||
       current.manifestSha256 !== input.manifestSha256
     ) {
+      throw new SharedModdedRuntimeError("state_conflict");
+    }
+    if (current.status === "compile_failed") {
+      if (current.error === input.code) return current;
+      throw new SharedModdedRuntimeError("state_conflict");
+    }
+    if (current.status !== "compiling") {
       throw new SharedModdedRuntimeError("state_conflict");
     }
     const failed = await this.options.repository.updateDeployment(
@@ -870,7 +950,15 @@ export class SharedModdedRuntimeService {
         updatedAt: this.now(),
       }),
     );
-    if (!failed) throw new SharedModdedRuntimeError("state_conflict");
+    if (!failed) {
+      const raced = await this.requireDeployment(input.deploymentId);
+      if (
+        raced.status === "compile_failed" &&
+        raced.compilerRequestId === input.compilerRequestId &&
+        raced.error === input.code
+      ) return raced;
+      throw new SharedModdedRuntimeError("state_conflict");
+    }
     return failed;
   }
 
