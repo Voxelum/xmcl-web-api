@@ -13,9 +13,11 @@ import type {
   ScheduledController,
 } from "./cf_types.ts";
 import { GroupRoom } from "./group_room.ts";
+import { MultiplayerRoom } from "./multiplayer_room.ts";
 
 // The Durable Object class must be exported from the worker module.
 export { GroupRoom };
+export { MultiplayerRoom };
 
 /**
  * Cloudflare Workers entry point. Reuses the shared Hono app and injects the
@@ -81,6 +83,21 @@ export default {
       const ns = env.GROUP_ROOM;
       const stub = ns.get(ns.idFromName(group));
       return stub.fetch(request);
+    }
+    const url = new URL(request.url);
+    const multiplayer =
+      /^\/v2\/multiplayer\/rooms\/([0-9a-f-]{36})\/socket\/?$/i.exec(
+        url.pathname,
+      );
+    if (
+      multiplayer &&
+      request.headers.get("upgrade")?.toLowerCase() === "websocket"
+    ) {
+      const roomId = multiplayer[1];
+      const ns = env.MULTIPLAYER_ROOM;
+      const stub = ns.get(ns.idFromName(roomId));
+      url.pathname = "/v2/connect";
+      return stub.fetch(new Request(url, request));
     }
     return app.fetch(request, env, ctx);
   },

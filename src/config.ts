@@ -27,6 +27,8 @@ export interface AppConfig {
    */
   TRANSLATION_I18N_BASE?: string;
   XMCL_SESSION_SECRET?: string;
+  /** Server-only HMAC secret for short-lived multiplayer room admission tickets. */
+  XMCL_MULTIPLAYER_TICKET_SECRET?: string;
   XMCL_MICROSOFT_CLIENT_ID?: string;
   XMCL_MICROSOFT_CLIENT_SECRET?: string;
   XMCL_MODRINTH_CLIENT_ID?: string;

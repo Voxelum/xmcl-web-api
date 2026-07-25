@@ -44,6 +44,7 @@ export interface AppBindings {
   GROUP_ROOM?: unknown;
   TRANSLATION_KV?: unknown;
   TRANSLATION_QUEUE?: unknown;
+  MULTIPLAYER_ROOM?: unknown;
   [key: string]: unknown;
 }
 

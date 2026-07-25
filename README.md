@@ -53,12 +53,33 @@ untouched and `new Function`/JIT (forbidden on `workerd`) is avoided.
 | HTTP server    | `Deno.serve(app.fetch)`           | `export default { fetch }`          | HTTP trigger → `app.fetch` |
 | Geo            | `geoip-country` (forwarded IP)    | `request.cf.country` (native)       | `geoip-country`          |
 | `/group/:id`   | native WS + `BroadcastChannel`    | `GroupRoom` Durable Object          | not supported → `501`    |
+| `/v2/multiplayer/rooms/*` | not supported → `501` | authenticated `MultiplayerRoom` Durable Object | not supported → `501` |
 | `/translation` | `Deno.Kv` queue                   | Cloudflare Queue + KV semaphore     | inline (no queue)        |
 
 WebSocket upgrades for `/group/:id` are intercepted in each entry **before**
 the Hono app runs, so the CORS middleware never touches the immutable `101`
 response.
 
+### Multiplayer rooms
+
+Cloudflare multiplayer v2 uses one `MultiplayerRoom` Durable Object per room.
+The object owns room membership, owner actions, expiry, and WebRTC signaling;
+Minecraft traffic remains peer-to-peer and falls back to the TURN credentials
+from `/rtc/official?type=cloudflare`. It is never relayed through the Durable
+Object.
+
+Authenticated XMCL sessions use:
+
+- `POST /v2/multiplayer/rooms` to create a room and owner admission ticket;
+- `POST /v2/multiplayer/rooms/:roomId/join` to obtain a member ticket;
+- `GET /v2/multiplayer/rooms/:roomId/socket?ticket=...` to upgrade WebSocket;
+- `DELETE /v2/multiplayer/rooms/:roomId` to close an owned room.
+
+Set the Worker secret `XMCL_MULTIPLAYER_TICKET_SECRET` to at least 32 random
+characters. Admission tickets expire after five minutes and are single-use.
+Rooms support 2-16 peers, expire after 24 hours, and close after a ten-minute
+empty grace period. The legacy unauthenticated `/group/:id` protocol remains
+available separately for existing clients.
 ### Other deployments
 
 - **Alibaba Cloud Function (Deno)** — runs the same `index.ts` via a compiled
