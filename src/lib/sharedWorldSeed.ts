@@ -9,6 +9,7 @@ import {
   type SharedInitialWorld,
   SharedHostingScheduler,
 } from "./sharedHostingScheduler.ts";
+import type { SharedNodeWorkspaceSigner } from "./sharedNodeTransport.ts";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -67,6 +68,47 @@ export interface SharedWorldSeedArchiveStore {
     expectedSha256: string;
     expectedSizeBytes: number;
   }): Promise<Uint8Array>;
+}
+
+export interface WorldSeedCompilerGrant {
+  key: string;
+  method: "GET";
+  url: string;
+  expiresAt: string;
+}
+
+export interface WorldSeedCompilerGrantSet {
+  accountId: string;
+  serviceId: string;
+  seedId: string;
+  grants: readonly WorldSeedCompilerGrant[];
+}
+
+/**
+ * Separate from node workspace grants: it issues one read for exactly one
+ * selected seed and never grants list, delete, write, or a service prefix.
+ */
+export class WorldSeedCompilerGrantAuthority {
+  constructor(
+    private readonly signer: SharedNodeWorkspaceSigner,
+    private readonly expiresInSeconds = 10 * 60,
+  ) {}
+
+  async issue(seed: SharedWorldSeed): Promise<WorldSeedCompilerGrantSet> {
+    if (seed.status !== "selected") throw new SharedWorldSeedError("state_conflict");
+    const signed = await this.signer.presign(seed.archiveKey, "GET", this.expiresInSeconds);
+    if (
+      signed.key !== seed.archiveKey || signed.method !== "GET" ||
+      typeof signed.url !== "string" || !signed.url.startsWith("https://") ||
+      signed.headers && Object.keys(signed.headers).length !== 0
+    ) throw new SharedWorldSeedError("state_conflict");
+    return {
+      accountId: seed.accountId,
+      serviceId: seed.serviceId,
+      seedId: seed.seedId,
+      grants: [{ key: signed.key, method: "GET", url: signed.url, expiresAt: signed.expiresAt }],
+    };
+  }
 }
 
 export class SharedWorldSeedError extends Error {
@@ -266,6 +308,11 @@ export class SharedWorldSeedService {
   async list(accountId: string, serviceId: string) {
     await this.options.scheduler.getService(accountId, serviceId);
     return await this.options.repository.list(serviceId);
+  }
+  async compilerGrants(seedId: string, authority: WorldSeedCompilerGrantAuthority) {
+    const seed = await this.options.repository.get(seedId);
+    if (!seed) throw new SharedWorldSeedError("not_found");
+    return await authority.issue(seed);
   }
   private async require(accountId: string, seedId: string) {
     const seed = await this.options.repository.get(seedId);

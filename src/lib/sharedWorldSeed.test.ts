@@ -6,6 +6,7 @@ import {
 import {
   MemorySharedWorldSeedRepository,
   SharedWorldSeedService,
+  WorldSeedCompilerGrantAuthority,
 } from "./sharedWorldSeed.ts";
 import { createStoredZip, jsonBytes } from "./modpackTestFixtures.ts";
 
@@ -105,6 +106,22 @@ Deno.test("a seed is selected only before first start and cannot overwrite a syn
     /state_conflict/,
   );
   assert.equal((await f.scheduler.getService("account_1", service.serviceId)).initialWorld?.seedId, selected.seedId);
+});
+
+Deno.test("compiler seed grants are one exact selected-seed GET", async () => {
+  const f = fixture();
+  const service = await newService(f);
+  const selected = await completeSeed(f, service.serviceId, "grant");
+  const grants = await f.seeds.compilerGrants(selected.seedId, new WorldSeedCompilerGrantAuthority({
+    presign: async (key, method) => ({
+      key, method, url: `https://storage.example/${key}`,
+      expiresAt: "2026-07-25T00:10:00.000Z",
+    }),
+  }));
+  assert.deepEqual(grants.grants.map((grant) => [grant.method, grant.key]), [[
+    "GET",
+    `shared-hosting/account_1/${service.serviceId}/world-seeds/${selected.seedId}.xmcl-world-seed`,
+  ]]);
 });
 
 async function sha(value: Uint8Array) {
