@@ -8,6 +8,9 @@ import { createAzureCompilerControlPlane } from "./compilerControlPlane.ts";
 import {
   createAzurePayPalWebhookControlPlane,
 } from "./paypalWebhookControlPlane.ts";
+import {
+  createAzureStagingM3ControlPlane,
+} from "./stagingM3ControlPlane.ts";
 
 /**
  * Azure keeps account and internal node composition from the shared production
@@ -30,18 +33,23 @@ export function createAzureHttpApp(
   const paypalWebhookControlPlane = createAzurePayPalWebhookControlPlane(
     environment,
   );
+  const stagingM3ControlPlane = createAzureStagingM3ControlPlane(environment);
   const app = createProductionApp(
     (hono) => {
       hono.use("*", geoipMiddleware);
       hono.use("*", createDbMiddleware(getDb));
       compilerControlPlane?.register(hono);
       paypalWebhookControlPlane?.register(hono);
+      stagingM3ControlPlane?.register(hono);
     },
     environment,
     { SHARED_NODE_WORKSPACE_SIGNER: signer },
     {
       billingRoutes: false,
       paymentRoutes: false,
+      // Azure only emits CORS on the exact M3 staging routes after the
+      // control plane has validated a configured staging origin.
+      corsOptions: false,
     },
   );
   if (compilerControlPlane) {

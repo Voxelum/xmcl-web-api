@@ -54,6 +54,11 @@ export interface CreateAppOptions {
   sharedNodeTransportRoutes?: boolean;
   /** PayPal routes stay separately gated until provider reconciliation is deployed. */
   paymentRoutes?: boolean;
+  /**
+   * Most deployments retain the historical permissive CORS middleware. Isolated
+   * control planes can opt out and attach CORS only to their reviewed routes.
+   */
+  corsOptions?: Parameters<typeof cors>[0] | false;
 }
 
 export function createApp(
@@ -62,7 +67,9 @@ export function createApp(
 ) {
   const app = new Hono<AppEnv>();
 
-  app.use("*", cors());
+  if (options.corsOptions !== false) {
+    app.use("*", cors(options.corsOptions));
+  }
 
   // Platform entry points inject their middleware here (geo, DB, realtime
   // upgrade) before the shared routes run.

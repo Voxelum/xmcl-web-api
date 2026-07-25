@@ -50,6 +50,23 @@ export interface AppConfig {
   /** Worker-to-Azure PayPal webhook proxy HMAC secret (at least 32 UTF-8 bytes). */
   XMCL_PAYPAL_WEBHOOK_PROXY_SECRET?: string;
   /**
+   * Explicit Azure-only opt-in for the staging M3 Sandbox checkout control
+   * plane. Any other value leaves every M3 checkout route unmounted.
+   */
+  XMCL_STAGING_M3_CHECKOUT_ENABLED?: string;
+  /** Fixed Azure `/api` base used only by the staging M3 Worker proxy. */
+  XMCL_STAGING_M3_PROXY_URL?: string;
+  /** Worker-to-Azure staging M3 API proxy workload identity key id. */
+  XMCL_STAGING_M3_PROXY_KEY_ID?: string;
+  /** Worker-to-Azure staging M3 API proxy HMAC secret (at least 32 UTF-8 bytes). */
+  XMCL_STAGING_M3_PROXY_SECRET?: string;
+  /**
+   * Comma-separated exact HTTPS origins allowed to call the staging M3 API
+   * from a browser. Wildcards, credentials, paths, and query strings are
+   * rejected by the staging composition.
+   */
+  XMCL_STAGING_M3_CORS_ORIGINS?: string;
+  /**
    * Optional comma-separated exact HTTPS callbacks for website OAuth.
    * Launcher loopback callbacks are code-owned and require no configuration.
    */

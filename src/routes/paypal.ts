@@ -14,6 +14,12 @@ import { xmclAuth } from "../middleware/xmclAuth.ts";
 import type { AppEnv } from "../types.ts";
 import { requireIdempotencyKey } from "./billing.ts";
 
+export interface PayPalRouteOptions {
+  authenticated?: boolean;
+  checkout?: boolean;
+  webhook?: boolean;
+}
+
 function headers(c: { req: { raw: Request } }) {
   return Object.fromEntries(
     [...c.req.raw.headers.entries()].map((
@@ -25,34 +31,40 @@ function headers(c: { req: { raw: Request } }) {
 export function createPayPalRoutes(
   paypal?: PayPalService,
   resolve: AccountRuntimeResolver = getAccountRuntime,
+  options: PayPalRouteOptions = {},
 ) {
   const app = new Hono<AppEnv>();
   app.onError(handleAccountError);
-  app.use("/v1/billing/paypal/*", xmclAuth([], resolve));
-
-  app.post("/v1/billing/paypal/orders", async (c) => {
-    const body = await jsonBody(c);
-    return c.json(
-      await (await paypalFor(c, paypal)).createOrder({
-        accountId: c.get("xmclPrincipal")!.accountId,
-        idempotencyKey: requireIdempotencyKey(c),
-        amountMinor: body.amountMinor as number,
-      }),
-      201,
-    );
-  });
-  app.post(
-    "/v1/billing/paypal/orders/:orderId/capture",
-    async (c) =>
-      c.json(
-        await (await paypalFor(c, paypal)).captureOrder(
-          c.get("xmclPrincipal")!.accountId,
-          c.req.param("orderId"),
+  if (options.checkout !== false) {
+    if (options.authenticated !== false) {
+      app.use("/v1/billing/paypal/*", xmclAuth([], resolve));
+    }
+    app.post("/v1/billing/paypal/orders", async (c) => {
+      const body = await jsonBody(c);
+      return c.json(
+        await (await paypalFor(c, paypal)).createOrder({
+          accountId: c.get("xmclPrincipal")!.accountId,
+          idempotencyKey: requireIdempotencyKey(c),
+          amountMinor: body.amountMinor as number,
+        }),
+        201,
+      );
+    });
+    app.post(
+      "/v1/billing/paypal/orders/:orderId/capture",
+      async (c) =>
+        c.json(
+          await (await paypalFor(c, paypal)).captureOrder(
+            c.get("xmclPrincipal")!.accountId,
+            c.req.param("orderId"),
+          ),
         ),
-      ),
-  );
+    );
+  }
 
-  app.post("/v1/webhooks/paypal", (c) => handlePayPalWebhook(c, paypal));
+  if (options.webhook !== false) {
+    app.post("/v1/webhooks/paypal", (c) => handlePayPalWebhook(c, paypal));
+  }
   return app;
 }
 

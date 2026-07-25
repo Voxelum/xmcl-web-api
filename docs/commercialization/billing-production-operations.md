@@ -82,55 +82,96 @@ PayPal order creation uses the immutable local order ID in the
 `PayPal-Request-Id` header. Recovery must retain that identity and only verified
 webhooks may credit cash balances.
 
-## Staging-only PayPal Sandbox webhook proxy
+## Staging-only M3 PayPal Sandbox control plane
 
-The staging webhook does **not** enable public PayPal orders, capture, balance,
-or ledger routes. PayPal Sandbox must call the nonproduction Cloudflare Worker,
-which forwards only the fixed webhook POST to Azure. The Worker never opens a
-Mongo connection for that proxy request; Azure owns raw-body signature
-verification and the durable Mongo ledger operation.
+M3 exposes only these authenticated Sandbox routes through the existing staging
+Worker to Azure:
 
-After this change is reviewed and deployed, set these **Azure Function App**
-settings on `xmcl-shared-sgp-control`:
+- `POST /v1/billing/paypal/orders`;
+- `POST /v1/billing/paypal/orders/:orderId/capture`;
+- `GET /v1/billing/balance`, `/v1/billing/rates`, `/v1/billing/ledger`, and
+  `/v1/billing/usage`.
 
-- `MONGO_CONNECION_STRING`, optional `MONGODB_NAME`, and a valid
-  `BILLING_RATES_JSON` for the reachable Cosmos Mongo account;
-- `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and `PAYPAL_WEBHOOK_ID` from the
-  PayPal Sandbox app;
-- `PAYPAL_API_BASE_URL=https://api-m.sandbox.paypal.com` exactly (the Azure
-  webhook route is intentionally not mounted for a live or other API base);
-- `XMCL_PAYPAL_WEBHOOK_PROXY_KEY_ID=paypal-worker-staging-v1` (or another
-  documented key ID matching `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`);
-- `XMCL_PAYPAL_WEBHOOK_PROXY_SECRET=<new random server-only secret of at least
-  32 UTF-8 bytes>`.
+There is no balance-credit API. Only the separately verified PayPal webhook can
+credit the durable ledger. The Worker rejects query strings for every M3 route:
+none has reviewed pagination semantics yet.
 
-Set these **Cloudflare Worker secrets** on the staging Worker only; do not put
-them in `[vars]` or source control:
+The routes are absent by default. After review and deployment, set all of these
+**Azure Function App** settings on `xmcl-shared-sgp-control`:
 
-- `PAYPAL_WEBHOOK_PROXY_URL=https://xmcl-shared-sgp-control.azurewebsites.net/api/v1/webhooks/paypal`;
-- `XMCL_PAYPAL_WEBHOOK_PROXY_KEY_ID=paypal-worker-staging-v1`, exactly matching
-  Azure;
-- `XMCL_PAYPAL_WEBHOOK_PROXY_SECRET=<the same new random secret>`.
+- `XMCL_STAGING_M3_CHECKOUT_ENABLED=true` exactly. Any other value, including
+  `TRUE`, leaves every M3 route unmounted.
+- `MONGO_CONNECION_STRING`, optional `MONGODB_NAME`, and a valid JSON-array
+  `BILLING_RATES_JSON` for the reachable Cosmos Mongo account.
+- Sandbox `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and `PAYPAL_WEBHOOK_ID`;
+  HTTPS `PAYPAL_RETURN_URL` and `PAYPAL_CANCEL_URL` without credentials or
+  fragments; and
+  `PAYPAL_API_BASE_URL=https://api-m.sandbox.paypal.com` exactly. A live or
+  alternate PayPal base never mounts M3.
+- `XMCL_STAGING_M3_PROXY_KEY_ID=staging-m3-worker-v1` (or a different
+  documented ID matching `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`) and
+  `XMCL_STAGING_M3_PROXY_SECRET=<new random server-only secret of at least 32
+  UTF-8 bytes>`.
+- `XMCL_STAGING_M3_CORS_ORIGINS=https://staging.launcher.example` (comma
+  separate additional exact HTTPS origins). Entries must be origins only:
+  no trailing slash, path, query, fragment, wildcard, or credentials.
 
-Register this exact PayPal **Sandbox** webhook URL, formed from the existing
-staging Worker origin and the one proxy path:
+Set these **Cloudflare Worker secrets/configuration values** on the existing
+staging Worker only; do not put secrets in source control:
+
+- `XMCL_STAGING_M3_PROXY_URL=https://xmcl-shared-sgp-control.azurewebsites.net/api`
+  exactly: HTTPS, no credentials/query/fragment, and path exactly `/api`;
+- `XMCL_STAGING_M3_PROXY_KEY_ID=staging-m3-worker-v1`, matching Azure;
+- `XMCL_STAGING_M3_PROXY_SECRET=<the same new random secret>`;
+- `XMCL_STAGING_M3_CORS_ORIGINS` exactly matching the Azure origin list.
+
+This M3 HMAC identity and secret are distinct from the existing webhook identity.
+For the webhook, retain these separate settings:
+
+- Azure: `XMCL_PAYPAL_WEBHOOK_PROXY_KEY_ID`,
+  `XMCL_PAYPAL_WEBHOOK_PROXY_SECRET`;
+- staging Worker: `PAYPAL_WEBHOOK_PROXY_URL=https://xmcl-shared-sgp-control.azurewebsites.net/api/v1/webhooks/paypal`,
+  `XMCL_PAYPAL_WEBHOOK_PROXY_KEY_ID`, and
+  `XMCL_PAYPAL_WEBHOOK_PROXY_SECRET`.
+
+Register this exact PayPal **Sandbox** webhook URL, not the Azure URL:
 
 ```text
 https://xmcl-web-api-shared-sgp-staging.cijhn.workers.dev/v1/webhooks/paypal
 ```
 
-Do not register the Azure URL with PayPal. Do not add a query string, credentials
-or a fragment to `PAYPAL_WEBHOOK_PROXY_URL`; the Worker rejects those values and
-requires the exact `/api/v1/webhooks/paypal` target. The proxy also activates
-only for the staging Worker hostname shown above. It forwards only
-`content-type`, PayPal signature/request headers, and its HMAC identity. Azure
-requires a fresh signed `POST /api/v1/webhooks/paypal`, rejects nonce replays in
-Mongo, and verifies the PayPal signature before touching the ledger.
+The Worker activates only on that staging hostname. It constructs fixed Azure
+`/api` targets from the allowlist, forwards only `Authorization`,
+`idempotency-key`, `content-type`, and the validated browser `Origin`, and signs
+the original raw bytes. It never imports or opens its Mongo connector on proxy
+or preflight paths. Azure requires the original `/api/...` target, a fresh
+durably consumed Mongo nonce, and the normal Bearer account session before
+billing logic. It does not proxy admin, internal, node, compiler, arbitrary
+methods, URLs, or headers.
 
-Validate with a Sandbox delivery, a duplicate delivery, and a deliberately
-invalid signature. Check only sanitized status/error metadata in logs; never log
-webhook bodies, credentials, HMAC headers, or PayPal signature headers. This
-change does not deploy either service or set any real credentials.
+### Sandbox end-to-end test sequence
+
+1. After the reviewed deployment, obtain a staging user Bearer session and call
+   `GET /v1/billing/balance` and `GET /v1/billing/rates` through the Worker.
+   Browser calls must use one configured `Origin`; an unconfigured origin,
+   query string, wrong method, or extra path must return `404`.
+2. Create a Sandbox order through the Worker with `Authorization`,
+   `content-type: application/json`, and a stable `idempotency-key`. Repeat the
+   identical request and confirm the durable order is replayed rather than
+   duplicated. Complete approval in the Sandbox buyer flow, then call the
+   allowlisted capture route (continue sending an idempotency key).
+3. Confirm `GET /v1/billing/ledger` and `GET /v1/billing/usage` are scoped to
+   the authenticated account. Do not attempt a direct credit.
+4. Send a Sandbox webhook, its duplicate, and an invalid-signature delivery to
+   the Worker URL above. Confirm the duplicate is safe and the invalid delivery
+   cannot affect the ledger.
+5. Verify direct Azure requests without the staging M3 HMAC, altered bodies,
+   stale timestamps, replayed nonces, target swaps, redirects, and oversized
+   responses produce only sanitized failures.
+
+Check only sanitized status/error metadata in logs; never log request bodies,
+credentials, Bearer tokens, HMAC headers, or PayPal signature headers. This
+change does not configure settings or deploy either service.
 
 ## Route status
 
