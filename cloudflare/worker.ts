@@ -185,6 +185,7 @@ export async function proxyPayPalWebhook(
         ? "timeout"
         : "fetch_failure",
       phase,
+      exception: error instanceof Error ? error.name : "unknown",
     });
     const status = error instanceof DOMException && error.name === "TimeoutError"
       ? 503
