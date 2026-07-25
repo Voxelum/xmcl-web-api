@@ -169,6 +169,8 @@ Deno.test("Azure M3 mounts only the reviewed authenticated APIs, never public pa
   for (const path of [
     "/v1/billing/balance",
     "/v1/billing/rates",
+    "/v1/billing/orders",
+    "/v1/billing/orders/:orderId",
     "/v1/billing/ledger",
     "/v1/billing/usage",
     "/v1/billing/paypal/orders",
@@ -177,8 +179,6 @@ Deno.test("Azure M3 mounts only the reviewed authenticated APIs, never public pa
     assert.equal(paths.includes(path), true);
   }
   for (const path of [
-    "/v1/billing/orders",
-    "/v1/billing/orders/:orderId",
     "/v1/webhooks/paypal",
     "/v1/internal/usage/authorize",
   ]) {

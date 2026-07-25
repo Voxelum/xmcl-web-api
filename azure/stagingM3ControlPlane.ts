@@ -114,7 +114,7 @@ export class AzureStagingM3ControlPlane {
     app.route("/", createBillingRoutes(
       this.dependencies.billing,
       this.dependencies.resolveAccountRuntime,
-      { authenticated: false, orders: false, order: false },
+      { authenticated: false },
     ));
     app.route("/", createPayPalRoutes(
       this.dependencies.paypal,

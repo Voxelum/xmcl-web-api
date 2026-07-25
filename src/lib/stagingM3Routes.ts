@@ -3,10 +3,12 @@ export const STAGING_M3_AZURE_API_PREFIX = "/api";
 const readPaths = new Set([
   "/v1/billing/balance",
   "/v1/billing/rates",
+  "/v1/billing/orders",
   "/v1/billing/ledger",
   "/v1/billing/usage",
 ]);
 const createOrderPath = "/v1/billing/paypal/orders";
+const orderPathPattern = /^\/v1\/billing\/orders\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const captureOrderPattern =
   /^\/v1\/billing\/paypal\/orders\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}\/capture$/;
 
@@ -17,7 +19,7 @@ const captureOrderPattern =
  */
 export function stagingM3AzureTarget(method: string, path: string) {
   if (
-    method === "GET" && readPaths.has(path) ||
+    method === "GET" && (readPaths.has(path) || orderPathPattern.test(path)) ||
     method === "POST" && (
       path === createOrderPath || captureOrderPattern.test(path)
     )
@@ -30,6 +32,7 @@ export function stagingM3AzureTarget(method: string, path: string) {
 /** Identifies malformed or wrong-method M3 checkout paths that must not fall through. */
 export function isStagingM3PathCandidate(path: string) {
   return readPaths.has(path) ||
+    path.startsWith("/v1/billing/orders/") ||
     path === createOrderPath ||
     path.startsWith(`${createOrderPath}/`);
 }
