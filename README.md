@@ -67,9 +67,10 @@ response. Cloudflare supports only multiplayer v2.
 
 Cloudflare multiplayer v2 uses one `MultiplayerRoom` Durable Object per room.
 The object owns room membership, owner actions, expiry, and WebRTC signaling;
-Minecraft traffic remains peer-to-peer and falls back to the TURN credentials
-from `/rtc/official?type=cloudflare`. It is never relayed through the Durable
-Object.
+Minecraft traffic remains peer-to-peer and falls back to the existing built-in
+TURN servers returned by `/rtc/official`. Cloudflare TURN remains an explicit
+opt-in through `/rtc/official?type=cloudflare`; multiplayer v2 does not select
+it by default. Game traffic is never relayed through the Durable Object.
 
 The topology is host-star rather than full mesh. The host keeps one hibernating
 control WebSocket so future guests can negotiate immediately. A guest opens a
