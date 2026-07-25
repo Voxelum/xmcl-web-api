@@ -19,7 +19,7 @@ await build({
   outfile: join(root, 'azure/index.js'),
   bundle: true,
   platform: 'node',
-  target: 'node20',
+  target: 'node22',
   format: 'cjs',
   external: [
     '@azure/functions-core',

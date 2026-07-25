@@ -5,6 +5,7 @@ import {
   InvocationContext,
 } from "@azure/functions";
 import { createProductionApp } from "../src/lib/productionComposition.ts";
+import { createS3SigV4Presigner } from "../src/lib/s3SigV4.ts";
 import { createDbMiddleware } from "../src/middleware/db.ts";
 import { geoipMiddleware } from "../src/middleware/geoip.ts";
 import { getDb } from "../src/platform/db_npm.ts";
@@ -15,10 +16,19 @@ import { getDb } from "../src/platform/db_npm.ts";
 //  - MongoDB is accessed through the npm MongoDB driver.
 //  - translation cache misses are recorded for the external batch worker.
 //  - there is no realtime support, so /group/:id returns 501.
+const environment = process.env as Record<string, string | undefined>;
+const workspaceSigner = createS3SigV4Presigner({
+  endpoint: environment.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT,
+  region: environment.XMCL_VULTR_OBJECT_STORAGE_REGION,
+  bucket: environment.XMCL_VULTR_OBJECT_STORAGE_BUCKET,
+  accessKey: environment.XMCL_VULTR_OBJECT_STORAGE_ACCESS_KEY,
+  secretKey: environment.XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY,
+});
+
 const hono = createProductionApp((a) => {
   a.use("*", geoipMiddleware);
   a.use("*", createDbMiddleware(getDb));
-}, process.env as Record<string, string | undefined>);
+}, environment, { SHARED_NODE_WORKSPACE_SIGNER: workspaceSigner });
 
 async function toRequest(req: HttpRequest): Promise<Request> {
   const method = req.method;
