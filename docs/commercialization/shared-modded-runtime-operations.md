@@ -22,7 +22,8 @@ installed.
    This authorizes a node restore GET only for the currently selected,
    published deployment.
 5. Publish the generic runtime image from
-   `xmcl-shared-node-agent/deploy/runtime/Dockerfile` with verified Java
+   [`Voxelum/xmcl-shared-minecraft-runtime`](https://github.com/Voxelum/xmcl-shared-minecraft-runtime)
+   with verified Java
    8/16/17/21 assets and configure the agent with its immutable GHCR digest.
 6. Connect the server-side EULA/terms acceptance policy to
    `eulaAccepted`. The runtime launcher rejects starts without that trusted
