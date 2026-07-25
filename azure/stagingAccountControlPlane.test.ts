@@ -157,7 +157,16 @@ Deno.test("Azure M1 composition fails closed without complete account OAuth, cal
       { XMCL_STAGING_ACCOUNT_PROXY_ENABLED: undefined },
       { XMCL_STAGING_ACCOUNT_PROXY_ENABLED: "TRUE" },
       { XMCL_STAGING_ACCOUNT_PROXY_SECRET: undefined },
-      { XMCL_GOOGLE_CLIENT_SECRET: undefined },
+      {
+        XMCL_MICROSOFT_CLIENT_ID: undefined,
+        XMCL_MICROSOFT_CLIENT_SECRET: undefined,
+        XMCL_MODRINTH_CLIENT_ID: undefined,
+        XMCL_MODRINTH_CLIENT_SECRET: undefined,
+        XMCL_GOOGLE_CLIENT_ID: undefined,
+        XMCL_GOOGLE_CLIENT_SECRET: undefined,
+        XMCL_DISCORD_CLIENT_ID: undefined,
+        XMCL_DISCORD_CLIENT_SECRET: undefined,
+      },
       { XMCL_OAUTH_REDIRECT_URIS: "https://other.example/oauth/callback" },
       { XMCL_STAGING_ACCOUNT_PROXY_CORS_ORIGINS: `${origin}/` },
       {
@@ -170,6 +179,15 @@ Deno.test("Azure M1 composition fails closed without complete account OAuth, cal
       undefined,
     );
   }
+  assert(stagingAccountControlPlaneSettings({
+    ...config,
+    XMCL_MODRINTH_CLIENT_ID: undefined,
+    XMCL_MODRINTH_CLIENT_SECRET: undefined,
+    XMCL_GOOGLE_CLIENT_ID: undefined,
+    XMCL_GOOGLE_CLIENT_SECRET: undefined,
+    XMCL_DISCORD_CLIENT_ID: undefined,
+    XMCL_DISCORD_CLIENT_SECRET: undefined,
+  }));
   const absent = createAzureHttpApp({
     ...config,
     XMCL_STAGING_ACCOUNT_PROXY_ENABLED: undefined,

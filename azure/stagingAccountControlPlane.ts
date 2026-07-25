@@ -207,14 +207,7 @@ export function stagingAccountControlPlaneSettings(
     config.XMCL_STAGING_ACCOUNT_PROXY_ENABLED !== "true" ||
     !hasText(config.MONGO_CONNECION_STRING) ||
     !hasHmacSecret(config.XMCL_SESSION_SECRET) ||
-    !hasText(config.XMCL_MICROSOFT_CLIENT_ID) ||
-    !hasText(config.XMCL_MICROSOFT_CLIENT_SECRET) ||
-    !hasText(config.XMCL_MODRINTH_CLIENT_ID) ||
-    !hasText(config.XMCL_MODRINTH_CLIENT_SECRET) ||
-    !hasText(config.XMCL_GOOGLE_CLIENT_ID) ||
-    !hasText(config.XMCL_GOOGLE_CLIENT_SECRET) ||
-    !hasText(config.XMCL_DISCORD_CLIENT_ID) ||
-    !hasText(config.XMCL_DISCORD_CLIENT_SECRET) ||
+    !hasAnyConfiguredBrowserProvider(config) ||
     !validKeyId(config.XMCL_STAGING_ACCOUNT_PROXY_KEY_ID) ||
     !hasHmacSecret(config.XMCL_STAGING_ACCOUNT_PROXY_SECRET) ||
     !distinctWhenConfigured(
@@ -300,6 +293,15 @@ function validHttpsOrigin(value: string) {
 
 function hasText(value: string | undefined): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function hasAnyConfiguredBrowserProvider(config: AppConfig) {
+  return [
+    [config.XMCL_MICROSOFT_CLIENT_ID, config.XMCL_MICROSOFT_CLIENT_SECRET],
+    [config.XMCL_MODRINTH_CLIENT_ID, config.XMCL_MODRINTH_CLIENT_SECRET],
+    [config.XMCL_GOOGLE_CLIENT_ID, config.XMCL_GOOGLE_CLIENT_SECRET],
+    [config.XMCL_DISCORD_CLIENT_ID, config.XMCL_DISCORD_CLIENT_SECRET],
+  ].some(([clientId, secret]) => hasText(clientId) && hasText(secret));
 }
 
 function validKeyId(value: string | undefined): value is string {
