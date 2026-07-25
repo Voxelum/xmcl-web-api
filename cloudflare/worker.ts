@@ -101,10 +101,16 @@ export async function proxyPayPalWebhook(
 ) {
   const incoming = new URL(request.url);
   const settings = paypalWebhookProxySettings(env);
+  const webhookTarget = incoming.hostname === PAYPAL_WEBHOOK_STAGING_HOST &&
+    incoming.pathname === PAYPAL_WEBHOOK_PATH;
   if (
-    !settings || request.method !== "POST" ||
-    incoming.hostname !== PAYPAL_WEBHOOK_STAGING_HOST ||
-    incoming.pathname !== PAYPAL_WEBHOOK_PATH || incoming.search
+    webhookTarget &&
+    (!settings || request.method !== "POST" || incoming.search)
+  ) {
+    return new Response("Not Found", { status: 404 });
+  }
+  if (
+    !webhookTarget || request.method !== "POST" || incoming.search
   ) {
     return undefined;
   }
@@ -155,6 +161,12 @@ export async function proxyPayPalWebhook(
       headers: responseHeaders,
     });
   } catch (error) {
+    console.error("paypal_webhook_proxy_unavailable", {
+      event: "paypal_webhook_proxy_unavailable",
+      error: error instanceof DOMException && error.name === "TimeoutError"
+        ? "timeout"
+        : "fetch_failure",
+    });
     const status = error instanceof DOMException && error.name === "TimeoutError"
       ? 503
       : 502;

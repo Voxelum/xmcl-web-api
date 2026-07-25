@@ -134,20 +134,27 @@ Deno.test("Cloudflare refuses malformed destinations and never proxies another m
   };
   for (const request of [
     new Request(`https://worker.example${PAYPAL_WEBHOOK_PATH}`, { method: "GET" }),
+    new Request(`https://production.example${PAYPAL_WEBHOOK_PATH}`, {
+      method: "POST",
+    }),
+    new Request(`https://${PAYPAL_WEBHOOK_STAGING_HOST}/v1/webhooks/paypal/other`, {
+      method: "POST",
+    }),
+  ]) {
+    assert.equal(await proxyPayPalWebhook(request, config, fetchImpl), undefined);
+  }
+  for (const request of [
+    new Request(`https://${PAYPAL_WEBHOOK_STAGING_HOST}${PAYPAL_WEBHOOK_PATH}`, {
+      method: "GET",
+    }),
     new Request(
       `https://${PAYPAL_WEBHOOK_STAGING_HOST}${PAYPAL_WEBHOOK_PATH}?target=attacker`,
       {
         method: "POST",
       },
     ),
-    new Request(`https://${PAYPAL_WEBHOOK_STAGING_HOST}/v1/webhooks/paypal/other`, {
-      method: "POST",
-    }),
-    new Request(`https://production.example${PAYPAL_WEBHOOK_PATH}`, {
-      method: "POST",
-    }),
   ]) {
-    assert.equal(await proxyPayPalWebhook(request, config, fetchImpl), undefined);
+    assert.equal((await proxyPayPalWebhook(request, config, fetchImpl))?.status, 404);
   }
   assert.equal(calls, 0);
 });
