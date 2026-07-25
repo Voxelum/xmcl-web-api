@@ -73,7 +73,10 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
       return err.getResponse();
     }
     console.error(err);
-    return c.json({ error: "Internal Server Error", message: err.message }, 500);
+    return c.json(
+      { error: "Internal Server Error", message: err.message },
+      500,
+    );
   });
 
   return app;

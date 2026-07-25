@@ -5,7 +5,10 @@ import type { AppConfig } from "../src/config.ts";
 import { createDbMiddleware } from "../src/middleware/db.ts";
 import { getDb } from "../src/platform/db_npm.ts";
 import { matchGroupUpgrade } from "../src/realtime/match.ts";
-import { runTranslation, type TranslationJob } from "../src/translation_service.ts";
+import {
+  runTranslation,
+  type TranslationJob,
+} from "../src/translation_service.ts";
 import type { AppEnv } from "../src/types.ts";
 import type {
   ExecutionContext,
@@ -77,7 +80,11 @@ async function processJob(env: any, job: TranslationJob): Promise<void> {
 }
 
 export default {
-  fetch(request: Request, env: any, ctx: ExecutionContext): Response | Promise<Response> {
+  fetch(
+    request: Request,
+    env: any,
+    ctx: ExecutionContext,
+  ): Response | Promise<Response> {
     const group = matchGroupUpgrade(request);
     if (group !== undefined) {
       const ns = env.GROUP_ROOM;
@@ -114,7 +121,11 @@ export default {
     }
   },
 
-  scheduled(_controller: ScheduledController, env: any, ctx: ExecutionContext): void {
+  scheduled(
+    _controller: ScheduledController,
+    env: any,
+    ctx: ExecutionContext,
+  ): void {
     // Best-effort mirror of the Deno.cron db-count job.
     ctx.waitUntil(
       (async () => {
