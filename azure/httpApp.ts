@@ -8,13 +8,14 @@ import { createAzureCompilerControlPlane } from "./compilerControlPlane.ts";
 import {
   createAzurePayPalWebhookControlPlane,
 } from "./paypalWebhookControlPlane.ts";
+import { createAzureStagingM3ControlPlane } from "./stagingM3ControlPlane.ts";
 import {
-  createAzureStagingM3ControlPlane,
-} from "./stagingM3ControlPlane.ts";
+  createAzureStagingAccountControlPlane,
+} from "./stagingAccountControlPlane.ts";
 
 /**
- * Azure keeps account and internal node composition from the shared production
- * app, then conditionally adds only private compiler callbacks.
+ * Azure has no public account/session surface by default. It conditionally
+ * composes narrowly guarded staging M1, M3, webhook, and compiler planes.
  */
 export function createAzureHttpApp(
   environment: Record<string, string | undefined>,
@@ -34,6 +35,9 @@ export function createAzureHttpApp(
     environment,
   );
   const stagingM3ControlPlane = createAzureStagingM3ControlPlane(environment);
+  const stagingAccountControlPlane = createAzureStagingAccountControlPlane(
+    environment,
+  );
   const app = createProductionApp(
     (hono) => {
       hono.use("*", geoipMiddleware);
@@ -41,6 +45,7 @@ export function createAzureHttpApp(
       compilerControlPlane?.register(hono);
       paypalWebhookControlPlane?.register(hono);
       stagingM3ControlPlane?.register(hono);
+      stagingAccountControlPlane?.register(hono);
     },
     environment,
     { SHARED_NODE_WORKSPACE_SIGNER: signer },
@@ -50,6 +55,8 @@ export function createAzureHttpApp(
       // Azure only emits CORS on the exact M3 staging routes after the
       // control plane has validated a configured staging origin.
       corsOptions: false,
+      // Account/session handlers are mounted only behind the M1 HMAC guard.
+      accountSessionRoutes: false,
     },
   );
   if (compilerControlPlane) {

@@ -67,6 +67,22 @@ export interface AppConfig {
    */
   XMCL_STAGING_M3_CORS_ORIGINS?: string;
   /**
+   * Explicit Azure and Worker opt-in for the staging-only M1 account/session
+   * control plane. Any other value leaves the routes unavailable.
+   */
+  XMCL_STAGING_ACCOUNT_PROXY_ENABLED?: string;
+  /** Fixed Azure `/api` base used only by the staging M1 Worker proxy. */
+  XMCL_STAGING_ACCOUNT_PROXY_URL?: string;
+  /** Worker-to-Azure staging M1 account/session proxy workload identity key id. */
+  XMCL_STAGING_ACCOUNT_PROXY_KEY_ID?: string;
+  /** Worker-to-Azure staging M1 account/session HMAC secret (at least 32 UTF-8 bytes). */
+  XMCL_STAGING_ACCOUNT_PROXY_SECRET?: string;
+  /**
+   * Comma-separated exact staging Pages origins allowed to call the M1 API from
+   * a browser. Each origin must also declare its `/oauth/callback` redirect URI.
+   */
+  XMCL_STAGING_ACCOUNT_PROXY_CORS_ORIGINS?: string;
+  /**
    * Optional comma-separated exact HTTPS callbacks for website OAuth.
    * Launcher loopback callbacks are code-owned and require no configuration.
    */

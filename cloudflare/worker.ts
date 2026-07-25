@@ -30,6 +30,18 @@ import {
   STAGING_M3_CORS_HEADERS,
   stagingM3AzureTarget,
 } from "../src/lib/stagingM3Routes.ts";
+import {
+  HmacStagingAccountProxyIdentity,
+  readStagingAccountProxyRawBody,
+  StagingAccountProxyBodyTooLargeError,
+} from "../src/lib/stagingAccountProxyIdentity.ts";
+import {
+  authorizeQueryUsesConfiguredCallback,
+  isStagingAccountCorsRequest,
+  isStagingAccountPathCandidate,
+  STAGING_ACCOUNT_CORS_HEADERS,
+  stagingAccountAzureTarget,
+} from "../src/lib/stagingAccountRoutes.ts";
 import type { AppEnv } from "../src/types.ts";
 import type { DbFactory } from "../src/db.ts";
 import type { ExecutionContext, ScheduledController } from "./cf_types.ts";
@@ -54,6 +66,8 @@ const PAYPAL_WEBHOOK_PROXY_TIMEOUT_MS = 10_000;
 const PAYPAL_WEBHOOK_PROXY_MAX_RESPONSE_BYTES = 64 * 1024;
 const STAGING_M3_PROXY_TIMEOUT_MS = 10_000;
 const STAGING_M3_PROXY_MAX_RESPONSE_BYTES = 64 * 1024;
+const STAGING_ACCOUNT_PROXY_TIMEOUT_MS = 10_000;
+const STAGING_ACCOUNT_PROXY_MAX_RESPONSE_BYTES = 64 * 1024;
 const payPalForwardedHeaders = [
   "paypal-auth-algo",
   "paypal-cert-url",
@@ -71,6 +85,13 @@ interface PayPalWebhookProxySettings {
 }
 
 interface StagingM3ProxySettings {
+  url: string;
+  keyId: string;
+  secret: string;
+  corsOrigins: readonly string[];
+}
+
+interface StagingAccountProxySettings {
   url: string;
   keyId: string;
   secret: string;
@@ -139,6 +160,54 @@ export function stagingM3ProxySettings(
       url: url.href,
       keyId: env.XMCL_STAGING_M3_PROXY_KEY_ID,
       secret: env.XMCL_STAGING_M3_PROXY_SECRET,
+      corsOrigins,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * M1 deliberately has a separate enable switch and workload identity. Its
+ * fixed Azure `/api` base never comes from an HTTP request.
+ */
+export function stagingAccountProxySettings(
+  env: AppConfig,
+): StagingAccountProxySettings | undefined {
+  const corsOrigins = parseExactHttpsOrigins(
+    env.XMCL_STAGING_ACCOUNT_PROXY_CORS_ORIGINS,
+  );
+  if (
+    env.XMCL_STAGING_ACCOUNT_PROXY_ENABLED !== "true" ||
+    !validKeyId(env.XMCL_STAGING_ACCOUNT_PROXY_KEY_ID) ||
+    !hasHmacSecret(env.XMCL_STAGING_ACCOUNT_PROXY_SECRET) ||
+    !corsOrigins ||
+    typeof env.XMCL_STAGING_ACCOUNT_PROXY_URL !== "string" ||
+    !distinctWhenConfigured(
+      env.XMCL_STAGING_ACCOUNT_PROXY_KEY_ID,
+      env.XMCL_STAGING_M3_PROXY_KEY_ID,
+      env.XMCL_PAYPAL_WEBHOOK_PROXY_KEY_ID,
+    ) ||
+    !distinctWhenConfigured(
+      env.XMCL_STAGING_ACCOUNT_PROXY_SECRET,
+      env.XMCL_STAGING_M3_PROXY_SECRET,
+      env.XMCL_PAYPAL_WEBHOOK_PROXY_SECRET,
+    )
+  ) {
+    return undefined;
+  }
+  try {
+    const url = new URL(env.XMCL_STAGING_ACCOUNT_PROXY_URL);
+    if (
+      url.protocol !== "https:" || !url.hostname || url.username ||
+      url.password || url.search || url.hash || url.pathname !== "/api"
+    ) {
+      return undefined;
+    }
+    return {
+      url: url.href,
+      keyId: env.XMCL_STAGING_ACCOUNT_PROXY_KEY_ID,
+      secret: env.XMCL_STAGING_ACCOUNT_PROXY_SECRET,
       corsOrigins,
     };
   } catch {
@@ -302,6 +371,180 @@ export function stagingM3CorsPreflight(
 }
 
 /**
+ * Local M1 browser preflight. It never opens a database or contacts Azure.
+ */
+export function stagingAccountCorsPreflight(
+  request: Request,
+  env: AppConfig,
+) {
+  const incoming = new URL(request.url);
+  if (
+    incoming.hostname !== PAYPAL_WEBHOOK_STAGING_HOST ||
+    !isStagingAccountPathCandidate(incoming.pathname) ||
+    request.method !== "OPTIONS"
+  ) {
+    return undefined;
+  }
+  const settings = stagingAccountProxySettings(env);
+  const origin = request.headers.get("origin") ?? undefined;
+  const requestedMethod =
+    request.headers.get("access-control-request-method") ??
+      undefined;
+  if (
+    !settings || !origin || !settings.corsOrigins.includes(origin) ||
+    !isStagingAccountCorsRequest(
+      requestedMethod,
+      incoming.pathname,
+      incoming.search,
+    ) ||
+    !authorizeQueryUsesConfiguredCallbackIfNeeded(
+      incoming.pathname,
+      incoming.search,
+      settings.corsOrigins,
+    ) ||
+    !validStagingAccountCorsRequestHeaders(
+      request.headers.get(
+        "access-control-request-headers",
+      ) ?? undefined,
+    )
+  ) {
+    return new Response("Not Found", { status: 404 });
+  }
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "access-control-allow-origin": origin,
+      "access-control-allow-methods": requestedMethod!.toUpperCase(),
+      "access-control-allow-headers": STAGING_ACCOUNT_CORS_HEADERS.join(", "),
+      "access-control-max-age": "600",
+      "vary": "origin",
+    },
+  });
+}
+
+/**
+ * Fixed, nonproduction M1 browser proxy. The account/session request is
+ * signed before any Hono app or Cloudflare database middleware is constructed.
+ */
+export async function proxyStagingAccount(
+  request: Request,
+  env: AppConfig,
+  fetchImpl: typeof fetch = fetch,
+) {
+  const incoming = new URL(request.url);
+  const isCandidate = incoming.hostname === PAYPAL_WEBHOOK_STAGING_HOST &&
+    isStagingAccountPathCandidate(incoming.pathname);
+  if (!isCandidate) return undefined;
+
+  const settings = stagingAccountProxySettings(env);
+  const target = stagingAccountAzureTarget(
+    request.method,
+    incoming.pathname,
+    incoming.search,
+  );
+  const origin = request.headers.get("origin") ?? undefined;
+  if (
+    !settings || !target || !origin || !settings.corsOrigins.includes(origin) ||
+    !authorizeQueryUsesConfiguredCallbackIfNeeded(
+      incoming.pathname,
+      incoming.search,
+      settings.corsOrigins,
+    )
+  ) {
+    return new Response("Not Found", { status: 404 });
+  }
+
+  let raw: Uint8Array;
+  try {
+    raw = await readStagingAccountProxyRawBody(request);
+  } catch (error) {
+    if (error instanceof StagingAccountProxyBodyTooLargeError) {
+      return new Response(JSON.stringify({ error: "payload_too_large" }), {
+        status: 413,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({ error: "invalid_request" }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  if (request.method !== "POST" && raw.byteLength !== 0) {
+    return new Response("Not Found", { status: 404 });
+  }
+
+  const headers = forwardedStagingAccountHeaders(request.headers);
+  const identity = new HmacStagingAccountProxyIdentity({
+    keyId: settings.keyId,
+    secret: settings.secret,
+  });
+  let timedOut = false;
+  try {
+    const identityHeaders = await identity.signOutgoing({
+      method: request.method,
+      target,
+      body: raw,
+    });
+    for (const [name, value] of Object.entries(identityHeaders)) {
+      headers.set(name, value);
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, STAGING_ACCOUNT_PROXY_TIMEOUT_MS);
+    try {
+      const response = await fetchImpl(
+        stagingAccountTargetUrl(settings.url, target),
+        {
+          method: request.method,
+          headers,
+          body: request.method === "POST"
+            ? raw as unknown as BodyInit
+            : undefined,
+          signal: controller.signal,
+          redirect: "manual",
+          credentials: "omit",
+        },
+      );
+      if (response.status >= 300 && response.status < 400) {
+        throw new Error("backend redirect rejected");
+      }
+      return new Response(
+        await readLimitedResponse(
+          response,
+          STAGING_ACCOUNT_PROXY_MAX_RESPONSE_BYTES,
+        ),
+        {
+          status: response.status,
+          headers: responseHeadersFor(response, true),
+        },
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch (error) {
+    console.error("staging_account_proxy_unavailable", {
+      event: "staging_account_proxy_unavailable",
+      error: timedOut || (error instanceof DOMException &&
+          (error.name === "TimeoutError" || error.name === "AbortError"))
+        ? "timeout"
+        : "fetch_failure",
+    });
+    return new Response(
+      JSON.stringify({ error: "staging_account_proxy_unavailable" }),
+      {
+        status: timedOut || (error instanceof DOMException &&
+            (error.name === "TimeoutError" || error.name === "AbortError"))
+          ? 503
+          : 502,
+        headers: { "content-type": "application/json" },
+      },
+    );
+  }
+}
+
+/**
  * Staging M3 is a fixed, narrow Worker-to-Azure control-plane proxy. It never
  * opens the Worker Mongo connector and never accepts a caller-selected target.
  */
@@ -434,13 +677,34 @@ function forwardedStagingM3Headers(source: Headers) {
   return headers;
 }
 
+function forwardedStagingAccountHeaders(source: Headers) {
+  const headers = new Headers();
+  for (const name of ["content-type", "authorization", "origin"]) {
+    const value = source.get(name);
+    if (value) headers.set(name, value);
+  }
+  return headers;
+}
+
 function stagingM3TargetUrl(base: string, target: string) {
   const url = new URL(base);
   url.pathname = target;
   return url.href;
 }
 
+function stagingAccountTargetUrl(base: string, target: string) {
+  const targetUrl = new URL(target, "https://target.invalid");
+  const url = new URL(base);
+  url.pathname = targetUrl.pathname;
+  url.search = targetUrl.search;
+  return url.href;
+}
+
 function parseStagingM3CorsOrigins(value: string | undefined) {
+  return parseExactHttpsOrigins(value);
+}
+
+function parseExactHttpsOrigins(value: string | undefined) {
   if (typeof value !== "string" || !value.trim()) return undefined;
   const origins = value.split(",").map((origin) => origin.trim());
   if (!origins.length || origins.some((origin) => !validHttpsOrigin(origin))) {
@@ -466,6 +730,35 @@ function validCorsRequestHeaders(value: string | undefined) {
   return value.split(",").every((name) =>
     STAGING_M3_CORS_HEADERS.includes(name.trim().toLowerCase() as never)
   );
+}
+
+function validStagingAccountCorsRequestHeaders(value: string | undefined) {
+  if (!value) return true;
+  return value.split(",").every((name) =>
+    STAGING_ACCOUNT_CORS_HEADERS.includes(name.trim().toLowerCase() as never)
+  );
+}
+
+function authorizeQueryUsesConfiguredCallbackIfNeeded(
+  path: string,
+  search: string,
+  corsOrigins: readonly string[],
+) {
+  return !isProviderAuthorizePath(path) ||
+    authorizeQueryUsesConfiguredCallback(search, corsOrigins);
+}
+
+function isProviderAuthorizePath(path: string) {
+  return /^\/v1\/auth\/(?:microsoft|modrinth|google|discord)\/authorize$/.test(
+    path,
+  );
+}
+
+function distinctWhenConfigured(
+  value: string,
+  ...otherValues: Array<string | undefined>
+) {
+  return otherValues.every((other) => !other || other !== value);
 }
 
 function responseHeadersFor(response: Response, includeCors = false) {
@@ -607,6 +900,10 @@ export default {
   ): Promise<Response> {
     // Make the proxy decision before constructing the Hono app. In particular,
     // no Cloudflare Mongo connector is imported or invoked for this path.
+    const accountPreflight = stagingAccountCorsPreflight(request, env);
+    if (accountPreflight) return accountPreflight;
+    const stagingAccount = await proxyStagingAccount(request, env);
+    if (stagingAccount) return stagingAccount;
     const preflight = stagingM3CorsPreflight(request, env);
     if (preflight) return preflight;
     const stagingM3 = await proxyStagingM3(request, env);

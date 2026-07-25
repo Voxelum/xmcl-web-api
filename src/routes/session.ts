@@ -52,6 +52,7 @@ function providerFrom(c: Context<AppEnv>): OAuthProvider {
 
 export function createSessionRoutes(
   resolve: AccountRuntimeResolver = getAccountRuntime,
+  options: { launcherExchange?: boolean } = {},
 ) {
   const app = new Hono<AppEnv>();
   app.onError(handleAccountError);
@@ -110,33 +111,35 @@ export function createSessionRoutes(
     });
   });
 
-  app.post("/v1/auth/:provider/launcher-exchange", async (c) => {
-    const provider = providerFrom(c);
-    const runtime = await resolve(c);
-    const body = await jsonBody(c);
-    const completedAt = String(body.completedAt ?? "");
-    await runtime.accounts.consumeLauncherTransaction({
-      transactionId: String(body.loginTransactionId ?? ""),
-      provider,
-      completedAt,
+  if (options.launcherExchange !== false) {
+    app.post("/v1/auth/:provider/launcher-exchange", async (c) => {
+      const provider = providerFrom(c);
+      const runtime = await resolve(c);
+      const body = await jsonBody(c);
+      const completedAt = String(body.completedAt ?? "");
+      await runtime.accounts.consumeLauncherTransaction({
+        transactionId: String(body.loginTransactionId ?? ""),
+        provider,
+        completedAt,
+      });
+      const identity = await runtime.oauth[provider].verifyLauncherCredential({
+        accessToken: String(body.credential ?? ""),
+        completedAt,
+      });
+      const currentAccountId = await optionalAccountId(c, runtime);
+      const binding = await runtime.accounts.bindIdentity({
+        identity,
+        currentAccountId,
+        linkedBy: currentAccountId ? "launcher_link" : "launcher_bootstrap",
+      });
+      const session = await runtime.sessions.issue(binding.account.accountId);
+      return c.json({
+        account: publicAccount(binding.account),
+        session,
+        bindingDisposition: binding.bindingDisposition,
+      });
     });
-    const identity = await runtime.oauth[provider].verifyLauncherCredential({
-      accessToken: String(body.credential ?? ""),
-      completedAt,
-    });
-    const currentAccountId = await optionalAccountId(c, runtime);
-    const binding = await runtime.accounts.bindIdentity({
-      identity,
-      currentAccountId,
-      linkedBy: currentAccountId ? "launcher_link" : "launcher_bootstrap",
-    });
-    const session = await runtime.sessions.issue(binding.account.accountId);
-    return c.json({
-      account: publicAccount(binding.account),
-      session,
-      bindingDisposition: binding.bindingDisposition,
-    });
-  });
+  }
 
   app.post("/v1/sessions/refresh", async (c) => {
     const body = await jsonBody(c);

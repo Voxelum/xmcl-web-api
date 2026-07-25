@@ -59,6 +59,8 @@ export interface CreateAppOptions {
    * control planes can opt out and attach CORS only to their reviewed routes.
    */
   corsOptions?: Parameters<typeof cors>[0] | false;
+  /** Isolated control planes mount account/session routes only after their guard. */
+  accountSessionRoutes?: boolean;
 }
 
 export function createApp(
@@ -90,8 +92,10 @@ export function createApp(
   app.route("/", appinstaller);
   app.route("/", prebuilds);
   app.route("/", backupStoragePolicy);
-  app.route("/", session);
-  app.route("/", account);
+  if (options.accountSessionRoutes !== false) {
+    app.route("/", session);
+    app.route("/", account);
+  }
   const enableCommercialRoutes = options.commercialRoutes !== false;
   if (enableCommercialRoutes || options.billingRoutes === true) {
     app.route("/", billing);

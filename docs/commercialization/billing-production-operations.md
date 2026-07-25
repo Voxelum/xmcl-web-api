@@ -84,6 +84,93 @@ webhooks may credit cash balances.
 
 ## Staging-only M3 PayPal Sandbox control plane
 
+### Prerequisite: staging-only M1 browser account/session control plane
+
+The staging Worker cannot reach Cosmos directly. Before M3 can be exercised
+with a browser session, it can proxy only this fixed M1 surface to Azure on the
+one staging Worker hostname:
+
+- `GET /v1/auth/:provider/authorize` for `microsoft`, `modrinth`, `google`, or
+  `discord`, with exactly one each of `redirectUri`, `state`, and
+  `codeChallenge` query parameters;
+- `POST /v1/auth/:provider/exchange`;
+- `GET /v1/account`, `GET /v1/account/identities`, `POST`
+  `/v1/account/identities/:provider/authorize`, `POST`
+  `/v1/account/identities/:provider/complete`, and `DELETE`
+  `/v1/account/identities/:provider`;
+- `POST /v1/sessions/refresh` and `POST /v1/sessions/revoke`.
+
+There is no launcher exchange, account merge/deletion, billing, admin,
+internal, node, compiler, arbitrary provider, arbitrary URL, or arbitrary
+header proxy in this plane. The Worker activates it only at:
+
+```text
+https://xmcl-web-api-shared-sgp-staging.cijhn.workers.dev
+```
+
+It rejects every other hostname and does not construct its Hono application or
+open/import its Mongo connector for an M1 proxy or preflight request.
+
+The routes are absent unless every setting below is present and valid. This
+change does **not** set settings or deploy either service.
+
+**Azure Function App** settings on `xmcl-shared-sgp-control`:
+
+- `XMCL_STAGING_ACCOUNT_PROXY_ENABLED=true` exactly; `TRUE`, `1`, or an absent
+  value leaves all M1 routes unmounted.
+- `MONGO_CONNECION_STRING`, optional `MONGODB_NAME`, and
+  `XMCL_SESSION_SECRET` with at least 32 UTF-8 bytes for the existing Azure
+  Mongo/Cosmos account runtime.
+- Complete browser OAuth settings for every fixed supported provider:
+  `XMCL_MICROSOFT_CLIENT_ID`, `XMCL_MICROSOFT_CLIENT_SECRET`,
+  `XMCL_MODRINTH_CLIENT_ID`, `XMCL_MODRINTH_CLIENT_SECRET`,
+  `XMCL_GOOGLE_CLIENT_ID`, `XMCL_GOOGLE_CLIENT_SECRET`,
+  `XMCL_DISCORD_CLIENT_ID`, and `XMCL_DISCORD_CLIENT_SECRET`.
+- `XMCL_STAGING_ACCOUNT_PROXY_CORS_ORIGINS=https://<staging-pages-origin>`
+  (comma-separate further exact Pages origins only). Values are HTTPS origins
+  with no trailing slash, path, query, fragment, wildcard, or credentials.
+- `XMCL_OAUTH_REDIRECT_URIS` must include
+  `https://<staging-pages-origin>/oauth/callback` for **every** configured M1
+  CORS origin. It may contain other reviewed callbacks, but does not make them
+  proxyable from this Worker.
+- `XMCL_STAGING_ACCOUNT_PROXY_KEY_ID=<new M1 key ID>` matching
+  `[A-Za-z0-9][A-Za-z0-9._-]{0,127}` and
+  `XMCL_STAGING_ACCOUNT_PROXY_SECRET=<new random server-only secret of at
+  least 32 UTF-8 bytes>`.
+
+**Cloudflare Worker secrets/configuration** on the existing staging Worker
+only:
+
+- `XMCL_STAGING_ACCOUNT_PROXY_ENABLED=true`;
+- `XMCL_STAGING_ACCOUNT_PROXY_URL=https://xmcl-shared-sgp-control.azurewebsites.net/api`
+  exactly (HTTPS, no credentials/query/fragment, path exactly `/api`);
+- matching `XMCL_STAGING_ACCOUNT_PROXY_KEY_ID` and
+  `XMCL_STAGING_ACCOUNT_PROXY_SECRET`;
+- `XMCL_STAGING_ACCOUNT_PROXY_CORS_ORIGINS` exactly matching Azure.
+
+Use a new M1 key ID and secret. They must differ from both
+`XMCL_STAGING_M3_PROXY_KEY_ID`/`XMCL_STAGING_M3_PROXY_SECRET` and
+`XMCL_PAYPAL_WEBHOOK_PROXY_KEY_ID`/`XMCL_PAYPAL_WEBHOOK_PROXY_SECRET`; the
+composition rejects an equality when the other configured identity is present.
+
+Register the exact Pages callback in the Microsoft, Modrinth, Google, and
+Discord provider dashboards:
+
+```text
+https://<staging-pages-origin>/oauth/callback
+```
+
+This is the provider redirect URI, not the Worker URL. The Pages callback must
+retain the provider `code` and the browser's state/PKCE verifier, then call the
+allowlisted Worker exchange route. The Worker validates the authorize query,
+preserves its original encoding in the Azure target, signs that exact
+`/api/...` target plus raw bytes with a fresh timestamp/nonce, and forwards
+only `Authorization`, `content-type`, and the configured exact `Origin`.
+Azure requires the same target, HMAC, ±60 second timestamp, and a durably
+consumed Cosmos Mongo nonce before running the existing account/session
+handler. Both proxy hops reject redirects, bound request/response sizes, and
+return sanitized failures.
+
 M3 exposes only these authenticated Sandbox routes through the existing staging
 Worker to Azure:
 
@@ -150,6 +237,28 @@ billing logic. It does not proxy admin, internal, node, compiler, arbitrary
 methods, URLs, or headers.
 
 ### Sandbox end-to-end test sequence
+
+#### Obtain the M1 staging user session first
+
+1. From one configured staging Pages origin, generate a PKCE verifier/challenge
+   and state. Call `GET /v1/auth/<provider>/authorize` on the Worker with
+   `redirectUri=https://<staging-pages-origin>/oauth/callback`, the state, and
+   the challenge. Confirm the returned provider authorization URL retains the
+   state and PKCE challenge and has that exact Pages `redirect_uri`.
+2. Complete provider sign-in. At `/oauth/callback`, verify state locally and
+   call `POST /v1/auth/<provider>/exchange` on the Worker with `transactionId`,
+   provider code, state, and verifier. Save the returned XMCL access and
+   refresh tokens.
+3. Call `GET /v1/account` and `GET /v1/account/identities` through the Worker
+   with the access token to confirm the authenticated M1 session. Exercise
+   `POST /v1/sessions/refresh` once to verify token rotation.
+4. Confirm an unconfigured Origin, missing/duplicate authorize parameter,
+   query on any non-authorize M1 route, wrong method, provider outside the
+   fixed list, launcher/merge/deletion path, direct Azure call without M1 HMAC,
+   stale timestamp, replayed nonce, changed raw body, and substituted
+   `/api/...` target all fail without invoking account authentication.
+
+#### Continue with the M3 checkout using that M1 access token
 
 1. After the reviewed deployment, obtain a staging user Bearer session and call
    `GET /v1/billing/balance` and `GET /v1/billing/rates` through the Worker.
