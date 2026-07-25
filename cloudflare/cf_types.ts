@@ -23,6 +23,7 @@ export interface DurableObjectState {
     put<T>(key: string, value: T): Promise<void>;
     setAlarm(scheduledTime: number): Promise<void>;
     deleteAlarm(): Promise<void>;
+    deleteAll(): Promise<void>;
   };
   acceptWebSocket(socket: CfWebSocket): void;
   getWebSockets(): CfWebSocket[];

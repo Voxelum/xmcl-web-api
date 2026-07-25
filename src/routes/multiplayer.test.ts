@@ -24,7 +24,11 @@ const namespace = {
       const room = rooms.get(roomId);
       if (!room) return new Response(null, { status: 404 });
       if (path === "/v2/admission") {
-        return new Response(null, { status: room.closed ? 410 : 204 });
+        return room.closed
+          ? new Response(null, { status: 410 })
+          : Response.json({
+            role: input.accountId === room.ownerId ? "host" : "guest",
+          });
       }
       if (path === "/v2/close") {
         if (input.accountId !== room.ownerId) {
@@ -37,10 +41,11 @@ const namespace = {
     },
   }),
 };
+let authenticatedAccountId = "account_1";
 const runtime = {
   sessions: {
     verify: async () => ({
-      accountId: "account_1",
+      accountId: authenticatedAccountId,
       scopes: ["account:read"],
     }),
   },
@@ -67,8 +72,9 @@ Deno.test("multiplayer routes create, join, and close a Durable Object room", as
   assert.equal(creation.maxPeers, 4);
   const owner = await verifyMultiplayerTicket(creation.ticket, secret);
   assert.equal(owner?.roomId, creation.roomId);
-  assert.equal(owner?.role, "owner");
+  assert.equal(owner?.role, "host");
 
+  authenticatedAccountId = "account_2";
   const joined = await app.request(
     `/v2/multiplayer/rooms/${creation.roomId}/join`,
     {
@@ -83,8 +89,9 @@ Deno.test("multiplayer routes create, join, and close a Durable Object room", as
     (await joined.json()).ticket,
     secret,
   );
-  assert.equal(member?.role, "member");
+  assert.equal(member?.role, "guest");
 
+  authenticatedAccountId = "account_1";
   const closed = await app.request(
     `/v2/multiplayer/rooms/${creation.roomId}`,
     { method: "DELETE", headers },

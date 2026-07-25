@@ -8,14 +8,24 @@ import {
   verifyMultiplayerTicket,
 } from "../src/lib/multiplayerTicket.ts";
 
+interface GuestState {
+  peerId: string;
+  accountId: string;
+  displayName: string;
+  status: "negotiating" | "connected";
+  joinedAt: number;
+}
+
 interface RoomState {
   roomId: string;
   ownerId: string;
-  status: "open" | "closed";
+  hostPeerId?: string;
+  status: "waiting-host" | "open" | "closed";
   createdAt: number;
   expiresAt: number;
   maxPeers: number;
   revision: number;
+  guests: Record<string, GuestState>;
 }
 
 interface PeerSession {
@@ -33,7 +43,7 @@ interface MultiplayerRoomEnv {
 }
 
 const MAX_MESSAGE_BYTES = 64 * 1024;
-const EMPTY_ROOM_GRACE_MS = 10 * 60_000;
+const HOST_RECONNECT_GRACE_MS = 30_000;
 
 export class MultiplayerRoom {
   constructor(
@@ -55,15 +65,11 @@ export class MultiplayerRoom {
   async alarm(): Promise<void> {
     const room = await this.room();
     if (!room || room.status === "closed") return;
-    const sockets = this.state.getWebSockets();
-    if (room.expiresAt <= Date.now() || sockets.length === 0) {
-      room.status = "closed";
-      room.revision++;
-      await this.state.storage.put("room", room);
-      for (const socket of sockets) socket.close(4000, "Room expired");
-    } else {
-      await this.state.storage.setAlarm(room.expiresAt);
+    if (room.expiresAt <= Date.now() || room.status === "waiting-host") {
+      await this.finishRoom(room, "Room expired");
+      return;
     }
+    await this.state.storage.setAlarm(room.expiresAt);
   }
 
   async webSocketMessage(
@@ -83,17 +89,8 @@ export class MultiplayerRoom {
       socket.close(1011, "Missing peer session");
       return;
     }
-    const now = Date.now();
-    if (now - sender.messageWindowStartedAt >= 10_000) {
-      sender.messageWindowStartedAt = now;
-      sender.messageCount = 0;
-    }
-    sender.messageCount++;
-    socket.serializeAttachment(sender);
-    if (sender.messageCount > 60) {
-      socket.close(1008, "Message rate exceeded");
-      return;
-    }
+    if (!this.consumeMessage(sender, socket)) return;
+
     let input: {
       type?: string;
       receiver?: string;
@@ -103,35 +100,76 @@ export class MultiplayerRoom {
     try {
       input = JSON.parse(message);
     } catch {
-      socket.send(JSON.stringify({ type: "error", code: "invalid_message" }));
+      this.send(socket, { type: "error", code: "invalid_message" });
       return;
     }
-    if (
-      input.type === "signal" && typeof input.receiver === "string" &&
-      input.payload !== undefined
-    ) {
-      this.sendTo(input.receiver, {
-        type: "signal",
-        sender: sender.peerId,
-        payload: input.payload,
-      });
+
+    const room = await this.room();
+    if (!room || room.status === "closed") {
+      socket.close(4000, "Room closed");
       return;
     }
-    if (
-      input.type === "kick" && sender.role === "owner" &&
-      typeof input.peerId === "string"
-    ) {
-      const target = this.socketByPeer(input.peerId);
-      if (target && target !== socket) {
-        target.close(4003, "Removed by room owner");
+    if (input.type === "signal" && input.payload !== undefined) {
+      if (sender.role === "host") {
+        if (
+          typeof input.receiver !== "string" ||
+          !room.guests[input.receiver]
+        ) {
+          this.send(socket, { type: "error", code: "invalid_receiver" });
+          return;
+        }
+        this.sendToPeer(input.receiver, {
+          type: "signal",
+          sender: sender.peerId,
+          payload: input.payload,
+        });
+      } else {
+        const host = this.hostSocket(room);
+        if (!host) {
+          this.send(socket, { type: "error", code: "host_unavailable" });
+          return;
+        }
+        this.send(host, {
+          type: "signal",
+          sender: sender.peerId,
+          payload: input.payload,
+        });
       }
+      return;
+    }
+    if (input.type === "rtc-ready" && sender.role === "guest") {
+      const guest = room.guests[sender.peerId];
+      if (!guest) {
+        this.send(socket, { type: "error", code: "guest_not_admitted" });
+        return;
+      }
+      guest.status = "connected";
+      room.revision++;
+      await this.state.storage.put("room", room);
+      const host = this.hostSocket(room);
+      if (host) {
+        this.send(host, {
+          type: "guest-connected",
+          guest,
+          revision: room.revision,
+        });
+      }
+      this.send(socket, { type: "rtc-ready", revision: room.revision });
+      socket.close(1000, "Signaling complete");
+      return;
+    }
+    if (
+      (input.type === "guest-left" || input.type === "kick") &&
+      sender.role === "host" && typeof input.peerId === "string"
+    ) {
+      await this.removeGuest(room, input.peerId, input.type);
       return;
     }
     if (input.type === "leave") {
       socket.close(1000, "Client left");
       return;
     }
-    socket.send(JSON.stringify({ type: "error", code: "unsupported_message" }));
+    this.send(socket, { type: "error", code: "unsupported_message" });
   }
 
   async webSocketClose(
@@ -141,20 +179,35 @@ export class MultiplayerRoom {
     _wasClean: boolean,
   ): Promise<void> {
     const peer = socket.deserializeAttachment<PeerSession>();
-    if (!peer) return;
     const room = await this.room();
-    if (!room) return;
+    if (!peer || !room || room.status === "closed") return;
+
+    if (peer.role === "host") {
+      if (room.hostPeerId !== peer.peerId) return;
+      room.status = "waiting-host";
+      room.revision++;
+      await this.state.storage.put("room", room);
+      await this.state.storage.setAlarm(
+        Math.min(room.expiresAt, Date.now() + HOST_RECONNECT_GRACE_MS),
+      );
+      for (const guestSocket of this.guestSockets()) {
+        guestSocket.close(4002, "Host disconnected");
+      }
+      return;
+    }
+
+    const guest = room.guests[peer.peerId];
+    if (!guest || guest.status === "connected") return;
+    delete room.guests[peer.peerId];
     room.revision++;
     await this.state.storage.put("room", room);
-    this.broadcast({
-      type: "peer-left",
-      peerId: peer.peerId,
-      revision: room.revision,
-    }, socket);
-    if (this.state.getWebSockets().length <= 1) {
-      await this.state.storage.setAlarm(
-        Math.min(room.expiresAt, Date.now() + EMPTY_ROOM_GRACE_MS),
-      );
+    const host = this.hostSocket(room);
+    if (host) {
+      this.send(host, {
+        type: "guest-negotiation-ended",
+        peerId: peer.peerId,
+        revision: room.revision,
+      });
     }
   }
 
@@ -176,9 +229,7 @@ export class MultiplayerRoom {
     if (existing) {
       return new Response(
         existing.ownerId === input.ownerId ? null : "Conflict",
-        {
-          status: existing.ownerId === input.ownerId ? 204 : 409,
-        },
+        { status: existing.ownerId === input.ownerId ? 204 : 409 },
       );
     }
     if (
@@ -189,19 +240,15 @@ export class MultiplayerRoom {
     ) {
       return new Response("Invalid room", { status: 400 });
     }
-    const expiresAt = input.expiresAt;
-    const maxPeers = input.maxPeers;
-    if (expiresAt === undefined || maxPeers === undefined) {
-      return new Response("Invalid room", { status: 400 });
-    }
     const room: RoomState = {
       roomId: input.roomId,
       ownerId: input.ownerId,
-      status: "open",
+      status: "waiting-host",
       createdAt: Date.now(),
-      expiresAt,
-      maxPeers,
+      expiresAt: input.expiresAt!,
+      maxPeers: input.maxPeers!,
       revision: 0,
+      guests: {},
     };
     await this.state.storage.put("room", room);
     await this.state.storage.setAlarm(room.expiresAt);
@@ -214,17 +261,23 @@ export class MultiplayerRoom {
     }
     const room = await this.room();
     if (!room) return new Response("Not found", { status: 404 });
-    if (room.status !== "open" || room.expiresAt <= Date.now()) {
+    if (room.status === "closed" || room.expiresAt <= Date.now()) {
       return new Response("Room closed", { status: 410 });
     }
     const { accountId } = await request.json() as { accountId?: string };
-    const reconnecting = this.state.getWebSockets().some((socket) =>
-      socket.deserializeAttachment<PeerSession>()?.accountId === accountId
+    if (accountId === room.ownerId) {
+      return Response.json({ role: "host" satisfies MultiplayerRole });
+    }
+    if (room.status !== "open" || !this.hostSocket(room)) {
+      return new Response("Host unavailable", { status: 409 });
+    }
+    const existing = Object.values(room.guests).find((guest) =>
+      guest.accountId === accountId
     );
-    if (!reconnecting && this.state.getWebSockets().length >= room.maxPeers) {
+    if (!existing && Object.keys(room.guests).length >= room.maxPeers - 1) {
       return new Response("Room full", { status: 409 });
     }
-    return Response.json({ maxPeers: room.maxPeers });
+    return Response.json({ role: "guest" satisfies MultiplayerRole });
   }
 
   private async closeRoom(request: Request): Promise<Response> {
@@ -237,13 +290,7 @@ export class MultiplayerRoom {
     if (accountId !== room.ownerId) {
       return new Response("Forbidden", { status: 403 });
     }
-    room.status = "closed";
-    room.revision++;
-    await this.state.storage.put("room", room);
-    await this.state.storage.deleteAlarm();
-    for (const socket of this.state.getWebSockets()) {
-      socket.close(4000, "Room closed");
-    }
+    await this.finishRoom(room, "Room closed");
     return new Response(null, { status: 204 });
   }
 
@@ -263,26 +310,38 @@ export class MultiplayerRoom {
     if (!claims || !room || claims.roomId !== room.roomId) {
       return new Response("Invalid admission ticket", { status: 401 });
     }
-    if (room.status !== "open" || room.expiresAt <= Date.now()) {
+    if (room.status === "closed" || room.expiresAt <= Date.now()) {
       return new Response("Room closed", { status: 410 });
-    }
-    if (claims.role === "owner" && claims.accountId !== room.ownerId) {
-      return new Response("Invalid owner ticket", { status: 403 });
     }
     if (await this.state.storage.get<number>(`used:${claims.peerId}`)) {
       return new Response("Admission ticket already used", { status: 401 });
     }
-    const existing = this.state.getWebSockets();
-    const previous = existing.find((socket) =>
-      socket.deserializeAttachment<PeerSession>()?.accountId ===
-        claims.accountId
-    );
-    if (!previous && existing.length >= room.maxPeers) {
-      return new Response("Room full", { status: 409 });
+    if (claims.role === "host" && claims.accountId !== room.ownerId) {
+      return new Response("Invalid host ticket", { status: 403 });
     }
-    if (previous) previous.close(4001, "Reconnected");
-    await this.state.storage.put(`used:${claims.peerId}`, claims.expiresAt);
+    if (claims.role === "guest") {
+      if (room.status !== "open" || !this.hostSocket(room)) {
+        return new Response("Host unavailable", { status: 409 });
+      }
+      const previous = Object.values(room.guests).find((guest) =>
+        guest.accountId === claims.accountId
+      );
+      if (!previous && Object.keys(room.guests).length >= room.maxPeers - 1) {
+        return new Response("Room full", { status: 409 });
+      }
+      if (previous?.status === "connected") {
+        return new Response("Guest already connected", { status: 409 });
+      }
+      if (previous) {
+        this.socketByPeer(previous.peerId)?.close(
+          4001,
+          "Negotiation restarted",
+        );
+        delete room.guests[previous.peerId];
+      }
+    }
 
+    await this.state.storage.put(`used:${claims.peerId}`, claims.expiresAt);
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
@@ -290,33 +349,101 @@ export class MultiplayerRoom {
       peerId: claims.peerId,
       accountId: claims.accountId,
       displayName: claims.displayName,
-      role: claims.accountId === room.ownerId ? "owner" : "member",
+      role: claims.role,
       joinedAt: Date.now(),
       messageWindowStartedAt: Date.now(),
       messageCount: 0,
     };
     server.serializeAttachment(peer);
+
+    if (claims.role === "host") {
+      const previousHost = this.hostSocket(room);
+      if (previousHost) previousHost.close(4001, "Host reconnected");
+      room.hostPeerId = peer.peerId;
+      room.status = "open";
+      room.revision++;
+    } else {
+      room.guests[peer.peerId] = {
+        peerId: peer.peerId,
+        accountId: peer.accountId,
+        displayName: peer.displayName,
+        status: "negotiating",
+        joinedAt: peer.joinedAt,
+      };
+      room.revision++;
+    }
+
     this.state.acceptWebSocket(server);
-    await this.state.storage.setAlarm(room.expiresAt);
-    room.revision++;
     await this.state.storage.put("room", room);
-    const peers = this.state.getWebSockets()
-      .map((socket) => socket.deserializeAttachment<PeerSession>())
-      .filter((value): value is PeerSession => Boolean(value));
-    server.send(JSON.stringify({
-      type: "snapshot",
-      self: peer,
-      peers: peers.filter((value) => value.peerId !== peer.peerId),
-      revision: room.revision,
-    }));
-    this.broadcast(
-      { type: "peer-joined", peer, revision: room.revision },
-      server,
-    );
+    await this.state.storage.setAlarm(room.expiresAt);
+
+    if (peer.role === "host") {
+      this.send(server, {
+        type: "host-ready",
+        self: peer,
+        guests: Object.values(room.guests),
+        revision: room.revision,
+      });
+    } else {
+      this.send(server, {
+        type: "negotiation-started",
+        self: peer,
+        hostPeerId: room.hostPeerId,
+        revision: room.revision,
+      });
+      const host = this.hostSocket(room);
+      if (host) {
+        this.send(host, {
+          type: "join-request",
+          guest: room.guests[peer.peerId],
+          revision: room.revision,
+        });
+      }
+    }
+
     return new Response(null, {
       status: 101,
       webSocket: client,
     } as ResponseInitWithWebSocket);
+  }
+
+  private consumeMessage(peer: PeerSession, socket: CfWebSocket): boolean {
+    const now = Date.now();
+    if (now - peer.messageWindowStartedAt >= 10_000) {
+      peer.messageWindowStartedAt = now;
+      peer.messageCount = 0;
+    }
+    peer.messageCount++;
+    socket.serializeAttachment(peer);
+    if (peer.messageCount <= 60) return true;
+    socket.close(1008, "Message rate exceeded");
+    return false;
+  }
+
+  private async removeGuest(
+    room: RoomState,
+    peerId: string,
+    reason: "guest-left" | "kick",
+  ): Promise<void> {
+    if (!room.guests[peerId]) return;
+    delete room.guests[peerId];
+    room.revision++;
+    await this.state.storage.put("room", room);
+    this.socketByPeer(peerId)?.close(
+      reason === "kick" ? 4003 : 1000,
+      reason === "kick" ? "Removed by host" : "Guest left",
+    );
+  }
+
+  private async finishRoom(room: RoomState, reason: string): Promise<void> {
+    room.status = "closed";
+    room.revision++;
+    await this.state.storage.put("room", room);
+    await this.state.storage.deleteAlarm();
+    for (const socket of this.state.getWebSockets()) {
+      socket.close(4000, reason);
+    }
+    await this.state.storage.deleteAll();
   }
 
   private room(): Promise<RoomState | undefined> {
@@ -329,20 +456,28 @@ export class MultiplayerRoom {
       request.headers.get("x-room-internal-secret") === secret;
   }
 
+  private hostSocket(room: RoomState): CfWebSocket | undefined {
+    return room.hostPeerId ? this.socketByPeer(room.hostPeerId) : undefined;
+  }
+
+  private guestSockets(): CfWebSocket[] {
+    return this.state.getWebSockets().filter((socket) =>
+      socket.deserializeAttachment<PeerSession>()?.role === "guest"
+    );
+  }
+
   private socketByPeer(peerId: string): CfWebSocket | undefined {
     return this.state.getWebSockets().find((socket) =>
       socket.deserializeAttachment<PeerSession>()?.peerId === peerId
     );
   }
 
-  private sendTo(peerId: string, message: unknown): void {
-    this.socketByPeer(peerId)?.send(JSON.stringify(message));
+  private sendToPeer(peerId: string, message: unknown): void {
+    const socket = this.socketByPeer(peerId);
+    if (socket) this.send(socket, message);
   }
 
-  private broadcast(message: unknown, exclude?: CfWebSocket): void {
-    const serialized = JSON.stringify(message);
-    for (const socket of this.state.getWebSockets()) {
-      if (socket !== exclude) socket.send(serialized);
-    }
+  private send(socket: CfWebSocket, message: unknown): void {
+    socket.send(JSON.stringify(message));
   }
 }

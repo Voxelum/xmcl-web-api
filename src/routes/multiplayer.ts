@@ -149,7 +149,7 @@ export function createMultiplayerRoutes(resolve?: AccountRuntimeResolver) {
       roomId,
       accountId: principal.accountId,
       displayName: ownerDisplayName,
-      role: "owner",
+      role: "host",
       secret,
     });
     return c.json({
@@ -186,18 +186,23 @@ export function createMultiplayerRoutes(resolve?: AccountRuntimeResolver) {
       throw new HTTPException(410, { message: "Room closed" });
     }
     if (admissionCheck.status === 409) {
-      throw new HTTPException(409, { message: "Room full" });
+      throw new HTTPException(409, {
+        message: (await admissionCheck.text()) || "Room unavailable",
+      });
     }
     if (!admissionCheck.ok) {
       throw new HTTPException(502, {
         message: "Unable to check multiplayer room",
       });
     }
+    const admissionState = await admissionCheck.json() as {
+      role: MultiplayerRole;
+    };
     const admission = await issueTicket({
       roomId,
       accountId: principal.accountId,
       displayName: displayName(input.displayName),
-      role: "member",
+      role: admissionState.role,
       secret,
     });
     return c.json({

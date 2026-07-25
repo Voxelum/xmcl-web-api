@@ -1,10 +1,13 @@
 # XMCL Web API
 
-This repository contains the server-side code for the X-Minecraft Launcher (XMCL) web API. It provides various backend services that support the launcher functionality.
+This repository contains the server-side code for the X-Minecraft Launcher
+(XMCL) web API. It provides various backend services that support the launcher
+functionality.
 
 ## Overview
 
 The XMCL Web API serves multiple functions:
+
 - Provides launcher update notifications and release information
 - Manages real-time communication for multiplayer sessions
 - Handles translations for mod descriptions and UI elements
@@ -13,9 +16,9 @@ The XMCL Web API serves multiple functions:
 
 ## Architecture
 
-The API is built as a **single shared [Hono](https://hono.dev) application** that
-runs unchanged on three runtimes via thin per-platform entry points. All HTTP
-routes live in [`src/`](src/) and are registered once in
+The API is built as a **single shared [Hono](https://hono.dev) application**
+that runs unchanged on three runtimes via thin per-platform entry points. All
+HTTP routes live in [`src/`](src/) and are registered once in
 [`src/app.ts`](src/app.ts). Each platform entry only wires up runtime-specific
 behaviour (geo lookup, realtime transport, translation queue) through Hono
 context variables.
@@ -48,16 +51,16 @@ untouched and `new Function`/JIT (forbidden on `workerd`) is avoided.
 
 ### Platform-specific behaviour
 
-| Concern        | Deno                              | Cloudflare Workers                  | Azure Functions          |
-| -------------- | --------------------------------- | ----------------------------------- | ------------------------ |
-| HTTP server    | `Deno.serve(app.fetch)`           | `export default { fetch }`          | HTTP trigger → `app.fetch` |
-| Geo            | `geoip-country` (forwarded IP)    | `request.cf.country` (native)       | `geoip-country`          |
-| `/group/:id`   | native WS + `BroadcastChannel`    | `GroupRoom` Durable Object          | not supported → `501`    |
-| `/v2/multiplayer/rooms/*` | not supported → `501` | authenticated `MultiplayerRoom` Durable Object | not supported → `501` |
-| `/translation` | `Deno.Kv` queue                   | Cloudflare Queue + KV semaphore     | inline (no queue)        |
+| Concern                   | Deno                           | Cloudflare Workers                             | Azure Functions            |
+| ------------------------- | ------------------------------ | ---------------------------------------------- | -------------------------- |
+| HTTP server               | `Deno.serve(app.fetch)`        | `export default { fetch }`                     | HTTP trigger → `app.fetch` |
+| Geo                       | `geoip-country` (forwarded IP) | `request.cf.country` (native)                  | `geoip-country`            |
+| `/group/:id`              | native WS + `BroadcastChannel` | `GroupRoom` Durable Object                     | not supported → `501`      |
+| `/v2/multiplayer/rooms/*` | not supported → `501`          | authenticated `MultiplayerRoom` Durable Object | not supported → `501`      |
+| `/translation`            | `Deno.Kv` queue                | Cloudflare Queue + KV semaphore                | inline (no queue)          |
 
-WebSocket upgrades for `/group/:id` are intercepted in each entry **before**
-the Hono app runs, so the CORS middleware never touches the immutable `101`
+WebSocket upgrades for `/group/:id` are intercepted in each entry **before** the
+Hono app runs, so the CORS middleware never touches the immutable `101`
 response.
 
 ### Multiplayer rooms
@@ -68,6 +71,12 @@ Minecraft traffic remains peer-to-peer and falls back to the TURN credentials
 from `/rtc/official?type=cloudflare`. It is never relayed through the Durable
 Object.
 
+The topology is host-star rather than full mesh. The host keeps one hibernating
+control WebSocket so future guests can negotiate immediately. A guest opens a
+temporary WebSocket only for SDP/ICE exchange with the host and closes it after
+the WebRTC connection is ready. Guests never establish WebRTC links with each
+other, and the host reports later guest disconnections over its control socket.
+
 Authenticated XMCL sessions use:
 
 - `POST /v2/multiplayer/rooms` to create a room and owner admission ticket;
@@ -77,9 +86,11 @@ Authenticated XMCL sessions use:
 
 Set the Worker secret `XMCL_MULTIPLAYER_TICKET_SECRET` to at least 32 random
 characters. Admission tickets expire after five minutes and are single-use.
-Rooms support 2-16 peers, expire after 24 hours, and close after a ten-minute
-empty grace period. The legacy unauthenticated `/group/:id` protocol remains
+Rooms support 2-16 peers, expire after 24 hours, and allow the host 30 seconds
+to restore its control socket before closing. Closed rooms delete their Durable
+Object storage. The legacy unauthenticated `/group/:id` protocol remains
 available separately for existing clients.
+
 ### Other deployments
 
 - **Alibaba Cloud Function (Deno)** — runs the same `index.ts` via a compiled
@@ -91,16 +102,17 @@ available separately for existing clients.
 > uses by default. With the current entity-less native-collection approach this
 > is not needed.
 
-
 ## API Endpoints
 
 All runtimes serve the same routes (defined once in [`src/app.ts`](src/app.ts)):
 
 - `/latest` - Provides information about the latest launcher releases
-- `/releases/:filename` - Access to launcher release files with redirection to GitHub
+- `/releases/:filename` - Access to launcher release files with redirection to
+  GitHub
 - `/notifications` - System notifications for launcher users from GitHub issues
 - `/flights` - Feature flight information for gradual rollouts
-- `/translation` - Translation services for mod descriptions (Modrinth and CurseForge)
+- `/translation` - Translation services for mod descriptions (Modrinth and
+  CurseForge)
 - `/group/:id` - Real-time WebSocket communication for launcher user groups
   (Deno: native WS + `BroadcastChannel`; Cloudflare: `GroupRoom` Durable Object;
   Azure: returns `501`)
@@ -111,20 +123,20 @@ All runtimes serve the same routes (defined once in [`src/app.ts`](src/app.ts)):
 - `/kook-badge` - Access to KOOK integration information
 - `/appx?version=<v>` - 302 to the Windows `.appx` (geo-aware: `cdn.xmcl.app`
   for mainland China, GitHub otherwise)
-- `/appinstaller` - Dynamically-generated `.appinstaller` manifest pointing
-  at the latest stable release. Replaces the static
+- `/appinstaller` - Dynamically-generated `.appinstaller` manifest pointing at
+  the latest stable release. Replaces the static
   `xmcl.blob.core.windows.net/releases/xmcl.appinstaller` mirror.
 - `/prebuilds` - GitHub Actions prebuild workflow runs and artifacts
 - `/v1/auth/*`, `/v1/sessions/*`, `/v1/account/*` - XMCL account, OAuth, and
   session APIs
-
 
 ## Environment Variables
 
 The same variables are used across every runtime (read via `hono/adapter`:
 `Deno.env` on Deno, `process.env` on Azure/Node, bindings on Cloudflare).
 
-- `MONGO_CONNECION_STRING` - MongoDB connection string (note the original spelling)
+- `MONGO_CONNECION_STRING` - MongoDB connection string (note the original
+  spelling)
 - `MONGODB_NAME` - Database name (default: "xmcl-api")
 - `GITHUB_PAT` - GitHub Personal Access Token for API access
 - `AGNES_API_KEY` - API key for translation (Agnes API)
@@ -132,7 +144,8 @@ The same variables are used across every runtime (read via `hono/adapter`:
 - `CURSEFORGE_KEY` - API key for CurseForge integration
 - `MODRINTH_SECRET` - Secret for Modrinth authentication integration
 - `TURNS` - TURN server configuration (format: "realm:ip,realm:ip")
-- `CLOUDFLARE_API_TOKEN` - Cloudflare TURN API token (optional, `/rtc?type=cloudflare`)
+- `CLOUDFLARE_API_TOKEN` - Cloudflare TURN API token (optional,
+  `/rtc?type=cloudflare`)
 - `CLOUDFLARE_APP_ID` - Cloudflare TURN app id (optional)
 - `XMCL_SESSION_SECRET` - At least 32 characters used to sign XMCL session
   access tokens
@@ -154,7 +167,6 @@ The same variables are used across every runtime (read via `hono/adapter`:
 - `TRANSLATION_KV` - KV namespace for the translation semaphore
 - `TRANSLATION_QUEUE` - Queue for offloading `/translation` work (optional)
 
-
 ## Development
 
 ### Prerequisites
@@ -163,7 +175,8 @@ The same variables are used across every runtime (read via `hono/adapter`:
 - [Node.js](https://nodejs.org/) for the Azure Functions and Cloudflare builds
 - [MongoDB](https://www.mongodb.com/) for data storage
 - Azure Functions Core Tools (for local Azure Functions testing)
-- [Wrangler](https://developers.cloudflare.com/workers/wrangler/) (for Cloudflare)
+- [Wrangler](https://developers.cloudflare.com/workers/wrangler/) (for
+  Cloudflare)
 
 ### Local Development
 
@@ -190,12 +203,12 @@ deno check cloudflare/worker.ts  # Cloudflare entry + all shared src
 > `azure/index.ts` is a Node-only entry and is validated by its esbuild build
 > (`npm run build:azure`), not by `deno check`.
 
-
 ## Deployment
 
 ### Deno Deploy
 
-The primary service is deployed on Deno Deploy, which automatically deploys from the main branch.
+The primary service is deployed on Deno Deploy, which automatically deploys from
+the main branch.
 
 ### Azure Functions
 
@@ -207,8 +220,8 @@ az functionapp deployment source config-zip -g myResourceGroup -n myFunctionApp 
 
 ### Cloudflare Workers
 
-The shared app also runs on Cloudflare Workers. From the [`cloudflare/`](cloudflare/)
-folder:
+The shared app also runs on Cloudflare Workers. From the
+[`cloudflare/`](cloudflare/) folder:
 
 ```bash
 cd cloudflare
@@ -229,13 +242,14 @@ wrangler deploy
 
 The `GroupRoom` Durable Object backs `/group/:id` (replacing the Deno
 `BroadcastChannel` fan-out), the Queue + KV pair handle `/translation`, and geo
-is resolved natively from `request.cf.country`. `nodejs_compat` is enabled so the
-MongoDB driver works on `workerd`; a MongoDB Atlas connection string is required.
-
+is resolved natively from `request.cf.country`. `nodejs_compat` is enabled so
+the MongoDB driver works on `workerd`; a MongoDB Atlas connection string is
+required.
 
 ### Alibaba Cloud Function
 
-The Deno service can be deployed to Alibaba Cloud Function using Serverless Devs with a compiled binary:
+The Deno service can be deployed to Alibaba Cloud Function using Serverless Devs
+with a compiled binary:
 
 ```bash
 # Install Serverless Devs CLI
@@ -253,9 +267,11 @@ deno compile --allow-net --allow-read --allow-env \
 s deploy --use-local -y
 ```
 
-The deployment uses a compiled Deno binary and automatically deploys from the main branch via GitHub Actions.
+The deployment uses a compiled Deno binary and automatically deploys from the
+main branch via GitHub Actions.
 
 **Required Secrets for GitHub Actions:**
+
 - `ALIYUN_ACCOUNT_ID` - Alibaba Cloud Account ID
 - `ALIYUN_ACCESS_KEY_ID` - Alibaba Cloud Access Key ID
 - `ALIYUN_ACCESS_KEY_SECRET` - Alibaba Cloud Access Key Secret
@@ -272,8 +288,10 @@ go build -o server main.go
 
 ## TURN Server
 
-For WebRTC functionality, a COTURN server is used. Configuration details are in `COTURN.md`.
+For WebRTC functionality, a COTURN server is used. Configuration details are in
+`COTURN.md`.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the LICENSE file for
+details.

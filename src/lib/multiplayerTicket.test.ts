@@ -14,7 +14,7 @@ Deno.test("multiplayer tickets verify valid claims and reject tampering", async 
     accountId: "account_1",
     peerId: crypto.randomUUID(),
     displayName: "Steve",
-    role: "owner",
+    role: "host",
     issuedAt: now,
     expiresAt: now + 60_000,
   }, secret);
@@ -42,7 +42,7 @@ Deno.test("multiplayer ticket signing requires a dedicated strong secret", async
         accountId: "account",
         peerId: "peer",
         displayName: "Steve",
-        role: "member",
+        role: "guest",
         issuedAt: 1,
         expiresAt: 2,
       }, "short"),

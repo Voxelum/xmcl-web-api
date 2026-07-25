@@ -1,4 +1,4 @@
-export type MultiplayerRole = "owner" | "member";
+export type MultiplayerRole = "host" | "guest";
 
 export interface MultiplayerTicketClaims {
   version: 1;
@@ -85,7 +85,7 @@ export async function verifyMultiplayerTicket(
       !claims.accountId ||
       !claims.peerId ||
       !claims.displayName ||
-      !["owner", "member"].includes(claims.role) ||
+      !["host", "guest"].includes(claims.role) ||
       !Number.isSafeInteger(claims.issuedAt) ||
       !Number.isSafeInteger(claims.expiresAt) ||
       claims.issuedAt > now + 30_000 ||
