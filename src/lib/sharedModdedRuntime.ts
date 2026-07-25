@@ -14,6 +14,11 @@ import type {
 } from "./modpackSources/types.ts";
 import { assertProviderDownloadUrl } from "./modpackSources/types.ts";
 import type { SharedNodeWorkspaceSigner } from "./sharedNodeTransport.ts";
+import {
+  isRuntimeCatalogJava,
+  runtimeCatalog,
+  type RuntimeCatalogJava,
+} from "./runtimeCatalog.ts";
 
 const encoder = new TextEncoder();
 const maxCompilerArtifactBytes = 4 * 1024 * 1024 * 1024;
@@ -24,7 +29,8 @@ export type RuntimeLoaderKind = "forge" | "fabric" | "neoforge" | "quilt";
 export interface RuntimeDescriptor {
   schemaVersion: 1;
   minecraftVersion: string;
-  javaMajor: 8 | 16 | 17 | 21;
+  java: RuntimeCatalogJava;
+  runtimeCatalog: { sha256: string };
   loader: { kind: RuntimeLoaderKind; version: string };
   launch: {
     kind: "generated-server-launcher";
@@ -52,7 +58,7 @@ export interface SharedRuntimeFrozenManifest {
     minecraftVersion: string;
     loader: RuntimeLoaderKind;
     loaderVersion: string;
-    javaMajor: 8 | 16 | 17 | 21;
+    runtimeCatalog: { sha256: string };
   };
   configFiles: Array<{ path: string; sha256: string; sizeBytes: number }>;
   dataFiles: Array<{ path: string; sha256: string; sizeBytes: number }>;
@@ -932,11 +938,11 @@ export class SharedModdedRuntimeService {
   }
 }
 
-export function resolveRuntimeJava(input: {
+export function resolveRuntimeCompatibility(input: {
   minecraftVersion: string;
   loader: string;
   loaderVersion?: string;
-}): { loader: RuntimeLoaderKind; javaMajor: 8 | 16 | 17 | 21 } {
+}): { loader: RuntimeLoaderKind } {
   const loader = input.loader.toLowerCase();
   if (
     !["forge", "fabric", "neoforge", "quilt"].includes(loader) ||
@@ -946,19 +952,7 @@ export function resolveRuntimeJava(input: {
   }
   const version = parseMinecraftVersion(input.minecraftVersion);
   if (!version) throw new SharedModdedRuntimeError("unsupported_compatibility");
-  let javaMajor: 8 | 16 | 17 | 21;
   if (version.major !== 1) {
-    throw new SharedModdedRuntimeError("unsupported_compatibility");
-  }
-  if (version.minor <= 16) javaMajor = 8;
-  else if (version.minor === 17) javaMajor = 16;
-  else if (
-    version.minor >= 17 && version.minor <= 20 &&
-    (version.minor < 20 || version.patch <= 4)
-  ) javaMajor = 17;
-  else if (version.minor > 20 || (version.minor === 20 && version.patch >= 5)) {
-    javaMajor = 21;
-  } else {
     throw new SharedModdedRuntimeError("unsupported_compatibility");
   }
   // NeoForge starts at Minecraft 1.20.2. Reject an invented older mapping
@@ -970,7 +964,24 @@ export function resolveRuntimeJava(input: {
   ) {
     throw new SharedModdedRuntimeError("unsupported_compatibility");
   }
-  return { loader: loader as RuntimeLoaderKind, javaMajor };
+  return { loader: loader as RuntimeLoaderKind };
+}
+
+export function resolveRuntimeJava(input: {
+  minecraftVersion: string;
+  loader: string;
+  loaderVersion?: string;
+  java: RuntimeCatalogJava;
+  runtimeCatalogSha256: string;
+}): { loader: RuntimeLoaderKind; java: RuntimeCatalogJava } {
+  const compatibility = resolveRuntimeCompatibility(input);
+  if (
+    input.runtimeCatalogSha256 !== runtimeCatalog.sha256 ||
+    !isRuntimeCatalogJava(input.java)
+  ) {
+    throw new SharedModdedRuntimeError("unsupported_compatibility");
+  }
+  return { ...compatibility, java: input.java };
 }
 
 export function validateRuntimeDescriptor(value: unknown): RuntimeDescriptor {
@@ -981,7 +992,8 @@ export function validateRuntimeDescriptor(value: unknown): RuntimeDescriptor {
   const allowed = new Set([
     "schemaVersion",
     "minecraftVersion",
-    "javaMajor",
+    "java",
+    "runtimeCatalog",
     "loader",
     "launch",
     "contentSha256",
@@ -991,21 +1003,27 @@ export function validateRuntimeDescriptor(value: unknown): RuntimeDescriptor {
     descriptor.schemaVersion !== 1 ||
     typeof descriptor.minecraftVersion !== "string" ||
     !parseMinecraftVersion(descriptor.minecraftVersion) ||
-    ![8, 16, 17, 21].includes(descriptor.javaMajor as number) ||
     !validSha256(descriptor.contentSha256)
   ) {
     throw new SharedModdedRuntimeError("content_invalid");
   }
   const loader = descriptor.loader;
   const launch = descriptor.launch;
+  const java = descriptor.java;
+  const descriptorCatalog = descriptor.runtimeCatalog;
   if (
     !loader || typeof loader !== "object" || Array.isArray(loader) ||
-    !launch || typeof launch !== "object" || Array.isArray(launch)
+    !launch || typeof launch !== "object" || Array.isArray(launch) ||
+    !java || typeof java !== "object" || Array.isArray(java) ||
+    !descriptorCatalog || typeof descriptorCatalog !== "object" ||
+      Array.isArray(descriptorCatalog)
   ) {
     throw new SharedModdedRuntimeError("content_invalid");
   }
   const loaderRecord = loader as Record<string, unknown>;
   const launchRecord = launch as Record<string, unknown>;
+  const javaRecord = java as Record<string, unknown>;
+  const catalogRecord = descriptorCatalog as Record<string, unknown>;
   if (
     Object.keys(loaderRecord).some((key) =>
       key !== "kind" && key !== "version"
@@ -1021,7 +1039,12 @@ export function validateRuntimeDescriptor(value: unknown): RuntimeDescriptor {
     launchRecord.kind !== "generated-server-launcher" ||
     launchRecord.path !== ".xmcl/launch.sh" ||
     !Array.isArray(launchRecord.arguments) ||
-    launchRecord.arguments.length !== 0
+    launchRecord.arguments.length !== 0 ||
+    Object.keys(javaRecord).some((key) => key !== "component" && key !== "major") ||
+    typeof javaRecord.component !== "string" ||
+    !Number.isSafeInteger(javaRecord.major) ||
+    Object.keys(catalogRecord).some((key) => key !== "sha256") ||
+    typeof catalogRecord.sha256 !== "string"
   ) {
     throw new SharedModdedRuntimeError("content_invalid");
   }
@@ -1029,14 +1052,17 @@ export function validateRuntimeDescriptor(value: unknown): RuntimeDescriptor {
     minecraftVersion: descriptor.minecraftVersion,
     loader: loaderRecord.kind as string,
     loaderVersion: loaderRecord.version,
+    java: {
+      component: javaRecord.component as string,
+      major: javaRecord.major as number,
+    },
+    runtimeCatalogSha256: catalogRecord.sha256,
   });
-  if (compatibility.javaMajor !== descriptor.javaMajor) {
-    throw new SharedModdedRuntimeError("unsupported_compatibility");
-  }
   return {
     schemaVersion: 1,
     minecraftVersion: descriptor.minecraftVersion,
-    javaMajor: descriptor.javaMajor as 8 | 16 | 17 | 21,
+    java: compatibility.java,
+    runtimeCatalog: { sha256: catalogRecord.sha256 },
     loader: {
       kind: loaderRecord.kind as RuntimeLoaderKind,
       version: loaderRecord.version,
@@ -1054,7 +1080,7 @@ async function freezeRuntimeManifest(
   imported: SharedModdedImport,
 ): Promise<SharedRuntimeFrozenManifest> {
   const compatibility = imported.validation!.compatibility!;
-  const resolved = resolveRuntimeJava({
+  const resolved = resolveRuntimeCompatibility({
     minecraftVersion: compatibility.minecraftVersion,
     loader: compatibility.loader,
     loaderVersion: compatibility.loaderVersion,
@@ -1093,7 +1119,7 @@ async function freezeRuntimeManifest(
       minecraftVersion: compatibility.minecraftVersion,
       loader: resolved.loader,
       loaderVersion: compatibility.loaderVersion!,
-      javaMajor: resolved.javaMajor,
+      runtimeCatalog: { sha256: runtimeCatalog.sha256 },
     },
     configFiles: imported.validated!.configFiles.map(fileSummary).sort(
       sortPath,
@@ -1125,7 +1151,7 @@ function validateCompiledContent(
   ) {
     throw new SharedModdedRuntimeError("content_invalid");
   }
-  const resolved = resolveRuntimeJava({
+  const resolved = resolveRuntimeCompatibility({
     minecraftVersion: deployment.frozenManifest.compatibility.minecraftVersion,
     loader: deployment.frozenManifest.compatibility.loader,
     loaderVersion: deployment.frozenManifest.compatibility.loaderVersion,
@@ -1136,7 +1162,8 @@ function validateCompiledContent(
     descriptor.loader.kind !== resolved.loader ||
     descriptor.loader.version !==
       deployment.frozenManifest.compatibility.loaderVersion ||
-    descriptor.javaMajor !== resolved.javaMajor
+    descriptor.runtimeCatalog.sha256 !==
+      deployment.frozenManifest.compatibility.runtimeCatalog.sha256
   ) {
     throw new SharedModdedRuntimeError("content_invalid");
   }

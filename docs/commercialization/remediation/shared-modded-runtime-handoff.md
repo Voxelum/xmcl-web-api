@@ -68,7 +68,13 @@ content layer, for example `.xmcl/runtime.json`:
 {
   "schemaVersion": 1,
   "minecraftVersion": "1.12.2",
-  "javaMajor": 8,
+  "java": {
+    "component": "jre-legacy",
+    "major": 8
+  },
+  "runtimeCatalog": {
+    "sha256": "<reviewed-runtime-catalog-lock-sha256>"
+  },
   "loader": {
     "kind": "forge",
     "version": "14.23.5.2860"
@@ -109,18 +115,16 @@ quilt
 Design the enum to be extensible for future plugin servers without treating
 them as mod loader aliases.
 
-Support all Java eras through trusted JREs in the generic runtime image:
+Support all Java eras through the reviewed Mojang-first runtime catalog and
+trusted JREs in the generic runtime image. The current catalog includes Java
+8, 16, 17, 21, and 25; future component/major pairs are data updates, not
+application enum changes.
 
-| Java major | Primary compatibility |
-| --- | --- |
-| 8 | legacy Forge/Fabric packs (including 1.12.2-era) |
-| 17 | modern 1.17 through 1.20.4-era packs |
-| 21 | 1.20.5+ and current packs |
-
-The compiler resolves `javaMajor` from validated loader/Minecraft compatibility
-metadata. It must not guess solely from a broad Minecraft-version string where
-the loader has a known exception. Unknown mappings fail with an explicit
-unsupported-compatibility result; do not silently select a different Java.
+The compiler reads the exact official Minecraft version descriptor's
+`javaVersion.component` and `javaVersion.majorVersion`, verifies the pair in
+the reviewed catalog, and emits that pair plus the catalog SHA-256. Consumers
+reject a different catalog revision, a missing requirement, or a major absent
+from the image catalog. They do not maintain a Minecraft-version-to-Java table.
 
 ## Compiler inputs and sandbox
 
@@ -129,7 +133,8 @@ Compiler input includes:
 
 - account/service/deployment identity;
 - frozen deployment manifest and manifest hash;
-- validated Minecraft version, loader kind/version, Java major;
+- validated Minecraft version, loader kind/version, and the reviewed runtime
+  catalog revision;
 - resolved mod artifact URLs and SHA-256 hashes;
 - validated config/defaultconfig/data files;
 - compiler request idempotency key.
@@ -164,7 +169,8 @@ Build and publish a trusted image owned by XMCL, e.g.
 ghcr.io/voxelum/xmcl-shared-minecraft-runtime:<immutable digest>
 ```
 
-It contains pinned Java 8, 16, 17, and 21 runtimes plus a small non-root launcher.
+It contains the JREs materialized from the reviewed runtime catalog (currently
+Java 8, 16, 17, 21, and 25) plus a small non-root launcher.
 It must:
 
 - run as UID/GID 1000 and use `/data` as its only writable application state;

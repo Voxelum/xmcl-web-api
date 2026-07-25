@@ -6,7 +6,9 @@ import {
   type RuntimeDescriptor,
   SharedModdedRuntimeError,
   SharedModdedRuntimeService,
+  validateRuntimeDescriptor,
 } from "./sharedModdedRuntime.ts";
+import { runtimeCatalog } from "./runtimeCatalog.ts";
 import {
   MemorySharedHostingSchedulerRepository,
   SharedHostingScheduler,
@@ -145,7 +147,8 @@ async function publishedFixture() {
   const descriptor: RuntimeDescriptor = {
     schemaVersion: 1,
     minecraftVersion: "1.21.1",
-    javaMajor: 21,
+    java: { component: "java-runtime-delta", major: 21 },
+    runtimeCatalog: { sha256: runtimeCatalog.sha256 },
     loader: { kind: "fabric", version: "0.16.10" },
     launch: {
       kind: "generated-server-launcher",
@@ -174,45 +177,30 @@ async function publishedFixture() {
   return { ...f, service, deployment, compilerGrants };
 }
 
-Deno.test("resolves Java 8, 16, 17 and 21 only from supported loader compatibility", () => {
-  assert.equal(
-    resolveRuntimeJava({
-      minecraftVersion: "1.12.2",
-      loader: "forge",
-      loaderVersion: "14.23.5.2860",
-    }).javaMajor,
-    8,
-  );
-  assert.equal(
-    resolveRuntimeJava({
-      minecraftVersion: "1.17.1",
-      loader: "forge",
-      loaderVersion: "37.1.1",
-    }).javaMajor,
-    16,
-  );
-  assert.equal(
-    resolveRuntimeJava({
-      minecraftVersion: "1.20.1",
-      loader: "fabric",
-      loaderVersion: "0.15.0",
-    }).javaMajor,
-    17,
-  );
-  assert.equal(
-    resolveRuntimeJava({
-      minecraftVersion: "1.21.1",
-      loader: "neoforge",
-      loaderVersion: "21.1.1",
-    }).javaMajor,
-    21,
-  );
+Deno.test("validates every reviewed catalog Java requirement without a version mapping", () => {
+  const majors = new Set<number>();
+  for (const java of runtimeCatalog.requirements) {
+    assert.deepEqual(
+      resolveRuntimeJava({
+        minecraftVersion: "1.21.1",
+        loader: "fabric",
+        loaderVersion: "0.16.10",
+        java,
+        runtimeCatalogSha256: runtimeCatalog.sha256,
+      }).java,
+      java,
+    );
+    majors.add(java.major);
+  }
+  assert.ok(majors.has(25));
   assert.throws(
     () =>
       resolveRuntimeJava({
         minecraftVersion: "1.20",
         loader: "forge",
         loaderVersion: "47.0.0",
+        java: { component: "java-runtime-gamma", major: 17 },
+        runtimeCatalogSha256: runtimeCatalog.sha256,
       }),
     (error) =>
       error instanceof SharedModdedRuntimeError &&
@@ -224,6 +212,8 @@ Deno.test("resolves Java 8, 16, 17 and 21 only from supported loader compatibili
         minecraftVersion: "1.12.2",
         loader: "neoforge",
         loaderVersion: "21.1.1",
+        java: { component: "jre-legacy", major: 8 },
+        runtimeCatalogSha256: runtimeCatalog.sha256,
       }),
     (error) =>
       error instanceof SharedModdedRuntimeError &&
@@ -231,8 +221,43 @@ Deno.test("resolves Java 8, 16, 17 and 21 only from supported loader compatibili
   );
 });
 
+Deno.test("rejects Java component, major, and catalog-revision mismatches", () => {
+  const descriptor: RuntimeDescriptor = {
+    schemaVersion: 1,
+    minecraftVersion: "1.21.1",
+    java: { component: "java-runtime-delta", major: 21 },
+    runtimeCatalog: { sha256: runtimeCatalog.sha256 },
+    loader: { kind: "fabric", version: "0.16.10" },
+    launch: {
+      kind: "generated-server-launcher",
+      path: ".xmcl/launch.sh",
+      arguments: [],
+    },
+    contentSha256: "b".repeat(64),
+  };
+  for (const invalid of [
+    { ...descriptor, java: { component: "java-runtime-delta", major: 25 } },
+    { ...descriptor, java: { component: "unreviewed-component", major: 21 } },
+    {
+      ...descriptor,
+      runtimeCatalog: { sha256: "c".repeat(64) },
+    },
+  ]) {
+    assert.throws(
+      () => validateRuntimeDescriptor(invalid),
+      (error) =>
+        error instanceof SharedModdedRuntimeError &&
+        error.code === "unsupported_compatibility",
+    );
+  }
+});
+
 Deno.test("compiler grants bind the frozen service/deployment and one immutable output key", async () => {
   const { deployment, compilerGrants: grants } = await publishedFixture();
+  assert.equal(
+    deployment.frozenManifest.compatibility.runtimeCatalog.sha256,
+    runtimeCatalog.sha256,
+  );
   assert.equal(grants.deploymentId, deployment.deploymentId);
   assert.deepEqual(grants.grants.map((grant) => [grant.method, grant.key]), [
     ["GET", deployment.frozenManifest.archive.key],
@@ -379,7 +404,8 @@ Deno.test("a missing server-side terms acceptance cannot select content", async 
   const descriptor: RuntimeDescriptor = {
     schemaVersion: 1,
     minecraftVersion: "1.21.1",
-    javaMajor: 21,
+    java: { component: "java-runtime-delta", major: 21 },
+    runtimeCatalog: { sha256: runtimeCatalog.sha256 },
     loader: { kind: "fabric", version: "0.16.10" },
     launch: {
       kind: "generated-server-launcher",
