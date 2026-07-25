@@ -32,16 +32,10 @@ export interface DurableObjectState {
 
 /** Cloudflare's server-side WebSocket (superset of the DOM WebSocket). */
 export interface CfWebSocket {
-  accept(): void;
   send(message: string | ArrayBuffer | ArrayBufferView): void;
   close(code?: number, reason?: string): void;
   serializeAttachment(value: unknown): void;
   deserializeAttachment<T>(): T | null;
-  addEventListener(
-    type: "message",
-    listener: (event: { data: string | ArrayBuffer }) => void,
-  ): void;
-  addEventListener(type: "close" | "error", listener: () => void): void;
 }
 
 export interface CfWebSocketPair {

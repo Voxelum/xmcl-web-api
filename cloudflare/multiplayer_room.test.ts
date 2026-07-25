@@ -55,7 +55,6 @@ function socketWith(peer: {
   const sent: string[] = [];
   let closed: { code?: number; reason?: string } | undefined;
   const socket: CfWebSocket = {
-    accept: () => {},
     send: (message) => sent.push(String(message)),
     close: (code, reason) => {
       closed = { code, reason };
@@ -64,7 +63,6 @@ function socketWith(peer: {
       attachment = value;
     },
     deserializeAttachment: <T>() => attachment as T,
-    addEventListener: () => {},
   };
   return {
     socket,

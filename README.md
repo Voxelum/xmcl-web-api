@@ -39,7 +39,7 @@ src/
   translation_service.ts  runTranslation(): shared translate + cache logic
 
 index.ts            Deno entry      → Deno.serve
-cloudflare/worker.ts  Cloudflare entry → fetch/queue/scheduled + GroupRoom DO
+cloudflare/worker.ts  Cloudflare entry → fetch/queue/scheduled + MultiplayerRoom DO
 azure/index.ts      Azure entry     → @azure/functions HTTP trigger
 ```
 
@@ -55,13 +55,13 @@ untouched and `new Function`/JIT (forbidden on `workerd`) is avoided.
 | ------------------------- | ------------------------------ | ---------------------------------------------- | -------------------------- |
 | HTTP server               | `Deno.serve(app.fetch)`        | `export default { fetch }`                     | HTTP trigger → `app.fetch` |
 | Geo                       | `geoip-country` (forwarded IP) | `request.cf.country` (native)                  | `geoip-country`            |
-| `/group/:id`              | native WS + `BroadcastChannel` | `GroupRoom` Durable Object                     | not supported → `501`      |
+| `/group/:id`              | native WS + `BroadcastChannel` | not supported → `501`                          | not supported → `501`      |
 | `/v2/multiplayer/rooms/*` | not supported → `501`          | authenticated `MultiplayerRoom` Durable Object | not supported → `501`      |
 | `/translation`            | `Deno.Kv` queue                | Cloudflare Queue + KV semaphore                | inline (no queue)          |
 
-WebSocket upgrades for `/group/:id` are intercepted in each entry **before** the
-Hono app runs, so the CORS middleware never touches the immutable `101`
-response.
+WebSocket upgrades for `/group/:id` are intercepted by the Deno entry before
+the Hono app runs, so the CORS middleware never touches the immutable `101`
+response. Cloudflare supports only multiplayer v2.
 
 ### Multiplayer rooms
 
@@ -89,7 +89,7 @@ characters. Admission tickets expire after five minutes and are single-use.
 Rooms support 2-16 peers, expire after 24 hours, and allow the host 30 seconds
 to restore its control socket before closing. Closed rooms delete their Durable
 Object storage. The legacy unauthenticated `/group/:id` protocol remains
-available separately for existing clients.
+available only on the Deno deployment.
 
 ### Other deployments
 
@@ -114,8 +114,7 @@ All runtimes serve the same routes (defined once in [`src/app.ts`](src/app.ts)):
 - `/translation` - Translation services for mod descriptions (Modrinth and
   CurseForge)
 - `/group/:id` - Real-time WebSocket communication for launcher user groups
-  (Deno: native WS + `BroadcastChannel`; Cloudflare: `GroupRoom` Durable Object;
-  Azure: returns `501`)
+  (Deno: native WS + `BroadcastChannel`; Cloudflare/Azure: return `501`)
 - `/rtc/official` - WebRTC signaling for peer connections
 - `/zulu` - Proxies the Zulu JRE manifest from xmcl-static-resource
 - `/elyby/authlib` - Authentication library access
@@ -163,7 +162,7 @@ The same variables are used across every runtime (read via `hono/adapter`:
 
 ### Cloudflare-only bindings (wrangler.toml)
 
-- `GROUP_ROOM` - Durable Object namespace (class `GroupRoom`) for `/group/:id`
+- `MULTIPLAYER_ROOM` - Durable Object namespace for authenticated multiplayer v2
 - `TRANSLATION_KV` - KV namespace for the translation semaphore
 - `TRANSLATION_QUEUE` - Queue for offloading `/translation` work (optional)
 
@@ -240,11 +239,10 @@ wrangler secret put GITHUB_PAT
 wrangler deploy
 ```
 
-The `GroupRoom` Durable Object backs `/group/:id` (replacing the Deno
-`BroadcastChannel` fan-out), the Queue + KV pair handle `/translation`, and geo
-is resolved natively from `request.cf.country`. `nodejs_compat` is enabled so
-the MongoDB driver works on `workerd`; a MongoDB Atlas connection string is
-required.
+The `MultiplayerRoom` Durable Object backs authenticated multiplayer v2. The
+Queue + KV pair handle `/translation`, and geo is resolved natively from
+`request.cf.country`. `nodejs_compat` is enabled so the MongoDB driver works on
+`workerd`; a MongoDB Atlas connection string is required.
 
 ### Alibaba Cloud Function
 

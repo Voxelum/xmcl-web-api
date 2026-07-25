@@ -12,11 +12,6 @@ compatibility_flags = ["nodejs_compat"]
 MONGODB_NAME = "xmcl-api"
 TURNS = ""
 
-# Durable Object backing /group/:id realtime rooms (replaces BroadcastChannel).
-[[durable_objects.bindings]]
-name = "GROUP_ROOM"
-class_name = "GroupRoom"
-
 [[durable_objects.bindings]]
 name = "MULTIPLAYER_ROOM"
 class_name = "MultiplayerRoom"
@@ -28,6 +23,10 @@ new_sqlite_classes = ["GroupRoom"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["MultiplayerRoom"]
+
+[[migrations]]
+tag = "v3"
+deleted_classes = ["GroupRoom"]
 
 # KV holds the per-(lang,id) translation semaphore (replaces the Deno.Kv lock).
 [[kv_namespaces]]

@@ -4,7 +4,6 @@ import { createApp } from "../src/app.ts";
 import type { AppConfig } from "../src/config.ts";
 import { createDbMiddleware } from "../src/middleware/db.ts";
 import { getDb } from "../src/platform/db_npm.ts";
-import { matchGroupUpgrade } from "../src/realtime/match.ts";
 import {
   runTranslation,
   type TranslationJob,
@@ -15,18 +14,16 @@ import type {
   MessageBatch,
   ScheduledController,
 } from "./cf_types.ts";
-import { GroupRoom } from "./group_room.ts";
 import { MultiplayerRoom } from "./multiplayer_room.ts";
 
 // The Durable Object class must be exported from the worker module.
-export { GroupRoom };
 export { MultiplayerRoom };
 
 /**
  * Cloudflare Workers entry point. Reuses the shared Hono app and injects the
  * Cloudflare-specific platform behaviour:
- *  - `/group/:id` realtime upgrades are forwarded to the GroupRoom Durable
- *    Object (intercepted before the app so CORS never touches the 101 response).
+ *  - Multiplayer v2 upgrades are forwarded to one MultiplayerRoom Durable
+ *    Object per room.
  *  - `/translation` offloads work to a Queue; the `queue` handler processes it.
  *  - geo is resolved natively via `request.cf.country` (see src/geo.ts).
  */
@@ -85,12 +82,6 @@ export default {
     env: any,
     ctx: ExecutionContext,
   ): Response | Promise<Response> {
-    const group = matchGroupUpgrade(request);
-    if (group !== undefined) {
-      const ns = env.GROUP_ROOM;
-      const stub = ns.get(ns.idFromName(group));
-      return stub.fetch(request);
-    }
     const url = new URL(request.url);
     const multiplayer =
       /^\/v2\/multiplayer\/rooms\/([0-9a-f-]{36})\/socket\/?$/i.exec(
