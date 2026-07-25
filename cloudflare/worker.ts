@@ -12,6 +12,13 @@ import {
 } from "../src/lib/sharedHostingRuntime.ts";
 import { hasSharedNodeRuntimeSettings } from "../src/lib/productionComposition.ts";
 import { createS3SigV4Presigner } from "../src/lib/s3SigV4.ts";
+import {
+  HmacPayPalWebhookProxyIdentity,
+} from "../src/lib/paypalWebhookProxyIdentity.ts";
+import {
+  PayPalWebhookBodyTooLargeError,
+  readPayPalWebhookRawBody,
+} from "../src/lib/paypalWebhook.ts";
 import type { AppEnv } from "../src/types.ts";
 import type { DbFactory } from "../src/db.ts";
 import type { ExecutionContext, ScheduledController } from "./cf_types.ts";
@@ -27,6 +34,157 @@ const getCloudflareDb: DbFactory = async (config) => {
   const { createDb } = await import("../src/platform/db_npm.ts");
   return createDb(config);
 };
+
+export const PAYPAL_WEBHOOK_PATH = "/v1/webhooks/paypal";
+export const PAYPAL_WEBHOOK_AZURE_TARGET = "/api/v1/webhooks/paypal";
+export const PAYPAL_WEBHOOK_STAGING_HOST =
+  "xmcl-web-api-shared-sgp-staging.cijhn.workers.dev";
+const PAYPAL_WEBHOOK_PROXY_TIMEOUT_MS = 10_000;
+const payPalForwardedHeaders = [
+  "paypal-auth-algo",
+  "paypal-cert-url",
+  "paypal-transmission-id",
+  "paypal-transmission-sig",
+  "paypal-transmission-time",
+  "paypal-webhook-id",
+  "webhook-id",
+] as const;
+
+interface PayPalWebhookProxySettings {
+  url: string;
+  keyId: string;
+  secret: string;
+}
+
+/**
+ * The proxy destination is deployment configuration, never a request input.
+ * Reject every form that could make this an open proxy or change the Azure
+ * Function route being authenticated.
+ */
+export function paypalWebhookProxySettings(
+  env: AppConfig,
+): PayPalWebhookProxySettings | undefined {
+  if (
+    !validKeyId(env.XMCL_PAYPAL_WEBHOOK_PROXY_KEY_ID) ||
+    !hasHmacSecret(env.XMCL_PAYPAL_WEBHOOK_PROXY_SECRET) ||
+    typeof env.PAYPAL_WEBHOOK_PROXY_URL !== "string"
+  ) {
+    return undefined;
+  }
+  try {
+    const url = new URL(env.PAYPAL_WEBHOOK_PROXY_URL);
+    if (
+      url.protocol !== "https:" || !url.hostname || url.username ||
+      url.password || url.search || url.hash ||
+      url.pathname !== PAYPAL_WEBHOOK_AZURE_TARGET
+    ) {
+      return undefined;
+    }
+    return {
+      url: url.href,
+      keyId: env.XMCL_PAYPAL_WEBHOOK_PROXY_KEY_ID,
+      secret: env.XMCL_PAYPAL_WEBHOOK_PROXY_SECRET,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Returns `undefined` unless this is the one fixed PayPal delivery endpoint.
+ * Its caller can then fall through to the normal, payment-disabled app.
+ */
+export async function proxyPayPalWebhook(
+  request: Request,
+  env: AppConfig,
+  fetchImpl: typeof fetch = fetch,
+) {
+  const incoming = new URL(request.url);
+  const settings = paypalWebhookProxySettings(env);
+  if (
+    !settings || request.method !== "POST" ||
+    incoming.hostname !== PAYPAL_WEBHOOK_STAGING_HOST ||
+    incoming.pathname !== PAYPAL_WEBHOOK_PATH || incoming.search
+  ) {
+    return undefined;
+  }
+
+  let raw: Uint8Array;
+  try {
+    raw = await readPayPalWebhookRawBody(request);
+  } catch (error) {
+    if (error instanceof PayPalWebhookBodyTooLargeError) {
+      return new Response(JSON.stringify({ error: "payload_too_large" }), {
+        status: 413,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({ error: "invalid_webhook_payload" }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  const headers = forwardedPayPalHeaders(request.headers);
+  const identity = new HmacPayPalWebhookProxyIdentity({
+    keyId: settings.keyId,
+    secret: settings.secret,
+  });
+  try {
+    const identityHeaders = await identity.signOutgoing({
+      method: "POST",
+      target: PAYPAL_WEBHOOK_AZURE_TARGET,
+      body: raw,
+    });
+    for (const [name, value] of Object.entries(identityHeaders)) {
+      headers.set(name, value);
+    }
+    const response = await fetchImpl(settings.url, {
+      method: "POST",
+      headers,
+      body: raw as unknown as BodyInit,
+      signal: AbortSignal.timeout(PAYPAL_WEBHOOK_PROXY_TIMEOUT_MS),
+      redirect: "error",
+      credentials: "omit",
+    });
+    const responseHeaders = new Headers();
+    const contentType = response.headers.get("content-type");
+    if (contentType) responseHeaders.set("content-type", contentType);
+    return new Response(response.body, {
+      status: response.status,
+      headers: responseHeaders,
+    });
+  } catch (error) {
+    const status = error instanceof DOMException && error.name === "TimeoutError"
+      ? 503
+      : 502;
+    return new Response(JSON.stringify({ error: "paypal_webhook_proxy_unavailable" }), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  }
+}
+
+function forwardedPayPalHeaders(source: Headers) {
+  const headers = new Headers();
+  const contentType = source.get("content-type");
+  if (contentType) headers.set("content-type", contentType);
+  for (const name of payPalForwardedHeaders) {
+    const value = source.get(name);
+    if (value) headers.set(name, value);
+  }
+  return headers;
+}
+
+function validKeyId(value: string | undefined): value is string {
+  return typeof value === "string" &&
+    /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
+}
+
+function hasHmacSecret(value: string | undefined): value is string {
+  return typeof value === "string" &&
+    new TextEncoder().encode(value).byteLength >= 32;
+}
 
 /**
  * Cloudflare Workers entry point. Reuses the shared Hono app and injects the
@@ -94,11 +252,15 @@ function createCloudflareApp(
 }
 
 export default {
-  fetch(
+  async fetch(
     request: Request,
     env: any,
     ctx: ExecutionContext,
-  ): Response | Promise<Response> {
+  ): Promise<Response> {
+    // Make the proxy decision before constructing the Hono app. In particular,
+    // no Cloudflare Mongo connector is imported or invoked for this path.
+    const proxied = await proxyPayPalWebhook(request, env);
+    if (proxied) return proxied;
     const group = matchGroupUpgrade(request);
     if (group !== undefined) {
       const ns = env.GROUP_ROOM;

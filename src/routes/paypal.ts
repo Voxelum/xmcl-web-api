@@ -3,6 +3,11 @@ import { AccountError } from "../lib/account.ts";
 import { handleAccountError, jsonBody } from "../lib/accountHttp.ts";
 import { getPayPalService } from "../lib/billingRuntime.ts";
 import type { PayPalService } from "../lib/paypal.ts";
+import {
+  decodePayPalWebhookBody,
+  PayPalWebhookBodyTooLargeError,
+  readPayPalWebhookRawBody,
+} from "../lib/paypalWebhook.ts";
 import { getAccountRuntime } from "../lib/accountRuntime.ts";
 import type { AccountRuntimeResolver } from "../middleware/xmclAuth.ts";
 import { xmclAuth } from "../middleware/xmclAuth.ts";
@@ -47,15 +52,43 @@ export function createPayPalRoutes(
       ),
   );
 
-  app.post("/v1/webhooks/paypal", async (c) => {
-    const rawBody = await c.req.text();
-    const result = await (await paypalFor(c, paypal)).receiveWebhook(
-      rawBody,
-      headers(c),
-    );
-    return c.json(result, 202);
-  });
+  app.post("/v1/webhooks/paypal", (c) => handlePayPalWebhook(c, paypal));
   return app;
+}
+
+export async function handlePayPalWebhook(
+  c: Context<AppEnv>,
+  injected?: PayPalService,
+) {
+  let raw: Uint8Array;
+  try {
+    raw = await readPayPalWebhookRawBody(c.req.raw);
+  } catch (error) {
+    if (error instanceof PayPalWebhookBodyTooLargeError) {
+      return c.json({ error: "payload_too_large" }, 413);
+    }
+    throw new AccountError(422, "invalid_webhook_payload");
+  }
+  const result = await receivePayPalWebhook(
+    raw,
+    headers(c),
+    await paypalFor(c, injected),
+  );
+  return c.json(result, 202);
+}
+
+export async function receivePayPalWebhook(
+  raw: Uint8Array,
+  requestHeaders: Record<string, string>,
+  paypal: Pick<PayPalService, "receiveWebhook">,
+) {
+  let rawBody: string;
+  try {
+    rawBody = decodePayPalWebhookBody(raw);
+  } catch {
+    throw new AccountError(422, "invalid_webhook_payload");
+  }
+  return await paypal.receiveWebhook(rawBody, requestHeaders);
 }
 
 async function paypalFor(c: Context<AppEnv>, injected?: PayPalService) {

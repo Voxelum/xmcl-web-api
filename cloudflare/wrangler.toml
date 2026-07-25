@@ -11,6 +11,11 @@ compatibility_flags = ["nodejs_compat_v2"]
 # XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY
 # Alongside the endpoint, region, and bucket configuration, worker.ts creates
 # the server-only SigV4 signer. Nodes receive only its command-bound URLs.
+#
+# The staging-only PayPal Sandbox webhook proxy also uses Worker secrets:
+# PAYPAL_WEBHOOK_PROXY_URL, XMCL_PAYPAL_WEBHOOK_PROXY_KEY_ID, and
+# XMCL_PAYPAL_WEBHOOK_PROXY_SECRET. Its destination is a fixed Azure `/api`
+# endpoint; never configure these values in [vars].
 
 # Durable Object backing /group/:id realtime rooms (replaces BroadcastChannel).
 [[durable_objects.bindings]]

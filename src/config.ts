@@ -43,6 +43,12 @@ export interface AppConfig {
   PAYPAL_RETURN_URL?: string;
   PAYPAL_CANCEL_URL?: string;
   PAYPAL_API_BASE_URL?: string;
+  /** Fixed Azure control-plane URL used only by the Cloudflare PayPal proxy. */
+  PAYPAL_WEBHOOK_PROXY_URL?: string;
+  /** Worker-to-Azure PayPal webhook proxy workload identity key id. */
+  XMCL_PAYPAL_WEBHOOK_PROXY_KEY_ID?: string;
+  /** Worker-to-Azure PayPal webhook proxy HMAC secret (at least 32 UTF-8 bytes). */
+  XMCL_PAYPAL_WEBHOOK_PROXY_SECRET?: string;
   /**
    * Optional comma-separated exact HTTPS callbacks for website OAuth.
    * Launcher loopback callbacks are code-owned and require no configuration.

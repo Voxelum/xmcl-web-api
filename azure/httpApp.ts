@@ -5,6 +5,9 @@ import { geoipMiddleware } from "../src/middleware/geoip.ts";
 import { getDb } from "../src/platform/db_npm.ts";
 import { createSharedModdedCompilerRoutes } from "../src/routes/sharedModdedRuntime.ts";
 import { createAzureCompilerControlPlane } from "./compilerControlPlane.ts";
+import {
+  createAzurePayPalWebhookControlPlane,
+} from "./paypalWebhookControlPlane.ts";
 
 /**
  * Azure keeps account and internal node composition from the shared production
@@ -24,14 +27,22 @@ export function createAzureHttpApp(
     environment,
     signer,
   );
+  const paypalWebhookControlPlane = createAzurePayPalWebhookControlPlane(
+    environment,
+  );
   const app = createProductionApp(
     (hono) => {
       hono.use("*", geoipMiddleware);
       hono.use("*", createDbMiddleware(getDb));
       compilerControlPlane?.register(hono);
+      paypalWebhookControlPlane?.register(hono);
     },
     environment,
     { SHARED_NODE_WORKSPACE_SIGNER: signer },
+    {
+      billingRoutes: false,
+      paymentRoutes: false,
+    },
   );
   if (compilerControlPlane) {
     app.route("/", createSharedModdedCompilerRoutes());

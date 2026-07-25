@@ -82,6 +82,56 @@ PayPal order creation uses the immutable local order ID in the
 `PayPal-Request-Id` header. Recovery must retain that identity and only verified
 webhooks may credit cash balances.
 
+## Staging-only PayPal Sandbox webhook proxy
+
+The staging webhook does **not** enable public PayPal orders, capture, balance,
+or ledger routes. PayPal Sandbox must call the nonproduction Cloudflare Worker,
+which forwards only the fixed webhook POST to Azure. The Worker never opens a
+Mongo connection for that proxy request; Azure owns raw-body signature
+verification and the durable Mongo ledger operation.
+
+After this change is reviewed and deployed, set these **Azure Function App**
+settings on `xmcl-shared-sgp-control`:
+
+- `MONGO_CONNECION_STRING`, optional `MONGODB_NAME`, and a valid
+  `BILLING_RATES_JSON` for the reachable Cosmos Mongo account;
+- `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and `PAYPAL_WEBHOOK_ID` from the
+  PayPal Sandbox app;
+- `PAYPAL_API_BASE_URL=https://api-m.sandbox.paypal.com` exactly (the Azure
+  webhook route is intentionally not mounted for a live or other API base);
+- `XMCL_PAYPAL_WEBHOOK_PROXY_KEY_ID=paypal-worker-staging-v1` (or another
+  documented key ID matching `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`);
+- `XMCL_PAYPAL_WEBHOOK_PROXY_SECRET=<new random server-only secret of at least
+  32 UTF-8 bytes>`.
+
+Set these **Cloudflare Worker secrets** on the staging Worker only; do not put
+them in `[vars]` or source control:
+
+- `PAYPAL_WEBHOOK_PROXY_URL=https://xmcl-shared-sgp-control.azurewebsites.net/api/v1/webhooks/paypal`;
+- `XMCL_PAYPAL_WEBHOOK_PROXY_KEY_ID=paypal-worker-staging-v1`, exactly matching
+  Azure;
+- `XMCL_PAYPAL_WEBHOOK_PROXY_SECRET=<the same new random secret>`.
+
+Register this exact PayPal **Sandbox** webhook URL, formed from the existing
+staging Worker origin and the one proxy path:
+
+```text
+https://xmcl-web-api-shared-sgp-staging.cijhn.workers.dev/v1/webhooks/paypal
+```
+
+Do not register the Azure URL with PayPal. Do not add a query string, credentials
+or a fragment to `PAYPAL_WEBHOOK_PROXY_URL`; the Worker rejects those values and
+requires the exact `/api/v1/webhooks/paypal` target. The proxy also activates
+only for the staging Worker hostname shown above. It forwards only
+`content-type`, PayPal signature/request headers, and its HMAC identity. Azure
+requires a fresh signed `POST /api/v1/webhooks/paypal`, rejects nonce replays in
+Mongo, and verifies the PayPal signature before touching the ledger.
+
+Validate with a Sandbox delivery, a duplicate delivery, and a deliberately
+invalid signature. Check only sanitized status/error metadata in logs; never log
+webhook bodies, credentials, HMAC headers, or PayPal signature headers. This
+change does not deploy either service or set any real credentials.
+
 ## Route status
 
 Public payment and shared-hosting routes remain disabled in production

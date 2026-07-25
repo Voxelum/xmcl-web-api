@@ -47,6 +47,7 @@ export function createProductionApp(
   register?: (app: Hono<AppEnv>) => void,
   config?: AppConfig,
   bindings?: SharedNodeProductionBindings,
+  routeOptions?: Partial<CreateAppOptions>,
 ) {
   return createApp((app) => {
     register?.(app);
@@ -67,5 +68,5 @@ export function createProductionApp(
       }
       await next();
     });
-  }, productionAppOptions(config, bindings));
+  }, { ...productionAppOptions(config, bindings), ...routeOptions });
 }
