@@ -15,6 +15,12 @@ import type {
 import { assertProviderDownloadUrl } from "./modpackSources/types.ts";
 import type { SharedNodeWorkspaceSigner } from "./sharedNodeTransport.ts";
 import {
+  type ValidatedXmclServerBundle,
+  type XmclServerBundleManifest,
+  type XmclServerBundleValidationReport,
+  validateXmclServerBundle,
+} from "./xmclServerBundle.ts";
+import {
   isRuntimeCatalogJava,
   runtimeCatalog,
   type RuntimeCatalogJava,
@@ -58,6 +64,7 @@ export interface SharedRuntimeFrozenManifest {
     minecraftVersion: string;
     loader: RuntimeLoaderKind;
     loaderVersion: string;
+    java?: RuntimeCatalogJava;
     runtimeCatalog: { sha256: string };
   };
   configFiles: Array<{ path: string; sha256: string; sizeBytes: number }>;
@@ -71,22 +78,44 @@ export interface SharedRuntimeFrozenManifest {
     sizeBytes: number;
     downloadUrl: string;
   }>;
+  /**
+   * Local bundles are compiler inputs, not executable runtime metadata. The
+   * compiler repeats archive/path/hash verification before using this list.
+   */
+  bundle?: {
+    schemaVersion: 1;
+    files: Array<{ path: string; sha256: string; sizeBytes: number }>;
+  };
 }
+
+type SharedRuntimeValidationReport =
+  | ModpackValidationReport
+  | XmclServerBundleValidationReport;
+
+type SharedValidatedImport =
+  | {
+    sourceFormat: "mrpack" | "curseforge_zip";
+    configFiles: ValidatedArchiveFile[];
+    dataFiles: ValidatedArchiveFile[];
+    resolvedMods: ResolvedModSource[];
+  }
+  | {
+    sourceFormat: "xmcl_server_bundle";
+    bundle: ValidatedXmclServerBundle;
+  };
 
 export interface SharedModdedImport {
   importId: string;
   serviceId: string;
   accountId: string;
   sourceFormat: ModpackSourceFormat;
+  /** Immutable, service-owned input key; never browser supplied. */
+  archiveKey: string;
   expectedSha256: string;
   expectedSizeBytes: number;
   status: "awaiting_upload" | "validating" | "valid" | "invalid";
-  validation?: ModpackValidationReport;
-  validated?: {
-    configFiles: ValidatedArchiveFile[];
-    dataFiles: ValidatedArchiveFile[];
-    resolvedMods: ResolvedModSource[];
-  };
+  validation?: SharedRuntimeValidationReport;
+  validated?: SharedValidatedImport;
   createdAt: string;
   updatedAt: string;
 }
@@ -144,11 +173,15 @@ export class SharedModdedRuntimeError extends Error {
 export interface SharedModdedArchiveStore {
   createUpload(input: {
     importId: string;
+    key: string;
+    sourceFormat: ModpackSourceFormat;
     expectedSha256: string;
     expectedSizeBytes: number;
   }): Promise<{ uploadUrl: string; expiresAt: string; maxSizeBytes: number }>;
   readVerified(input: {
     importId: string;
+    key: string;
+    sourceFormat: ModpackSourceFormat;
     expectedSha256: string;
     expectedSizeBytes: number;
   }): Promise<Uint8Array>;
@@ -551,6 +584,12 @@ export class SharedModdedRuntimeService {
       serviceId: input.serviceId,
       accountId: input.accountId,
       sourceFormat: input.sourceFormat,
+      archiveKey: compilerInputKey(
+        input.accountId,
+        input.serviceId,
+        importId,
+        input.sourceFormat,
+      ),
       expectedSha256: input.expectedSha256.toLowerCase(),
       expectedSizeBytes: input.expectedSizeBytes,
       status: "awaiting_upload",
@@ -568,6 +607,8 @@ export class SharedModdedRuntimeService {
     }
     return await this.options.archives.createUpload({
       importId,
+      key: imported.archiveKey,
+      sourceFormat: imported.sourceFormat,
       expectedSha256: imported.expectedSha256,
       expectedSizeBytes: imported.expectedSizeBytes,
     });
@@ -581,18 +622,22 @@ export class SharedModdedRuntimeService {
     imported.status = "validating";
     imported.updatedAt = this.now();
     await this.options.repository.putImport(imported);
-    let validated: ValidatedModpack;
+    let validated: ValidatedModpack | ValidatedXmclServerBundle;
     try {
       const archive = await this.options.archives.readVerified({
         importId,
+        key: imported.archiveKey,
+        sourceFormat: imported.sourceFormat,
         expectedSha256: imported.expectedSha256,
         expectedSizeBytes: imported.expectedSizeBytes,
       });
-      validated = await validateModpackArchive({
-        importId,
-        archive,
-        resolvers: this.options.resolvers,
-      });
+      validated = imported.sourceFormat === "xmcl_server_bundle"
+        ? await validateXmclServerBundle({ importId, archive })
+        : await validateModpackArchive({
+          importId,
+          archive,
+          resolvers: this.options.resolvers,
+        });
     } catch {
       imported.status = "invalid";
       imported.validation = invalidValidation(imported);
@@ -603,11 +648,14 @@ export class SharedModdedRuntimeService {
     imported.validation = validated.report;
     imported.status = validated.report.status === "valid" ? "valid" : "invalid";
     if (imported.status === "valid") {
-      imported.validated = {
-        configFiles: validated.configFiles,
-        dataFiles: validated.dataFiles,
-        resolvedMods: validated.resolvedMods,
-      };
+      imported.validated = imported.sourceFormat === "xmcl_server_bundle"
+        ? { sourceFormat: "xmcl_server_bundle", bundle: validated as ValidatedXmclServerBundle }
+        : {
+          sourceFormat: imported.sourceFormat,
+          configFiles: (validated as ValidatedModpack).configFiles,
+          dataFiles: (validated as ValidatedModpack).dataFiles,
+          resolvedMods: (validated as ValidatedModpack).resolvedMods,
+        };
     }
     imported.updatedAt = this.now();
     await this.options.repository.putImport(imported);
@@ -794,6 +842,36 @@ export class SharedModdedRuntimeService {
     );
     if (!published) throw new SharedModdedRuntimeError("state_conflict");
     return published;
+  }
+
+  /**
+   * A compiler failure is durable diagnostic state only. It deliberately never
+   * changes the service's selected immutable content or world revision.
+   */
+  async reportCompilerFailure(input: {
+    deploymentId: string;
+    manifestSha256: string;
+    code: "unsupported_compatibility" | "compiler_unavailable" | "compiler_failed";
+  }) {
+    const current = await this.requireDeployment(input.deploymentId);
+    if (
+      current.status !== "compiling" ||
+      current.manifestSha256 !== input.manifestSha256
+    ) {
+      throw new SharedModdedRuntimeError("state_conflict");
+    }
+    const failed = await this.options.repository.updateDeployment(
+      current.deploymentId,
+      ["compiling"],
+      (value) => ({
+        ...value,
+        status: "compile_failed",
+        error: input.code,
+        updatedAt: this.now(),
+      }),
+    );
+    if (!failed) throw new SharedModdedRuntimeError("state_conflict");
+    return failed;
   }
 
   async apply(accountId: string, deploymentId: string, idempotencyKey: string) {
@@ -1079,13 +1157,60 @@ export function validateRuntimeDescriptor(value: unknown): RuntimeDescriptor {
 async function freezeRuntimeManifest(
   imported: SharedModdedImport,
 ): Promise<SharedRuntimeFrozenManifest> {
+  if (imported.sourceFormat === "xmcl_server_bundle") {
+    const validated = imported.validated;
+    if (
+      !validated ||
+      validated.sourceFormat !== "xmcl_server_bundle" ||
+      !validated.bundle.manifest
+    ) {
+      throw new SharedModdedRuntimeError("invalid_import");
+    }
+    const manifest = validated.bundle.manifest;
+    const resolved = resolveRuntimeJava({
+      minecraftVersion: manifest.minecraftVersion,
+      loader: manifest.loader.kind,
+      loaderVersion: manifest.loader.version,
+      java: manifest.javaRequirement,
+      runtimeCatalogSha256: manifest.runtimeCatalog.sha256,
+    });
+    return {
+      schemaVersion: 1,
+      serviceId: imported.serviceId,
+      importId: imported.importId,
+      sourceFormat: imported.sourceFormat,
+      archive: {
+        key: imported.archiveKey,
+        sha256: imported.expectedSha256,
+        sizeBytes: imported.expectedSizeBytes,
+      },
+      compatibility: {
+        minecraftVersion: manifest.minecraftVersion,
+        loader: resolved.loader,
+        loaderVersion: manifest.loader.version,
+        java: resolved.java,
+        runtimeCatalog: { sha256: manifest.runtimeCatalog.sha256 },
+      },
+      configFiles: validated.bundle.configFiles.map((file) => ({ ...file })).sort(sortPath),
+      dataFiles: validated.bundle.dataFiles.map((file) => ({ ...file })).sort(sortPath),
+      mods: [],
+      bundle: {
+        schemaVersion: 1,
+        files: validated.bundle.files.map((file) => ({ ...file })).sort(sortPath),
+      },
+    };
+  }
   const compatibility = imported.validation!.compatibility!;
   const resolved = resolveRuntimeCompatibility({
     minecraftVersion: compatibility.minecraftVersion,
     loader: compatibility.loader,
     loaderVersion: compatibility.loaderVersion,
   });
-  const mods = imported.validated!.resolvedMods.map((mod) => {
+  const validated = imported.validated;
+  if (!validated || validated.sourceFormat === "xmcl_server_bundle") {
+    throw new SharedModdedRuntimeError("invalid_import");
+  }
+  const mods = validated.resolvedMods.map((mod) => {
     assertApprovedCompilerArtifact(mod);
     return {
       provider: mod.provider,
@@ -1107,11 +1232,7 @@ async function freezeRuntimeManifest(
     importId: imported.importId,
     sourceFormat: imported.sourceFormat,
     archive: {
-      key: compilerInputKey(
-        imported.accountId,
-        imported.serviceId,
-        imported.importId,
-      ),
+      key: imported.archiveKey,
       sha256: imported.expectedSha256,
       sizeBytes: imported.expectedSizeBytes,
     },
@@ -1121,10 +1242,10 @@ async function freezeRuntimeManifest(
       loaderVersion: compatibility.loaderVersion!,
       runtimeCatalog: { sha256: runtimeCatalog.sha256 },
     },
-    configFiles: imported.validated!.configFiles.map(fileSummary).sort(
+    configFiles: validated.configFiles.map(fileSummary).sort(
       sortPath,
     ),
-    dataFiles: imported.validated!.dataFiles.map(fileSummary).sort(sortPath),
+    dataFiles: validated.dataFiles.map(fileSummary).sort(sortPath),
     mods,
   };
 }
@@ -1162,6 +1283,10 @@ function validateCompiledContent(
     descriptor.loader.kind !== resolved.loader ||
     descriptor.loader.version !==
       deployment.frozenManifest.compatibility.loaderVersion ||
+    (deployment.frozenManifest.compatibility.java !== undefined &&
+      (descriptor.java.component !==
+          deployment.frozenManifest.compatibility.java.component ||
+        descriptor.java.major !== deployment.frozenManifest.compatibility.java.major)) ||
     descriptor.runtimeCatalog.sha256 !==
       deployment.frozenManifest.compatibility.runtimeCatalog.sha256
   ) {
@@ -1188,7 +1313,7 @@ function validateImportInput(input: {
   idempotencyKey: string;
 }) {
   if (
-    !["mrpack", "curseforge_zip"].includes(input.sourceFormat) ||
+    !["mrpack", "curseforge_zip", "xmcl_server_bundle"].includes(input.sourceFormat) ||
     !validSha256(input.expectedSha256) ||
     !Number.isSafeInteger(input.expectedSizeBytes) ||
     input.expectedSizeBytes < 1 ||
@@ -1229,7 +1354,21 @@ function sortPath(
 
 function invalidValidation(
   imported: SharedModdedImport,
-): ModpackValidationReport {
+): SharedRuntimeValidationReport {
+  if (imported.sourceFormat === "xmcl_server_bundle") {
+    return {
+      importId: imported.importId,
+      sourceFormat: imported.sourceFormat,
+      status: "invalid",
+      configFiles: [],
+      dataFiles: [],
+      mods: [],
+      rejectedFiles: [{
+        path: "$archive",
+        reason: "archive_verification_failed",
+      }],
+    };
+  }
   return {
     importId: imported.importId,
     sourceFormat: imported.sourceFormat,
@@ -1248,8 +1387,12 @@ function compilerInputKey(
   accountId: string,
   serviceId: string,
   importId: string,
+  sourceFormat: ModpackSourceFormat,
 ) {
-  return `shared-hosting/${accountId}/${serviceId}/compiler-inputs/${importId}.zip`;
+  const extension = sourceFormat === "xmcl_server_bundle"
+    ? ".xmcl-server-bundle"
+    : ".zip";
+  return `shared-hosting/${accountId}/${serviceId}/compiler-inputs/${importId}${extension}`;
 }
 
 function compilerContentKey(

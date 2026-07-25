@@ -109,7 +109,11 @@ export function createSharedModdedRuntimeRoutes(
       requireWrite(principal.scopes);
       const body = await jsonBody(c);
       const sourceFormat = requiredString(body, "sourceFormat");
-      if (sourceFormat !== "mrpack" && sourceFormat !== "curseforge_zip") {
+      if (
+        sourceFormat !== "mrpack" &&
+        sourceFormat !== "curseforge_zip" &&
+        sourceFormat !== "xmcl_server_bundle"
+      ) {
         throw new SharedModdedRuntimeError("invalid_request", {
           field: "sourceFormat",
         });
@@ -265,6 +269,33 @@ export function createSharedModdedCompilerRoutes(
             manifestSha256: requiredString(body, "manifestSha256"),
             content: content as SharedRuntimeContentDescriptor,
             descriptor: body.descriptor as RuntimeDescriptor,
+          }),
+        );
+      } catch (error) {
+        return compilerError(error, c);
+      }
+    },
+  );
+  app.post(
+    "/v1/internal/shared-runtime-compiler/deployments/:deploymentId/failed",
+    async (c) => {
+      const identity = c.get("sharedModdedCompilerPrincipal");
+      if (!identity) return c.json({ error: "unauthorized" }, 401);
+      try {
+        const body = await jsonBody(c);
+        const code = requiredString(body, "code");
+        if (
+          code !== "unsupported_compatibility" &&
+          code !== "compiler_unavailable" &&
+          code !== "compiler_failed"
+        ) {
+          throw new SharedModdedRuntimeError("invalid_request", { field: "code" });
+        }
+        return c.json(
+          await runtimeFor(c, configured).reportCompilerFailure({
+            deploymentId: c.req.param("deploymentId"),
+            manifestSha256: requiredString(body, "manifestSha256"),
+            code,
           }),
         );
       } catch (error) {

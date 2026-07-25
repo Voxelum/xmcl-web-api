@@ -12,7 +12,7 @@ import {
   type ResolvedModSource,
 } from "./modpackSources/types.ts";
 
-export type ModpackSourceFormat = "mrpack" | "curseforge_zip";
+export type ModpackSourceFormat = "mrpack" | "curseforge_zip" | "xmcl_server_bundle";
 export type ModLoader = "vanilla" | "forge" | "fabric" | "quilt" | "neoforge";
 
 export interface ModpackCompatibility {

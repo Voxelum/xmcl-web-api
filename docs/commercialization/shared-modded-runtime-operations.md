@@ -4,6 +4,28 @@ The shared-hosting modded path is intentionally fail-closed. It is not enabled
 by the existing public shared-hosting gate until all dependencies below are
 installed.
 
+## Local instance bundles
+
+The launcher can import `sourceFormat: "xmcl_server_bundle"` through the same
+account/service-owned modpack-import flow. It starts from an already-working
+local modded **client** instance. Its `.xmcl-server-bundle` is a versioned
+deterministic archive containing `bundle.json`, selected server-relevant
+instance content (including mods, config, KubeJS, scripts, and opted-in
+server-relevant resources), loader/version metadata, and hashes with explicit
+content intent in `resolved/artifacts.json`; it contains no local server
+executable or classpath.
+The compiler independently assembles a dedicated-server runtime. The API
+records the expected SHA-256 and size before issuing one short-lived exact PUT;
+it does not accept a browser-supplied object key.
+
+Completion re-reads that exact object, validates ZIP safety, every manifest
+path/hash, the exact reviewed runtime-catalog SHA, Java component/major, and
+loader metadata. It freezes only a compiler input grant for the service-owned
+archive key and one immutable `If-None-Match: *` content PUT. Local Java
+paths, JVM arguments, Docker choices, URLs, `server.sh`/`server.bat`, worlds,
+and account/private data are not executable input. World migration remains a
+separate explicit operation after deployment creation.
+
 ## Required external deployment
 
 1. Deploy an egress-isolated compiler worker. It needs a non-root ephemeral
@@ -52,10 +74,14 @@ The compiler callback endpoints are deliberately separate from account routes:
 ```text
 POST /v1/internal/shared-runtime-compiler/deployments/:id/grants
 POST /v1/internal/shared-runtime-compiler/deployments/:id/published
+POST /v1/internal/shared-runtime-compiler/deployments/:id/failed
 ```
 
 Platform middleware must authenticate the compiler and set
 `sharedModdedCompilerPrincipal`; without it both endpoints reject requests.
+The compiler may also report a structured `compile_failed` callback. This
+durably marks only that deployment failed; it cannot alter selected content or
+the current world revision.
 
 ## Release acceptance
 
