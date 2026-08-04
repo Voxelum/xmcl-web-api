@@ -63,7 +63,7 @@ function fixture(
           !("xmcl" in body)
         ? { ...body, xmcl: xmclContext() }
         : body;
-      return app.request("/ai/chat/completions", {
+      return app.request("/v1/chat/completions", {
         method: "POST",
         ...init,
         headers: {
@@ -81,7 +81,7 @@ function fixture(
 
 Deno.test("chat completions requires an XMCL session with ai:invoke", async () => {
   const configured = fixture(async () => Response.json({}));
-  const missing = await configured.app.request("/ai/chat/completions", {
+  const missing = await configured.app.request("/v1/chat/completions", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ messages: [{ role: "user", content: "hello" }] }),
@@ -242,7 +242,7 @@ Deno.test("chat completions rejects invalid, oversized, and unconfigured request
     },
   });
   const streamedResponse = await configured.app.fetch(
-    new Request("http://localhost/ai/chat/completions", {
+    new Request("http://localhost/v1/chat/completions", {
       method: "POST",
       headers: {
         authorization: "Bearer session-token",

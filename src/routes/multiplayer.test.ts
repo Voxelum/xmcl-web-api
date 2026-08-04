@@ -62,7 +62,7 @@ const headers = {
 };
 
 Deno.test("multiplayer routes create, join, and close a Durable Object room", async () => {
-  const created = await app.request("/v2/multiplayer/rooms", {
+  const created = await app.request("/v1/multiplayer/rooms", {
     method: "POST",
     headers,
     body: JSON.stringify({ displayName: "Steve", maxPeers: 4 }),
@@ -76,7 +76,7 @@ Deno.test("multiplayer routes create, join, and close a Durable Object room", as
 
   authenticatedAccountId = "account_2";
   const joined = await app.request(
-    `/v2/multiplayer/rooms/${creation.roomId}/join`,
+    `/v1/multiplayer/rooms/${creation.roomId}/join`,
     {
       method: "POST",
       headers,
@@ -93,7 +93,7 @@ Deno.test("multiplayer routes create, join, and close a Durable Object room", as
 
   authenticatedAccountId = "account_1";
   const closed = await app.request(
-    `/v2/multiplayer/rooms/${creation.roomId}`,
+    `/v1/multiplayer/rooms/${creation.roomId}`,
     { method: "DELETE", headers },
     env,
   );
@@ -102,7 +102,7 @@ Deno.test("multiplayer routes create, join, and close a Durable Object room", as
 });
 
 Deno.test("multiplayer routes reject invalid room settings before creating a DO", async () => {
-  const response = await app.request("/v2/multiplayer/rooms", {
+  const response = await app.request("/v1/multiplayer/rooms", {
     method: "POST",
     headers,
     body: JSON.stringify({ displayName: "Steve", maxPeers: 100 }),

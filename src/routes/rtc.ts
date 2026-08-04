@@ -99,7 +99,7 @@ const stuns = [
 ];
 
 export default new Hono<AppEnv>().post(
-  "/rtc/official",
+  "/v1/rtc/official",
   minecraftAuth(false),
   async (c) => {
     const config = getConfig(c);

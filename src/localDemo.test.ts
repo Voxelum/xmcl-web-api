@@ -29,7 +29,7 @@ Deno.test("local demo exposes only its explicit profile and deterministic creden
   assert.equal(account.status, 200);
   assert.equal((await account.json()).accountId, "demo-user");
   assert.equal(
-    (await app.request("/ai/chat/completions", {
+    (await app.request("/v1/chat/completions", {
       method: "POST",
       headers: headers(),
       body: "{}",

@@ -50,7 +50,7 @@ Deno.test("Worker observability omits exception messages and rethrows", async ()
   await assert.rejects(
     () =>
       observeWorkerRequest(
-        new Request("https://api.xmcl.app/ai/chat/completions"),
+        new Request("https://ai.xmcl.app/v1/chat/completions"),
         () => Promise.reject(failure),
         { warn: () => {}, error: (value) => errors.push(value) },
         () => 200,

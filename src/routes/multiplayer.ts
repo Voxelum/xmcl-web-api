@@ -106,9 +106,9 @@ async function issueTicket(input: {
 
 export function createMultiplayerRoutes(resolve?: AccountRuntimeResolver) {
   const app = new Hono<AppEnv>();
-  app.use("/v2/multiplayer/*", xmclAuth(["account:read"], resolve));
+  app.use("/v1/multiplayer/*", xmclAuth(["account:read"], resolve));
 
-  app.post("/v2/multiplayer/rooms", async (c) => {
+  app.post("/v1/multiplayer/rooms", async (c) => {
     const input = await body(c);
     const maxPeers = input.maxPeers === undefined ? 8 : input.maxPeers;
     if (
@@ -155,12 +155,12 @@ export function createMultiplayerRoutes(resolve?: AccountRuntimeResolver) {
     return c.json({
       roomId,
       maxPeers,
-      socketUrl: `/v2/multiplayer/rooms/${roomId}/socket`,
+      socketUrl: `/v1/multiplayer/rooms/${roomId}/socket`,
       ...admission,
     }, 201);
   });
 
-  app.post("/v2/multiplayer/rooms/:roomId/join", async (c) => {
+  app.post("/v1/multiplayer/rooms/:roomId/join", async (c) => {
     const input = await body(c);
     const roomId = c.req.param("roomId");
     if (!/^[0-9a-f-]{36}$/i.test(roomId)) {
@@ -207,12 +207,12 @@ export function createMultiplayerRoutes(resolve?: AccountRuntimeResolver) {
     });
     return c.json({
       roomId,
-      socketUrl: `/v2/multiplayer/rooms/${roomId}/socket`,
+      socketUrl: `/v1/multiplayer/rooms/${roomId}/socket`,
       ...admission,
     });
   });
 
-  app.delete("/v2/multiplayer/rooms/:roomId", async (c) => {
+  app.delete("/v1/multiplayer/rooms/:roomId", async (c) => {
     const roomId = c.req.param("roomId");
     const principal = c.get("xmclPrincipal")!;
     const secret = ticketSecret(c);

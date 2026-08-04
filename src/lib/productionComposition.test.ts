@@ -18,7 +18,7 @@ Deno.test("production composition leaves commercial routes unmounted by default"
     false,
   );
   assert.equal(paths.some((path) => path.startsWith("/v1/ai")), false);
-  assert.equal(paths.includes("/ai/chat/completions"), true);
+  assert.equal(paths.includes("/v1/chat/completions"), true);
   assert.equal(paths.some((path) => path.startsWith("/v1/modpack")), false);
   assert.equal(paths.some((path) => path.startsWith("/v1/sessions")), true);
 });

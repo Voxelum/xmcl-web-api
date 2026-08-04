@@ -7,6 +7,33 @@ export function isLegacyGroupPath(request: Request): boolean {
 }
 
 /**
+ * Detects public signaling and AI paths retired by the v1 service URLs.
+ */
+export function isRetiredServicePath(request: Request): boolean {
+  const { pathname } = new URL(request.url);
+  return pathname === "/ai/chat/completions" ||
+    pathname === "/rtc/official" ||
+    pathname === "/v2/multiplayer" ||
+    pathname.startsWith("/v2/multiplayer/");
+}
+
+/**
+ * Detects the v1 multiplayer room WebSocket and returns its room id.
+ */
+export function matchMultiplayerUpgrade(
+  request: Request,
+): string | undefined {
+  if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+    return undefined;
+  }
+  const { pathname } = new URL(request.url);
+  const match = /^\/v1\/multiplayer\/rooms\/([^/]+)\/socket\/?$/.exec(
+    pathname,
+  );
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+/**
  * Detects a WebSocket upgrade request for `/group/:id` and returns the group id.
  *
  * Used by the platform entry points to intercept realtime upgrades before the

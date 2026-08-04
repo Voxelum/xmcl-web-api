@@ -5,7 +5,9 @@ import { createProductionApp } from "../src/lib/productionComposition.ts";
 import { createDbMiddleware } from "../src/middleware/db.ts";
 import {
   isLegacyGroupPath,
+  isRetiredServicePath,
   matchGroupUpgrade,
+  matchMultiplayerUpgrade,
 } from "../src/realtime/match.ts";
 import { runServerControlScheduledSweep } from "../src/lib/serverControlScheduling.ts";
 import { runSharedHostingBillingScheduledSweep } from "../src/lib/sharedHostingScheduling.ts";
@@ -940,10 +942,24 @@ async function dispatchCloudflareRequest(
       status: 410,
     });
   }
+  if (isRetiredServicePath(request)) {
+    return new Response("This API path has been retired", { status: 410 });
+  }
   const routeSurface = routeSurfaceForHost(
     new URL(request.url).hostname,
     env.XMCL_API_SURFACE,
   );
+  const roomId = routeSurface === "signaling"
+    ? matchMultiplayerUpgrade(request)
+    : undefined;
+  if (roomId !== undefined) {
+    const ns = env.MULTIPLAYER_ROOM;
+    const internalUrl = new URL(request.url);
+    internalUrl.pathname = "/v2/connect";
+    return ns.get(ns.idFromName(roomId)).fetch(
+      new Request(internalUrl, request),
+    );
+  }
   const group = routeSurface === "signaling"
     ? matchGroupUpgrade(request)
     : undefined;

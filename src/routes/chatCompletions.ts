@@ -158,11 +158,11 @@ export function createChatCompletionsRoutes(
 
   app.onError(handleAccountError);
   app.use(
-    "/ai/chat/completions",
+    "/v1/chat/completions",
     xmclAuth(["ai:invoke"], resolveAccount),
   );
 
-  app.post("/ai/chat/completions", async (c) => {
+  app.post("/v1/chat/completions", async (c) => {
     if (
       !c.req.header("content-type")?.toLowerCase().startsWith(
         "application/json",

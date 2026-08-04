@@ -37,15 +37,15 @@ Deno.test("isolated route surfaces expose only their owned APIs", () => {
   const aiPaths = createApp(undefined, { routeSurface: "ai" }).routes.map(
     (route) => route.path,
   );
-  assert.equal(aiPaths.includes("/ai/chat/completions"), true);
+  assert.equal(aiPaths.includes("/v1/chat/completions"), true);
   assert.equal(aiPaths.includes("/translation"), false);
-  assert.equal(aiPaths.includes("/rtc/official"), false);
+  assert.equal(aiPaths.includes("/v1/rtc/official"), false);
   assert.equal(aiPaths.includes("/group/:id"), false);
 
   const signalingPaths = createApp(undefined, { routeSurface: "signaling" })
     .routes.map((route) => route.path);
   assert.equal(signalingPaths.includes("/group/:id"), true);
-  assert.equal(signalingPaths.includes("/rtc/official"), true);
-  assert.equal(signalingPaths.includes("/ai/chat/completions"), false);
+  assert.equal(signalingPaths.includes("/v1/rtc/official"), true);
+  assert.equal(signalingPaths.includes("/v1/chat/completions"), false);
   assert.equal(signalingPaths.includes("/translation"), false);
 });

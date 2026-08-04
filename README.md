@@ -66,8 +66,8 @@ surfaces:
 | Domain | Mounted surface |
 | --- | --- |
 | `api.xmcl.app` | Common APIs, including `/translation` |
-| `ai.xmcl.app` | `POST /ai/chat/completions` only |
-| `signaling.xmcl.app` | `/v2/multiplayer/*`, legacy `/group/*` blocked, and `/rtc/official` |
+| `ai.xmcl.app` | `POST /v1/chat/completions` only |
+| `signaling.xmcl.app` | `/v1/multiplayer/*`, legacy paths blocked, and `/v1/rtc/official` |
 
 The shared application also supports these surfaces when deployed as separate
 Workers or on another runtime. Requests to an unmapped preview hostname use
@@ -77,7 +77,7 @@ the common surface unless `XMCL_API_SURFACE` is set to `ai`, `signaling`, or
 The legacy `/group/:id` protocol used by old friend-presence and multiplayer
 clients is retired. Cloudflare blocks `/group` and `/group/*` at the edge, and
 the Worker returns `410` before touching a Durable Object. New multiplayer
-clients must use `/v2/multiplayer/*` on `signaling.xmcl.app`.
+clients must use `/v1/multiplayer/*` on `signaling.xmcl.app`.
 
 ### Translation batch worker
 
@@ -162,7 +162,7 @@ surface listed above:
 - `/group/:id` - Real-time WebSocket communication for launcher user groups
   (Deno: native WS + `BroadcastChannel`; Cloudflare: `SignalingRoom` Durable Object;
   Azure: returns `501`)
-- `/rtc/official` - WebRTC signaling for peer connections
+- `/v1/rtc/official` - WebRTC signaling for peer connections
 - `/zulu` - Proxies the Zulu JRE manifest from xmcl-static-resource
 - `/elyby/authlib` - Authentication library access
 - `/modrinth/auth` - Modrinth authentication integration
@@ -173,7 +173,7 @@ surface listed above:
   at the latest stable release. Replaces the static
   `xmcl.blob.core.windows.net/releases/xmcl.appinstaller` mirror.
 - `/prebuilds` - GitHub Actions prebuild workflow runs and artifacts
-- `POST https://ai.xmcl.app/ai/chat/completions` - Authenticated
+- `POST https://ai.xmcl.app/v1/chat/completions` - Authenticated
   OpenAI-compatible chat proxy.
   Requires an XMCL access token with `ai:invoke`; defaults to
   the server-owned `agnes-2.5-flash` model, supports `stream: true` SSE
@@ -241,7 +241,7 @@ $body = @{
   messages = @(@{ role = "user"; content = "Hello" })
   stream = $false
 } | ConvertTo-Json -Depth 8
-Invoke-RestMethod "https://ai.xmcl.app/ai/chat/completions" `
+Invoke-RestMethod "https://ai.xmcl.app/v1/chat/completions" `
   -Method Post -Headers $headers -Body $body
 ```
 
@@ -271,7 +271,7 @@ The same variables are used across every runtime (read via `hono/adapter`:
 - `RTC_SECRET` - Secret for WebRTC TURN credential signing
 - `CURSEFORGE_KEY` - API key for CurseForge integration
 - `AGNES_API_KEYS` - server-only JSON array of Agnes API keys for
-  `POST /ai/chat/completions`.
+  `POST /v1/chat/completions`.
 - `AGNES_DEFAULT_MODEL` - optional default chat model; defaults to
   `agnes-2.5-flash`.
 - `XMCL_API_SURFACE` - optional `common`, `ai`, or `signaling` surface for an

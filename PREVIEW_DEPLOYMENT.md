@@ -21,7 +21,7 @@ command, or `wrangler.toml`.
 | `GITHUB_PAT` | Fine-grained, read-only preview token for release/issue endpoints. |
 | `CURSEFORGE_KEY` | Preview-specific credential for CurseForge description fetches. |
 | `AGNES_API_KEY` | External translation batch worker secret; it is not a Cloudflare Worker secret. |
-| `AGNES_API_KEYS` | JSON array stored as one Worker secret for the authenticated `/ai/chat/completions` proxy. This is separate from the translation worker's singular key. |
+| `AGNES_API_KEYS` | JSON array stored as one Worker secret for the authenticated `/v1/chat/completions` proxy. This is separate from the translation worker's singular key. |
 | `AGNES_DEFAULT_MODEL` | Optional server-owned model for the Launcher proxy; defaults to `agnes-2.5-flash`. Client model values are ignored. |
 | `RTC_SECRET`, `TURNS`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_APP_ID` | Preview-only RTC configuration, if RTC is required. |
 | `XMCL_SESSION_SECRET` | New random preview secret, never copied from production. |
