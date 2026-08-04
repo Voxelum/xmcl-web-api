@@ -249,9 +249,10 @@ not mount this real-provider route; its deterministic AI mock remains under
 
 Translation remains on `https://api.xmcl.app/translation`. It has a
 per-isolate application guard of 60 requests per minute with a burst of 60 and
-at most 5 concurrent requests per client IP. Configure a Cloudflare edge
-rate-limiting rule for `/translation` as well; the Worker guard is defense in
-depth and is intentionally not treated as a globally shared quota.
+at most 5 concurrent requests per client IP. The Cloudflare Free Zone edge
+rule additionally blocks more than 15 requests per IP per 10 seconds for this
+path; the Worker guard is defense in depth and is intentionally not treated as
+a globally shared quota.
 
 
 ## Environment Variables

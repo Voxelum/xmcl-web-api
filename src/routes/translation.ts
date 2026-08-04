@@ -19,6 +19,8 @@ interface I18nEntry {
 }
 
 const TRANSLATION_RETRY_AFTER_SECONDS = 86_400;
+const TRANSLATION_CACHE_MAX_AGE_SECONDS = 30 * 86_400;
+const TRANSLATION_CACHE_STALE_WHILE_REVALIDATE_SECONDS = 7 * 86_400;
 const TRANSLATION_RATE_LIMIT_CAPACITY = 60;
 const TRANSLATION_RATE_LIMIT_WINDOW_MS = 60_000;
 const TRANSLATION_MAX_CONCURRENT_PER_CLIENT = 5;
@@ -265,7 +267,9 @@ export default new Hono<AppEnv>().get("/translation", async (c) => {
       c.body(content, 200, {
         "content-language": lang,
         "content-type": contentType,
-        "cache-control": "public, max-age=86400",
+        "cache-control":
+          `public, max-age=${TRANSLATION_CACHE_MAX_AGE_SECONDS}, ` +
+          `stale-while-revalidate=${TRANSLATION_CACHE_STALE_WHILE_REVALIDATE_SECONDS}`,
         "vary": "accept-language",
       });
 

@@ -8,6 +8,7 @@ import backupStoragePolicy from "./routes/backupStoragePolicy.ts";
 import elyby from "./routes/elyby.ts";
 import flights from "./routes/flights.ts";
 import group from "./routes/group.ts";
+import multiplayer from "./routes/multiplayer.ts";
 import kookBadge from "./routes/kookBadge.ts";
 import latest from "./routes/latest.ts";
 import modrinth from "./routes/modrinth.ts";
@@ -109,6 +110,7 @@ export function createApp(
   }
   if (signalingRoutes) {
     app.route("/", group);
+    app.route("/", multiplayer);
     app.route("/", rtc);
   }
   if (options.accountSessionRoutes !== false && commonRoutes) {

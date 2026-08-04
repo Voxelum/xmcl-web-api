@@ -32,6 +32,7 @@ export interface AppConfig {
   /** Default model when a chat-completions request omits `model`. */
   AGNES_DEFAULT_MODEL?: string;
   XMCL_SESSION_SECRET?: string;
+  XMCL_MULTIPLAYER_TICKET_SECRET?: string;
   XMCL_MICROSOFT_CLIENT_ID?: string;
   XMCL_MICROSOFT_CLIENT_SECRET?: string;
   XMCL_MODRINTH_CLIENT_ID?: string;

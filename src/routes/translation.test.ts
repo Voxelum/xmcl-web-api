@@ -363,6 +363,10 @@ Deno.test("translation serves matching cache entries and records misses for batc
   );
   assert.equal(cached.status, 200);
   assert.equal(await cached.text(), "Cached translation");
+  assert.equal(
+    cached.headers.get("cache-control"),
+    "public, max-age=2592000, stale-while-revalidate=604800",
+  );
   assert.equal(db.collection("translation_requests").documents.size, 0);
 
   const missed = await withTranslationFetch(
