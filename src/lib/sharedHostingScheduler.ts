@@ -1032,6 +1032,9 @@ export class SharedHostingScheduler {
       ) {
         throw new AccountError(409, "shared_assignment_conflict");
       }
+      // Dispatch is at-least-once; retain the exact selected seed on every
+      // retry until the node has actually completed a healthy start.
+      if (value.initialWorld) value.initialWorldSent = true;
       if (runtime?.status === "payment_due") {
         value.status = "stopping";
         value.statusReason = "runtime_payment_due";
@@ -1247,7 +1250,6 @@ export class SharedHostingScheduler {
       selected,
       "workspace.restore_and_start",
     );
-    if (value.initialWorld) value.initialWorldSent = true;
     return {
       service: clone(value),
       command,

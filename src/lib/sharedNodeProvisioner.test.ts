@@ -538,6 +538,9 @@ Deno.test("shared cloud-init safely waits for its exact Vultr volume", () => {
     /Requires=docker\.service xmcl-shared-volume-setup\.service/,
   );
   assert.match(value, /\/etc\/xmcl-shared-node-agent\/quota-helper\.json/);
+  assert.match(value, /"agentUser": "xmcl-node-agent"/);
+  assert.match(value, /install -d -o root -g xmcl-node-agent -m 0770/);
+  assert.match(value, /install -o root -g xmcl-node-agent -m 4750/);
   assert.equal(value.includes("XMCL_XFS_DEVICE"), false);
   assert.equal(value.includes("/dev/vdb"), false);
   assert.equal(value.includes(config.firewallGroupId), false);

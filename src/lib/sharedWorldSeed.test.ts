@@ -98,7 +98,9 @@ Deno.test("a seed is selected only before first start and cannot overwrite a syn
   await f.scheduler.registerNode({ nodeId: "node_1", region: "sgp", status: "ready", totalMemoryMiB: 4096, totalSharedCpu: 2, totalWorkspaceGiB: 32 });
   const starting = await f.scheduler.start("account_1", service.serviceId, "start");
   assert.equal((f.commands[0] as { initialWorld?: { seedId: string } }).initialWorld?.seedId, selected.seedId);
+  assert.equal((await f.scheduler.getService("account_1", service.serviceId)).initialWorldSent, undefined);
   await f.scheduler.reportStarted({ nodeId: "node_1", serviceId: service.serviceId, assignmentId: starting.assignmentId! });
+  assert.equal((await f.scheduler.getService("account_1", service.serviceId)).initialWorldSent, true);
   await f.scheduler.stop("account_1", service.serviceId, "stop");
   await f.scheduler.reportStoppedAndSynced({ nodeId: "node_1", serviceId: service.serviceId, assignmentId: starting.assignmentId!, workspace: { revision: 1, sizeBytes: 9 } });
   await assert.rejects(

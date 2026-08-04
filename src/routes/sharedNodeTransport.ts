@@ -50,6 +50,16 @@ export function createSharedNodeTransportRoutes(
     return c.json(result);
   });
 
+  app.post(
+    "/v1/internal/shared-nodes/:nodeId/credentials:rotate",
+    async (c) => {
+      const service = serviceFor(c, configured);
+      return c.json(
+        await service.rotateCredential(c.req.param("nodeId"), request(c)),
+      );
+    },
+  );
+
   app.post("/v1/internal/shared-nodes/:nodeId/commands:next", async (c) => {
     const service = serviceFor(c, configured);
     const result = await service.nextCommand(c.req.param("nodeId"), request(c));
@@ -315,7 +325,7 @@ function workspaceGrant(value: Record<string, unknown>) {
     leaseToken: text(value.leaseToken),
     leaseGeneration: integer(value.leaseGeneration),
     ...(typeof value.stage === "string"
-      ? { stage: value.stage as "manifest" | "blobs" }
+      ? { stage: value.stage as "manifest" | "blobs" | "initial-world" }
       : {}),
     ...(Array.isArray(value.keys)
       ? { keys: value.keys.map(text) }

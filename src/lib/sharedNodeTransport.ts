@@ -10,6 +10,7 @@ import type { S3PresignedObject } from "./s3SigV4.ts";
 
 const encoder = new TextEncoder();
 const maxWorkspaceBlobCount = 130;
+const maxWorkspaceGrantBatchCount = 8;
 const maxWorkspacePathCount = 100_000;
 const maxWorkspaceBytes = 64 * 1024 * 1024 * 1024;
 // v2 uses single immutable PUTs only. Keep blobs below S3 multipart thresholds.
@@ -108,8 +109,8 @@ export interface SharedWorkspaceGrantRequest {
   assignmentId: string;
   leaseToken: string;
   leaseGeneration: number;
-  /** Restore requests select either the known manifest or manifest-owned blobs. */
-  stage?: "manifest" | "blobs";
+  /** Restore requests select a manifest, manifest-owned blobs, or one seed. */
+  stage?: "manifest" | "blobs" | "initial-world";
   keys?: readonly string[];
   manifest?: SharedWorkspaceManifestDescriptor;
   manifestSha256?: string;
@@ -471,6 +472,9 @@ function commandFingerprint(command: SharedNodeCommand) {
     assignmentId: command.assignmentId,
     accountId: command.accountId,
     workspace: command.workspace,
+    runtimeContent: command.runtimeContent,
+    initialWorld: command.initialWorld,
+    eulaAccepted: command.eulaAccepted,
     resources: command.resources,
     connection: command.connection,
   });
@@ -1460,6 +1464,27 @@ export class SharedNodeTransportService {
     };
   }
 
+  // Rotation is authenticated with the current short-lived node credential.
+  // A consumed provisioning bootstrap token is never accepted on this path.
+  async rotateCredential(
+    nodeId: string,
+    request: SharedNodeSignedRequest,
+  ) {
+    await this.authenticateNode(nodeId, request);
+    const issued = await issueSharedNodeCredential(
+      nodeId,
+      this.now().toISOString(),
+      this.credentialTtlMs,
+    );
+    await this.options.credentialRepository.saveCredential(issued.record);
+    return {
+      contractVersion: SHARED_NODE_TRANSPORT_CONTRACT_VERSION,
+      nodeId,
+      credential: issued.token,
+      expiresAt: issued.record.expiresAt,
+    };
+  }
+
   async heartbeat(
     nodeId: string,
     heartbeat: SharedNodeHeartbeat,
@@ -1658,9 +1683,24 @@ export class SharedNodeTransportService {
         ),
       ], "GET");
     }
+    if (stage === "initial-world") {
+      if (
+        command.workspace.revision !== 0 ||
+        !command.initialWorld ||
+        input.manifest || input.manifestSha256 ||
+        input.keys?.length !== 1
+      ) {
+        throw new SharedNodeTransportError("workspace_grant_denied");
+      }
+      const key = initialWorldObjectKey(command);
+      if (!key || input.keys[0] !== key) {
+        throw new SharedNodeTransportError("workspace_grant_denied");
+      }
+      return await this.grants([key], "GET");
+    }
     if (
       stage !== "blobs" || !input.keys?.length ||
-      input.keys.length > maxWorkspaceBlobCount || input.manifest ||
+      input.keys.length > maxWorkspaceGrantBatchCount || input.manifest ||
       input.manifestSha256
     ) {
       throw new SharedNodeTransportError("invalid_request");
@@ -1705,7 +1745,11 @@ export class SharedNodeTransportService {
     if (!input.manifest || !input.manifestSha256) {
       throw new SharedNodeTransportError("invalid_request");
     }
-    if (input.stage || input.keys?.length) {
+    if (
+      input.stage || !input.keys?.length ||
+      input.keys.length > maxWorkspaceGrantBatchCount ||
+      input.keys.length !== uniqueKeys(input.keys).length
+    ) {
       throw new SharedNodeTransportError("invalid_request");
     }
     const runtimeContent = await this.selectedRuntimeContent(command);
@@ -1727,8 +1771,15 @@ export class SharedNodeTransportService {
       status: "draft",
       createdAt: this.now().toISOString(),
     });
+    const requested = new Set(input.keys);
+    const descriptors = manifestBlobDescriptors(record.manifest);
+    const available = new Set(descriptors.map((descriptor) => descriptor.key));
+    if ([...requested].some((key) => !available.has(key))) {
+      throw new SharedNodeTransportError("workspace_grant_denied");
+    }
     const grants: string[] = [];
-    for (const descriptor of manifestBlobDescriptors(record.manifest)) {
+    for (const descriptor of descriptors) {
+      if (!requested.has(descriptor.key)) continue;
       if (runtimeContent && sameDescriptor(descriptor, runtimeContent)) {
         continue;
       }
@@ -2025,6 +2076,20 @@ function workspaceManifestRecordKey(serviceId: string, revision: number) {
 
 function manifestObjectKey(prefix: string, revision: number) {
   return `${validWorkspacePrefix(prefix)}/revisions/${revision}/manifest.json`;
+}
+
+function initialWorldObjectKey(command: SharedNodeCommand) {
+  const world = command.initialWorld;
+  if (
+    !world || !validIdentifier(world.seedId) ||
+    !/^[a-f0-9]{64}$/.test(world.sha256) ||
+    !Number.isSafeInteger(world.sizeBytes) || world.sizeBytes < 1 ||
+    world.sizeBytes > 512 * 1024 * 1024 ||
+    !world.worldName.trim() || world.worldName.length > 255
+  ) {
+    return undefined;
+  }
+  return `${validWorkspacePrefix(command.workspace.objectPrefix)}/world-seeds/${world.seedId}.xmcl-world-seed`;
 }
 
 function validWorkspacePrefix(prefix: string) {

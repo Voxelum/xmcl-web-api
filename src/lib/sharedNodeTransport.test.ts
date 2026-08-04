@@ -225,6 +225,41 @@ Deno.test("shared node transport enforces node identity and replay protection", 
   );
 });
 
+Deno.test("shared node credentials rotate only through an authenticated node request", async () => {
+  const f = await fixture();
+  const original = f.registrations.get("node_a")!;
+  const rotated = await f.service.rotateCredential(
+    "node_a",
+    await signed(
+      original,
+      `SharedNode ${original}`,
+      "POST",
+      "/v1/internal/shared-nodes/node_a/credentials:rotate",
+      "",
+      "credential-rotate",
+    ),
+  );
+  assert.equal(rotated.nodeId, "node_a");
+  assert.notEqual(rotated.credential, original);
+  assert.ok(Date.parse(rotated.expiresAt) > nowValue.value.getTime());
+  await assert.rejects(
+    async () => f.service.heartbeat(
+      "node_a",
+      heartbeat,
+      await signed(
+        original,
+        `SharedNode ${original}`,
+        "POST",
+        "/v1/internal/shared-nodes/node_a/heartbeat",
+        "",
+        "old-credential",
+      ),
+    ),
+    (error) =>
+      error instanceof SharedNodeTransportError && error.code === "unauthorized",
+  );
+});
+
 Deno.test("shared node command leases are durable, ordered, and at-least-once", async () => {
   const f = await fixture();
   const credential = f.registrations.get("node_a")!;
@@ -389,6 +424,70 @@ Deno.test("shared node command leases are durable, ordered, and at-least-once", 
     ),
   );
   assert.equal(renewed.leaseExpiresAt, "2026-07-24T00:00:05.000Z");
+});
+
+Deno.test("initial-world restore grants only the selected seed object", async () => {
+  const f = await fixture();
+  const credential = f.registrations.get("node_a")!;
+  const initialWorld = {
+    seedId: "seed_1",
+    sha256: "a".repeat(64),
+    sizeBytes: 42,
+    worldName: "Selected World",
+  };
+  await f.service.dispatch({
+    ...command("node_a", "initial-world-command"),
+    initialWorld,
+  });
+  const leased = await f.service.nextCommand(
+    "node_a",
+    await signed(
+      credential,
+      `SharedNode ${credential}`,
+      "POST",
+      "/v1/internal/shared-nodes/node_a/commands:next",
+      "",
+      "initial-world-next",
+    ),
+  );
+  const key = "shared-hosting/account_1/service_1/world-seeds/seed_1.xmcl-world-seed";
+  const input = {
+    contractVersion: SHARED_NODE_WORKSPACE_CONTRACT_VERSION as 2,
+    commandId: leased!.command.commandId,
+    assignmentId: leased!.command.assignmentId,
+    leaseToken: leased!.leaseToken,
+    leaseGeneration: leased!.leaseGeneration,
+    stage: "initial-world" as const,
+    keys: [key],
+  };
+  const grants = await f.service.workspaceRestoreGrant(
+    "node_a",
+    input,
+    await signed(
+      credential,
+      `SharedNode ${credential}`,
+      "POST",
+      "/v1/internal/shared-nodes/node_a/workspace-grants/restore",
+      JSON.stringify(input),
+      "initial-world-grant",
+    ),
+  );
+  assert.deepEqual(grants.grants.map((grant) => grant.key), [key]);
+  await assert.rejects(
+    async () => f.service.workspaceRestoreGrant(
+      "node_a",
+      { ...input, keys: ["shared-hosting/account_1/service_1/world-seeds/other.xmcl-world-seed"] },
+      await signed(
+        credential,
+        `SharedNode ${credential}`,
+        "POST",
+        "/v1/internal/shared-nodes/node_a/workspace-grants/restore",
+        JSON.stringify({ ...input, keys: ["shared-hosting/account_1/service_1/world-seeds/other.xmcl-world-seed"] }),
+        "initial-world-wrong-key",
+      ),
+    ),
+    SharedNodeTransportError,
+  );
 });
 
 Deno.test("one-time enrollment binds node identity and cannot replace an active credential", async () => {
@@ -631,6 +730,7 @@ Deno.test("workspace grants are lease-bound, exact, manifest-last, and credentia
     assignmentId: "assignment_1",
     leaseToken: leased!.leaseToken,
     leaseGeneration: leased!.leaseGeneration,
+    keys: [descriptor.key],
     manifest,
     manifestSha256: "c".repeat(64),
   };
@@ -692,10 +792,11 @@ Deno.test("workspace grants are lease-bound, exact, manifest-last, and credentia
     SharedNodeTransportError,
   );
 
-  const publishBody = JSON.stringify(syncInput);
+  const { keys: _syncKeys, ...publishInput } = syncInput;
+  const publishBody = JSON.stringify(publishInput);
   const publish = await f.service.workspacePublishGrant(
     "node_a",
-    syncInput,
+    publishInput,
     await signed(
       credential,
       `SharedNode ${credential}`,
@@ -799,7 +900,7 @@ Deno.test("workspace grants are lease-bound, exact, manifest-last, and credentia
   await assert.rejects(
     async () => await f.service.workspacePublishGrant(
       "node_a",
-      syncInput,
+      publishInput,
       await signed(
         credential,
         `SharedNode ${credential}`,

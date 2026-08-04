@@ -824,6 +824,7 @@ export function renderSharedNodeCloudInit(input: {
       workspaceRoot: input.workspaceRoot ?? "/var/lib/xmcl-shared/workspaces",
       mountPath: "/var/lib/xmcl-shared",
       projectBase: input.xfsProjectBase ?? 100000,
+      agentUser: "xmcl-node-agent",
     },
     undefined,
     2,
@@ -981,7 +982,7 @@ mount -o remount,pquota "$mount"
 install -d -o root -g root -m 0750 "$mount/.bootstrap"
 install -o root -g root -m 0600 /dev/null "$marker"
 printf 'volume_id=%s\nmount_path=%s\n' "$volume_id" "$mount" > "$marker"
-install -d -o xmcl-node-agent -g xmcl-node-agent -m 0750 \
+install -d -o root -g xmcl-node-agent -m 0770 \
   "$mount/workspaces" "$mount/state"
 `;
   const agentUrl = shellValue(input.releaseUrl);
@@ -1028,7 +1029,7 @@ ${indentBlock(agentService)}
 runcmd:
   - [bash, -ceu, "install -d -o root -g root -m 0750 /etc/xmcl /etc/xmcl-shared-node-agent /usr/local/libexec /var/lib/xmcl-bootstrap; ingress=$(curl --fail --silent --show-error --retry 5 --retry-connrefused http://169.254.169.254/v1.json | jq -er '.instance.v4.main'); case \"$ingress\" in [0-9]*.[0-9]*.[0-9]*.[0-9]*) ;; *) exit 1;; esac; printf \"XMCL_SHARED_NODE_INGRESS_HOST='%s'\\n\" \"$ingress\" >> /etc/xmcl/shared-node-agent.env; systemctl enable --now docker"]
   - [bash, -ceu, "curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 -o /var/lib/xmcl-bootstrap/xmcl-shared-node-agent.download ${agentUrl}; echo '${input.releaseSha256}  /var/lib/xmcl-bootstrap/xmcl-shared-node-agent.download' | sha256sum --check --status; install -o root -g root -m 0755 /var/lib/xmcl-bootstrap/xmcl-shared-node-agent.download /usr/local/bin/xmcl-shared-node-agent; rm -f /var/lib/xmcl-bootstrap/xmcl-shared-node-agent.download"]
-  - [bash, -ceu, "curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 -o /var/lib/xmcl-bootstrap/xmcl-quota-helper.download ${quotaHelperUrl}; echo '${input.quotaHelperReleaseSha256}  /var/lib/xmcl-bootstrap/xmcl-quota-helper.download' | sha256sum --check --status; install -o root -g root -m 4755 /var/lib/xmcl-bootstrap/xmcl-quota-helper.download /usr/local/libexec/xmcl-quota-helper; rm -f /var/lib/xmcl-bootstrap/xmcl-quota-helper.download"]
+  - [bash, -ceu, "curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 -o /var/lib/xmcl-bootstrap/xmcl-quota-helper.download ${quotaHelperUrl}; echo '${input.quotaHelperReleaseSha256}  /var/lib/xmcl-bootstrap/xmcl-quota-helper.download' | sha256sum --check --status; install -o root -g xmcl-node-agent -m 4750 /var/lib/xmcl-bootstrap/xmcl-quota-helper.download /usr/local/libexec/xmcl-quota-helper; rm -f /var/lib/xmcl-bootstrap/xmcl-quota-helper.download"]
   - [bash, -ceu, "systemctl daemon-reload; systemctl enable --now xmcl-shared-node-agent"]
 `;
 }
