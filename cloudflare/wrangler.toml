@@ -12,6 +12,10 @@ compatibility_flags = ["nodejs_compat"]
 MONGODB_NAME = "xmcl-api"
 TURNS = ""
 
+[[routes]]
+pattern = "api.xmcl.app"
+custom_domain = true
+
 [[durable_objects.bindings]]
 name = "MULTIPLAYER_ROOM"
 class_name = "MultiplayerRoom"
@@ -31,7 +35,7 @@ deleted_classes = ["GroupRoom"]
 # KV holds the per-(lang,id) translation semaphore (replaces the Deno.Kv lock).
 [[kv_namespaces]]
 binding = "TRANSLATION_KV"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "4caeaf8d43ef478ab61bd13b1e875457"
 
 # Queue offloads mod-description translation (replaces the Deno.Kv queue).
 # Optional: if absent the worker translates inline.

@@ -103,6 +103,16 @@ export interface AccountRepository {
   saveTransaction(transaction: OAuthTransaction): Promise<void>;
   getSession(sessionId: string): Promise<SessionRecord | undefined>;
   saveSession(session: SessionRecord): Promise<void>;
+  rotateSessionRefresh(
+    session: SessionRecord,
+    expectedRefreshHash: string,
+    now: string,
+  ): Promise<boolean>;
+  revokeSessionIfRefreshConsumed(
+    sessionId: string,
+    consumedRefreshHash: string,
+    revokedAt: string,
+  ): Promise<boolean>;
   getMerge(mergeId: string): Promise<MergeRecord | undefined>;
   saveMerge(merge: MergeRecord): Promise<void>;
   getIdempotency(
@@ -530,6 +540,37 @@ export class MongoAccountRepository implements AccountRepository {
       { upsert: true },
     );
   }
+  async rotateSessionRefresh(
+    session: SessionRecord,
+    expectedRefreshHash: string,
+    now: string,
+  ) {
+    const result = await this.db.collection("xmcl_sessions").replaceOne(
+      {
+        _id: session.sessionId,
+        refreshHash: expectedRefreshHash,
+        refreshExpiresAt: { $gt: now },
+        revokedAt: { $exists: false },
+      },
+      { _id: session.sessionId, ...session },
+    );
+    return mongoOperationCount(result, "matchedCount") === 1;
+  }
+  async revokeSessionIfRefreshConsumed(
+    sessionId: string,
+    consumedRefreshHash: string,
+    revokedAt: string,
+  ) {
+    const result = await this.db.collection("xmcl_sessions").updateOne(
+      {
+        _id: sessionId,
+        consumedRefreshHashes: consumedRefreshHash,
+        revokedAt: { $exists: false },
+      },
+      { $set: { revokedAt } },
+    );
+    return mongoOperationCount(result, "modifiedCount") === 1;
+  }
   async getMerge(mergeId: string) {
     return await this.db.collection("xmcl_account_merges").findOne({
       _id: mergeId,
@@ -561,6 +602,19 @@ export class MongoAccountRepository implements AccountRepository {
       { upsert: true },
     );
   }
+}
+
+function mongoOperationCount(
+  result: unknown,
+  field: "matchedCount" | "modifiedCount",
+) {
+  if (
+    typeof result !== "object" || result === null ||
+    typeof (result as Record<string, unknown>)[field] !== "number"
+  ) {
+    throw new Error(`Mongo session update did not return ${field}`);
+  }
+  return (result as Record<string, number>)[field];
 }
 
 export class MemoryAccountRepository implements AccountRepository {
@@ -614,11 +668,39 @@ export class MemoryAccountRepository implements AccountRepository {
     return Promise.resolve();
   }
   getSession(id: string) {
-    return Promise.resolve(this.sessions.get(id));
+    const session = this.sessions.get(id);
+    return Promise.resolve(session ? structuredClone(session) : undefined);
   }
   saveSession(value: SessionRecord) {
     this.sessions.set(value.sessionId, structuredClone(value));
     return Promise.resolve();
+  }
+  rotateSessionRefresh(
+    value: SessionRecord,
+    expectedRefreshHash: string,
+    now: string,
+  ) {
+    const current = this.sessions.get(value.sessionId);
+    if (
+      !current || current.refreshHash !== expectedRefreshHash ||
+      current.revokedAt || current.refreshExpiresAt <= now
+    ) return Promise.resolve(false);
+    this.sessions.set(value.sessionId, structuredClone(value));
+    return Promise.resolve(true);
+  }
+  revokeSessionIfRefreshConsumed(
+    sessionId: string,
+    consumedRefreshHash: string,
+    revokedAt: string,
+  ) {
+    const current = this.sessions.get(sessionId);
+    if (
+      !current || current.revokedAt ||
+      !current.consumedRefreshHashes.includes(consumedRefreshHash)
+    ) return Promise.resolve(false);
+    current.revokedAt = revokedAt;
+    this.sessions.set(sessionId, structuredClone(current));
+    return Promise.resolve(true);
   }
   getMerge(id: string) {
     return Promise.resolve(this.merges.get(id));

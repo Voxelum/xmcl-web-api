@@ -12,17 +12,33 @@ export default new Hono<AppEnv>().get("/notifications", async (c) => {
   const locale = c.req.query("locale") ?? null;
 
   try {
-    const result = await getNofications(os, arch, env, locale, version, getConfig(c).GITHUB_PAT, {
-      inRange(version, range) {
-        const r = new Range(range);
-        return r.test(version);
+    const result = await getNofications(
+      os,
+      arch,
+      env,
+      locale,
+      version,
+      getConfig(c).GITHUB_PAT,
+      {
+        inRange(version, range) {
+          const r = new Range(range);
+          return r.test(version);
+        },
       },
+    );
+    return c.json(result, 200, {
+      "Cache-Control": "public, max-age=300, stale-while-revalidate=3600",
     });
-    return c.json(result);
   } catch (e) {
+    console.warn({
+      event: "github.route.unavailable",
+      resource: "notifications",
+      errorName: e instanceof Error ? e.name : "UnknownError",
+    });
     return c.json(
-      { error: "Failed to fetch notifications", message: (e as Error).message },
-      400,
+      { error: "github_upstream_unavailable" },
+      503,
+      { "Retry-After": "60" },
     );
   }
 });

@@ -15,12 +15,17 @@ interface I18nEntry {
   content?: string;
 }
 
+const I18N_NOT_FOUND_TTL_MS = 6 * 60 * 60_000;
+const I18N_NOT_FOUND_CACHE_LIMIT = 2_048;
+
 // In-memory circuit breaker for the community i18n CDN. When
 // raw.githubusercontent rate-limits us (429, or a secondary 403), continuing to
 // hit it just adds latency to every request and prolongs the limit, so we skip
 // it until the cooldown expires and serve from the DB instead. This state is
 // per worker instance (best-effort on serverless), which is all we need.
 let i18nCooldownUntil = 0;
+const i18nNotFoundUntil = new Map<string, number>();
+const i18nInFlight = new Map<string, Promise<I18nEntry | undefined>>();
 
 /**
  * Look up a translation from the community i18n CDN
@@ -32,14 +37,29 @@ async function fetchI18n(
   lang: string,
   id: string,
 ): Promise<I18nEntry | undefined> {
+  const key = `${base}/${encodeURIComponent(lang)}/${
+    encodeURIComponent(id)
+  }.json`;
+  const notFoundUntil = i18nNotFoundUntil.get(key);
+  if (notFoundUntil && Date.now() < notFoundUntil) return undefined;
+
+  const existing = i18nInFlight.get(key);
+  if (existing) return await existing;
+  const pending = fetchI18nUncached(key).finally(() => {
+    i18nInFlight.delete(key);
+  });
+  i18nInFlight.set(key, pending);
+  return await pending;
+}
+
+async function fetchI18nUncached(
+  key: string,
+): Promise<I18nEntry | undefined> {
   if (Date.now() < i18nCooldownUntil) return undefined;
 
   let res: Response;
   try {
-    res = await fetch(
-      `${base}/${encodeURIComponent(lang)}/${encodeURIComponent(id)}.json`,
-      { signal: AbortSignal.timeout(3000) },
-    );
+    res = await fetch(key, { signal: AbortSignal.timeout(3000) });
   } catch {
     return undefined; // network error / timeout -> fall through to DB
   }
@@ -58,10 +78,17 @@ async function fetchI18n(
         until = reset * 1000;
       }
       // Never disable the CDN for more than 10 minutes on a single response.
-      i18nCooldownUntil = Math.min(until, now + 600_000);
+      i18nCooldownUntil = Math.max(
+        i18nCooldownUntil,
+        Math.min(until, now + 600_000),
+      );
       return undefined;
     }
 
+    if (res.status === 404) {
+      rememberI18nNotFound(key);
+      return undefined;
+    }
     if (!res.ok) return undefined;
 
     return await res.json() as I18nEntry;
@@ -71,6 +98,18 @@ async function fetchI18n(
     // Ensure the body is drained so the connection can be reused.
     await res.body?.cancel().catch(() => {});
   }
+}
+
+function rememberI18nNotFound(key: string) {
+  const now = Date.now();
+  for (const [cachedKey, expiresAt] of i18nNotFoundUntil) {
+    if (expiresAt <= now) i18nNotFoundUntil.delete(cachedKey);
+  }
+  if (i18nNotFoundUntil.size >= I18N_NOT_FOUND_CACHE_LIMIT) {
+    const oldest = i18nNotFoundUntil.keys().next().value;
+    if (oldest) i18nNotFoundUntil.delete(oldest);
+  }
+  i18nNotFoundUntil.set(key, now + I18N_NOT_FOUND_TTL_MS);
 }
 
 function firstLanguage(header: string | undefined): string | undefined {
@@ -102,7 +141,9 @@ export default new Hono<AppEnv>().get("/translation", async (c) => {
       { headers },
     );
     if (!response.ok) {
-      throw new HTTPException(response.status as 400, { message: await response.text() });
+      throw new HTTPException(response.status as 400, {
+        message: await response.text(),
+      });
     }
     return ((await response.json()) as { data: string }).data;
   };
@@ -113,7 +154,9 @@ export default new Hono<AppEnv>().get("/translation", async (c) => {
       { headers: forwardHeaders(c.req.raw) },
     );
     if (!response.ok) {
-      throw new HTTPException(response.status as 400, { message: await response.text() });
+      throw new HTTPException(response.status as 400, {
+        message: await response.text(),
+      });
     }
     return ((await response.json()) as ModrinthResponseBody).body;
   };
@@ -145,8 +188,9 @@ export default new Hono<AppEnv>().get("/translation", async (c) => {
       : getModrinthDescription(id),
     recordRequest,
   ]);
-  const contentType: "text/html" | "text/markdown" =
-    type === "curseforge" ? "text/html" : "text/markdown";
+  const contentType: "text/html" | "text/markdown" = type === "curseforge"
+    ? "text/html"
+    : "text/markdown";
 
   const hash = await getHasher();
   const bodyHash = hash(body);

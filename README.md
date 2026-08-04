@@ -130,6 +130,10 @@ All runtimes serve the same routes (defined once in [`src/app.ts`](src/app.ts)):
 - `/v1/auth/*`, `/v1/sessions/*`, `/v1/account/*` - XMCL account, OAuth, and
   session APIs
 
+Refresh tokens rotate with an atomic Mongo compare-and-swap. Concurrent reuse
+has one winner and revokes the session family, preventing two valid successor
+credentials from being issued.
+
 ## Environment Variables
 
 The same variables are used across every runtime (read via `hono/adapter`:
@@ -244,6 +248,13 @@ The `MultiplayerRoom` Durable Object backs authenticated multiplayer v2. The
 Queue + KV pair handle `/translation`, and geo is resolved natively from
 `request.cf.country`. `nodejs_compat` is enabled so the MongoDB driver works on
 `workerd`; a MongoDB Atlas connection string is required.
+
+Launcher update traffic is coalesced and cached per runtime isolate. Releases
+and notifications remain fresh for five minutes and can use bounded stale data
+during a GitHub outage or rate-limit cooldown. Missing localized changelogs and
+community translation files are negatively cached for six hours. GitHub
+`403`/`429` logs contain only resource, host, status, and retry time; they never
+include the PAT or upstream body.
 
 ### Alibaba Cloud Function
 

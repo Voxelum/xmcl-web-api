@@ -140,20 +140,53 @@ export class SessionService {
     }
     const tokenHash = await sha256(refreshToken);
     if (record.consumedRefreshHashes.includes(tokenHash)) {
-      record.revokedAt = this.now().toISOString();
-      await this.repository.saveSession(record);
+      const revokedAt = this.now().toISOString();
+      const revoked = await this.repository.revokeSessionIfRefreshConsumed(
+        sessionId,
+        tokenHash,
+        revokedAt,
+      );
+      if (!revoked) {
+        const latest = await this.repository.getSession(sessionId);
+        if (latest?.revokedAt) {
+          throw new AccountError(401, "session_revoked");
+        }
+      }
       throw new AccountError(401, "refresh_token_replayed");
     }
     if (tokenHash !== record.refreshHash) {
       throw new AccountError(401, "invalid_refresh_token");
     }
+    const expectedRefreshHash = record.refreshHash;
     record.consumedRefreshHashes.push(record.refreshHash);
     const nextRefreshToken = randomId("rfr");
     record.refreshHash = await sha256(nextRefreshToken);
-    record.issuedAt = this.now().toISOString();
-    record.expiresAt = new Date(this.now().getTime() + ACCESS_TOKEN_TTL_MS)
+    const rotatedAt = this.now();
+    record.issuedAt = rotatedAt.toISOString();
+    record.expiresAt = new Date(rotatedAt.getTime() + ACCESS_TOKEN_TTL_MS)
       .toISOString();
-    await this.repository.saveSession(record);
+    const rotated = await this.repository.rotateSessionRefresh(
+      record,
+      expectedRefreshHash,
+      rotatedAt.toISOString(),
+    );
+    if (!rotated) {
+      const revoked = await this.repository.revokeSessionIfRefreshConsumed(
+        sessionId,
+        tokenHash,
+        rotatedAt.toISOString(),
+      );
+      if (revoked) {
+        throw new AccountError(401, "refresh_token_replayed");
+      }
+      const latest = await this.repository.getSession(sessionId);
+      if (!latest) throw new AccountError(401, "invalid_refresh_token");
+      if (latest.revokedAt) throw new AccountError(401, "session_revoked");
+      if (Date.parse(latest.refreshExpiresAt) <= rotatedAt.getTime()) {
+        throw new AccountError(401, "refresh_token_expired");
+      }
+      throw new AccountError(401, "invalid_refresh_token");
+    }
     return await this.toPublic(record, nextRefreshToken);
   }
 

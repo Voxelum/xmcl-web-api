@@ -140,3 +140,30 @@ Deno.test("M1 launcher exchange recovers from an expired optional bearer", async
   assert.equal(body.bindingDisposition, "created");
   assert.equal(body.account.status, "active");
 });
+
+Deno.test("M1 concurrent refresh has one winner and revokes replay", async () => {
+  const runtime = createRuntime(() => new Date("2026-07-22T14:00:00.000Z"));
+  const created = await runtime.sessions.issue("concurrent-refresh-account");
+
+  const results = await Promise.allSettled([
+    runtime.sessions.refresh(created.sessionId, created.refreshToken),
+    runtime.sessions.refresh(created.sessionId, created.refreshToken),
+  ]);
+  const fulfilled = results.filter((result) => result.status === "fulfilled");
+  const rejected = results.filter((result) => result.status === "rejected");
+
+  assert.equal(fulfilled.length, 1);
+  assert.equal(rejected.length, 1);
+  assert.equal(
+    (rejected[0] as PromiseRejectedResult).reason.code,
+    "refresh_token_replayed",
+  );
+  const winner = (fulfilled[0] as PromiseFulfilledResult<
+    Awaited<ReturnType<SessionService["refresh"]>>
+  >).value;
+  await assert.rejects(
+    () => runtime.sessions.refresh(winner.sessionId, winner.refreshToken),
+    (error: unknown) =>
+      error instanceof AccountError && error.code === "session_revoked",
+  );
+});
