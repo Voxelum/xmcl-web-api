@@ -67,7 +67,7 @@ surfaces:
 | --- | --- |
 | `api.xmcl.app` | Common APIs, including `/translation` |
 | `ai.xmcl.app` | `POST /ai/chat/completions` only |
-| `signaling.xmcl.app` | `/group/:id` WebSocket and `/rtc/official` |
+| `signaling.xmcl.app` | `/v2/multiplayer/*`, `/group/:id` WebSocket, and `/rtc/official` |
 
 The shared application also supports these surfaces when deployed as separate
 Workers or on another runtime. Requests to an unmapped preview hostname use
