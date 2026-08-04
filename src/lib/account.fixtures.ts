@@ -6,7 +6,7 @@ export const accountApiFixtures = {
   consumedSharedContracts: {
     version: "shared/v1",
     d1d4BackupStoragePolicy: {
-      source: "contracts/shared/v1/fixtures/backup-storage-policy.json",
+      source: "src/lib/backup-storage-policy.fixture.json",
       freeBytes: 1_073_741_824,
       policyVersion: 1,
     },

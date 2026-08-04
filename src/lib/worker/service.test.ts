@@ -8,7 +8,7 @@ import {
   WorkerRuntimeService,
 } from "./service.ts";
 import { workerFixtures } from "./fixtures.ts";
-import publishedCanonicalServerTimeFixture from "../../../contracts/shared/v1/fixtures/canonical-server-time.json" with {
+import publishedCanonicalServerTimeFixture from "./canonical-server-time.fixture.json" with {
   type: "json",
 };
 

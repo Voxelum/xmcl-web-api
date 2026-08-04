@@ -87,7 +87,7 @@ export interface ServerDeploymentTarget {
   compatibility: ModpackCompatibility;
   activeDeploymentId?: string;
   /**
-   * ModpackDeployment-local view of `contracts/shared/v1/balance-exhaustion.schema.json`.
+   * ModpackDeployment-local view of the published balance-exhaustion schema.
    * Worker emits this event and ServerControl owns the resulting server state; ModpackDeployment only uses
    * it to avoid applying a deployment to a stopped runtime.
    */

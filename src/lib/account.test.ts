@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Hono } from "hono";
-import sharedBackupStoragePolicyFixture from "../../contracts/shared/v1/fixtures/backup-storage-policy.json" with {
+import sharedBackupStoragePolicyFixture from "./backup-storage-policy.fixture.json" with {
   type: "json",
 };
 import type { AppEnv } from "../types.ts";
