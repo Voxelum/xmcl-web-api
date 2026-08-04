@@ -31,12 +31,6 @@ Deno.test("retired service paths are identified before Worker dispatch", () => {
   );
   assert.equal(
     isRetiredServicePath(
-      new Request("https://signaling.xmcl.app/v2/multiplayer/rooms"),
-    ),
-    true,
-  );
-  assert.equal(
-    isRetiredServicePath(
       new Request("https://signaling.xmcl.app/v1/multiplayer/rooms"),
     ),
     false,

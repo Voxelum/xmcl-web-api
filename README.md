@@ -77,7 +77,8 @@ the common surface unless `XMCL_API_SURFACE` is set to `ai`, `signaling`, or
 The legacy `/group/:id` protocol used by old friend-presence and multiplayer
 clients is retired. Cloudflare blocks `/group` and `/group/*` at the edge, and
 the Worker returns `410` before touching a Durable Object. New multiplayer
-clients must use `/v1/multiplayer/*` on `signaling.xmcl.app`.
+clients must use `/v1/multiplayer/*` on `signaling.xmcl.app`. The former
+`/v2/multiplayer/*` path was never public and is not retained.
 
 ### Translation batch worker
 

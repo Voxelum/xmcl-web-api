@@ -12,9 +12,7 @@ export function isLegacyGroupPath(request: Request): boolean {
 export function isRetiredServicePath(request: Request): boolean {
   const { pathname } = new URL(request.url);
   return pathname === "/ai/chat/completions" ||
-    pathname === "/rtc/official" ||
-    pathname === "/v2/multiplayer" ||
-    pathname.startsWith("/v2/multiplayer/");
+    pathname === "/rtc/official";
 }
 
 /**
