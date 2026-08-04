@@ -29,15 +29,23 @@ export async function translate(
       key,
       messages: [
         { role: "system", content: prom },
-        { role: "user", content: "Translate following text into zh-CN:\nHello World" },
+        {
+          role: "user",
+          content: "Translate following text into zh-CN:\nHello World",
+        },
         { role: "assistant", content: "你好世界" },
-        { role: "user", content: `Translate following text into ${locale}:\n${t}` },
+        {
+          role: "user",
+          content: `Translate following text into ${locale}:\n${t}`,
+        },
       ],
     });
     if ("error" in resp) {
       return resp;
     }
-    if (!resp.choices || resp.choices.length === 0 || !resp.choices[0].message) {
+    if (
+      !resp.choices || resp.choices.length === 0 || !resp.choices[0].message
+    ) {
       return {
         error: {
           code: "invalid_response",
@@ -62,13 +70,17 @@ export async function translate(
     const holder: string[] = [];
     const transformed = placeholderAllUrlInMarkdown(text, holder);
     const chunks = splitMarkdownIfLengthLargerThanWindow(transformed);
-    const outputs = await Promise.all(chunks.map((ch) => process(ch, markdownPrompt)));
+    const outputs = await Promise.all(
+      chunks.map((ch) => process(ch, markdownPrompt)),
+    );
     const err = outputs.find((o) => typeof o === "object");
     if (err) return err;
     result = restoreAllUrlInMarkdown(outputs.join(""), holder);
   } else if (textType === "text/html") {
     const chunks = splitHTMLChildrenLargerThanWindowByTag(text);
-    const outputs = await Promise.all(chunks.map((ch) => process(ch, htmlPrompt)));
+    const outputs = await Promise.all(
+      chunks.map((ch) => process(ch, htmlPrompt)),
+    );
     const err = outputs.find((o) => typeof o === "object");
     if (err) return err;
     result = outputs.join("");

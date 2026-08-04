@@ -1,7 +1,43 @@
 import type { Db } from "./db.ts";
+import type { AuditEvent, AuditLog } from "./lib/audit.ts";
+import type { MetricsReader } from "./lib/observability.ts";
+import type {
+  AdminOperationRepository,
+  AdminOperationService,
+  AdminPrincipal,
+  AdminPrincipalAuthenticator,
+  BillingAdminOperationCommandAdapter,
+  ServerControlAdminOperationCommandAdapter,
+} from "./lib/operations.ts";
+import type { ReconciliationRepository } from "./lib/reconciliation.ts";
+import type {
+  WorldBackupRestoreWorkerPrincipal,
+  WorldBackupService,
+} from "./lib/worldBackupService.ts";
 import type { AccountRuntime } from "./lib/accountRuntime.ts";
+import type { WorkerRuntime } from "./lib/worker/runtime.ts";
 import type { XmclPrincipal } from "./lib/session.ts";
-import type { TranslationJob } from "./translation_service.ts";
+import type { BillingService } from "./lib/billing.ts";
+import type { BillingRuntime } from "./lib/billingRuntime.ts";
+import type { PayPalService } from "./lib/paypal.ts";
+import type { UsageSettlementService } from "./lib/usageSettlement.ts";
+import type { SharedHostingService } from "./lib/sharedHosting.ts";
+import type { SharedHostingScheduler } from "./lib/sharedHostingScheduler.ts";
+import type { SharedHostingBillingScheduledWork } from "./lib/sharedHostingScheduling.ts";
+import type { SharedNodeTransportService } from "./lib/sharedNodeTransport.ts";
+import type { VultrSharedNodeProvisioner } from "./lib/sharedNodeProvisioner.ts";
+import type { AiServiceDependencies } from "./lib/ai/service.ts";
+import type { ServerControlRuntime } from "./lib/serverControlRuntime.ts";
+import type {
+  ServerCompatibilityGateway,
+  WorkerDeploymentGateway,
+} from "./lib/deploymentTasks.ts";
+import type { ModpackDeploymentRuntime } from "./lib/modpackDeploymentRuntime.ts";
+import type {
+  CompilerGrantAuthority,
+  SharedModdedRuntimeService,
+} from "./lib/sharedModdedRuntime.ts";
+import type { SharedWorldSeedService } from "./lib/sharedWorldSeed.ts";
 
 export interface MicrosoftMinecraftProfile {
   id: string;
@@ -23,15 +59,79 @@ export interface AppVariables {
   microsoftProfile?: MicrosoftProfile;
   /** ISO country code resolved by a platform geo middleware (Deno/Azure). */
   country?: string;
-  /**
-   * Offload a translation to a platform queue (Deno.Kv / Cloudflare Queue).
-   * Returns true if accepted (route replies 202); absent or false means the
-   * route translates inline. Azure has no queue and always translates inline.
-   */
-  enqueueTranslation?: (job: TranslationJob) => Promise<boolean>;
   /** Optional Account test/platform override; production builds it from DB + env. */
   accountRuntime?: AccountRuntime;
   xmclPrincipal?: XmclPrincipal;
+  /** Independent admin-session verifier; never accepts normal user sessions. */
+  adminOperationAuthenticator?: AdminPrincipalAuthenticator;
+  /** Set only by the AdminOperation admin middleware after the independent verification. */
+  adminPrincipal?: AdminPrincipal;
+  /** Fully composed AdminOperation service override for tests or platform composition. */
+  adminOperationService?: AdminOperationService;
+  /** Durable AdminOperation command dependencies for the mounted route composition. */
+  adminOperationRepository?: AdminOperationRepository;
+  adminOperationAuditLog?: AuditLog;
+  billingAdminOperationAdapter?: BillingAdminOperationCommandAdapter;
+  serverControlAdminOperationAdapter?:
+    ServerControlAdminOperationCommandAdapter;
+  adminOperationNow?: () => string;
+  adminOperationAuditEvents?: () => Promise<
+    { items: AuditEvent[]; nextCursor?: string }
+  >;
+  adminOperationMetrics?: MetricsReader;
+  adminOperationReconciliation?: Pick<ReconciliationRepository, "latest">;
+  /** Read-only account projection supplied by the account owner. */
+  adminOperationAccountReader?: { read(accountId: string): Promise<unknown> };
+  /** WorldBackup platform composition injects its owned backup adapter. */
+  worldBackupService?: WorldBackupService;
+  /** Dedicated Worker/internal-service authenticator for WorldBackup restore event callbacks. */
+  worldBackupRestoreWorkerAuthenticator?: {
+    authenticate(input: {
+      authorization?: string;
+      method: string;
+      path: string;
+      body: string;
+      timestamp?: string;
+      nonce?: string;
+      signature?: string;
+    }): Promise<WorldBackupRestoreWorkerPrincipal | undefined>;
+  };
+  /** Billing dependencies are injected by platform composition; never browser supplied. */
+  billingService?: BillingService;
+  billingRuntime?: BillingRuntime;
+  paypalService?: PayPalService;
+  usageSettlementService?: UsageSettlementService;
+  /** Shared-hosting plan subscriptions and renewal billing. */
+  sharedHostingService?: SharedHostingService;
+  /** Global shared-node scheduler; Docker and direct grant transfers remain node-agent owned. */
+  sharedHostingScheduler?: SharedHostingScheduler;
+  /** Trusted UTC renewal sweep; never supplied by a browser request. */
+  sharedHostingBillingScheduledWork?: SharedHostingBillingScheduledWork;
+  /** Authenticated internal transport for shared-node agents. */
+  sharedNodeTransport?: SharedNodeTransportService;
+  sharedNodeProvisioner?: VultrSharedNodeProvisioner;
+  /** Compiler-owned shared modpack deployment composition; never browser supplied. */
+  sharedModdedRuntime?: SharedModdedRuntimeService;
+  /** Service-owned local world seed lifecycle; no browser storage credentials. */
+  sharedWorldSeedService?: SharedWorldSeedService;
+  /** Compiler callback middleware sets this only after server-side authentication. */
+  sharedModdedCompilerPrincipal?: { compilerId: string };
+  /** Exact bytes verified by compiler workload identity before callback JSON parsing. */
+  sharedModdedCompilerRawBody?: Uint8Array;
+  /** Compiler grant issuer is separate from all node command grants. */
+  sharedModdedCompilerGrants?: CompilerGrantAuthority;
+  /** Complete ServerControl composition; absent routes and scheduled work fail explicitly. */
+  serverControlRuntime?: ServerControlRuntime;
+  /** Platform composition injects ServerControl/Billing-backed Worker worker adapters here. */
+  workerRuntime?: WorkerRuntime;
+  /** Ai platform composition supplies server-only provider, Billing gateway, and durable request store. */
+  aiServiceDependencies?: AiServiceDependencies;
+  /** ModpackDeployment-owned durable composition; it receives only these external ServerControl/Worker adapters. */
+  modpackDeploymentRuntime?: ModpackDeploymentRuntime;
+  /** ServerControl's account-owned server/template lifecycle projection for ModpackDeployment. */
+  modpackDeploymentServerControlTarget?: ServerCompatibilityGateway;
+  /** Worker's staging, atomic-switch, and snapshot-restore adapter for ModpackDeployment. */
+  modpackDeploymentWorkerStaging?: WorkerDeploymentGateway;
 }
 
 /**
@@ -41,9 +141,8 @@ export interface AppVariables {
  * `AppConfig`, so they are intentionally loose here.
  */
 export interface AppBindings {
-  TRANSLATION_KV?: unknown;
-  TRANSLATION_QUEUE?: unknown;
-  MULTIPLAYER_ROOM?: unknown;
+  GROUP_ROOM?: unknown;
+  SHARED_NODE_WORKSPACE_SIGNER?: unknown;
   [key: string]: unknown;
 }
 

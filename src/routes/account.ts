@@ -59,6 +59,7 @@ function requireAccountWrite(scopes: string[]) {
 
 export function createAccountRoutes(
   resolve: AccountRuntimeResolver = getAccountRuntime,
+  options: { mergeRoutes?: boolean; deletionRoutes?: boolean } = {},
 ) {
   const app = new Hono<AppEnv>();
   app.onError(handleAccountError);
@@ -150,72 +151,80 @@ export function createAccountRoutes(
     return c.body(null, 204);
   });
 
-  app.post("/v1/account/merge/prepare", async (c) => {
-    const principal = c.get("xmclPrincipal")!;
-    requireAccountWrite(principal.scopes);
-    const runtime = await resolve(c);
-    const body = await jsonBody(c);
-    const providerValue = String(body.provider ?? "");
-    if (!isOAuthProvider(providerValue)) {
-      throw new AccountError(422, "invalid_provider");
-    }
-    const completedAt = String(body.completedAt ?? "");
-    const timestamp = Date.parse(completedAt);
-    const now = Date.now();
-    if (
-      !Number.isFinite(timestamp) || timestamp < now - 5 * 60_000 ||
-      timestamp > now + 60_000
-    ) {
-      throw new AccountError(422, "invalid_oauth_request");
-    }
-    const identity = await runtime.oauth[providerValue]
-      .verifyLauncherCredential({
-        accessToken: String(body.credential ?? ""),
-        completedAt,
-      });
-    return c.json(
-      await runtime.merges.prepare({
-        currentAccountId: principal.accountId,
-        verifiedTargetIdentity: identity,
-        requestId: requestId(c),
-      }),
-    );
-  });
-
-  app.post("/v1/account/merge/confirm", async (c) => {
-    const principal = c.get("xmclPrincipal")!;
-    requireAccountWrite(principal.scopes);
-    const body = await jsonBody(c);
-    const result = await (await resolve(c)).merges.confirm({
-      currentAccountId: principal.accountId,
-      mergeId: String(body.mergeId ?? ""),
-      confirmed: body.confirmed === true,
-      idempotencyKey: c.req.header("idempotency-key") ?? "",
-      requestId: requestId(c),
+  if (options.mergeRoutes !== false) {
+    app.post("/v1/account/merge/prepare", async (c) => {
+      const principal = c.get("xmclPrincipal")!;
+      requireAccountWrite(principal.scopes);
+      const runtime = await resolve(c);
+      const body = await jsonBody(c);
+      const providerValue = String(body.provider ?? "");
+      if (!isOAuthProvider(providerValue)) {
+        throw new AccountError(422, "invalid_provider");
+      }
+      const completedAt = String(body.completedAt ?? "");
+      const timestamp = Date.parse(completedAt);
+      const now = Date.now();
+      if (
+        !Number.isFinite(timestamp) || timestamp < now - 5 * 60_000 ||
+        timestamp > now + 60_000
+      ) {
+        throw new AccountError(422, "invalid_oauth_request");
+      }
+      const identity = await runtime.oauth[providerValue]
+        .verifyLauncherCredential({
+          accessToken: String(body.credential ?? ""),
+          completedAt,
+        });
+      return c.json(
+        await runtime.merges.prepare({
+          currentAccountId: principal.accountId,
+          verifiedTargetIdentity: identity,
+          requestId: requestId(c),
+        }),
+      );
     });
-    return c.json(result, 202);
-  });
+  }
 
-  app.post("/v1/account/deletion", async (c) => {
-    const principal = c.get("xmclPrincipal")!;
-    requireAccountWrite(principal.scopes);
-    const result = await (await resolve(c)).accounts.requestDeletion(
-      principal.accountId,
-      c.req.header("idempotency-key") ?? "",
-      requestId(c),
-    );
-    return c.json(result, 202);
-  });
+  if (options.mergeRoutes !== false) {
+    app.post("/v1/account/merge/confirm", async (c) => {
+      const principal = c.get("xmclPrincipal")!;
+      requireAccountWrite(principal.scopes);
+      const body = await jsonBody(c);
+      const result = await (await resolve(c)).merges.confirm({
+        currentAccountId: principal.accountId,
+        mergeId: String(body.mergeId ?? ""),
+        confirmed: body.confirmed === true,
+        idempotencyKey: c.req.header("idempotency-key") ?? "",
+        requestId: requestId(c),
+      });
+      return c.json(result, 202);
+    });
+  }
 
-  app.post("/v1/account/deletion/cancel", async (c) => {
-    const principal = c.get("xmclPrincipal")!;
-    requireAccountWrite(principal.scopes);
-    await (await resolve(c)).accounts.cancelDeletion(
-      principal.accountId,
-      requestId(c),
-    );
-    return c.body(null, 204);
-  });
+  if (options.deletionRoutes !== false) {
+    app.post("/v1/account/deletion", async (c) => {
+      const principal = c.get("xmclPrincipal")!;
+      requireAccountWrite(principal.scopes);
+      const result = await (await resolve(c)).accounts.requestDeletion(
+        principal.accountId,
+        c.req.header("idempotency-key") ?? "",
+        requestId(c),
+      );
+      return c.json(result, 202);
+    });
+  }
+
+  if (options.deletionRoutes !== false) {
+    app.post("/v1/account/deletion/cancel", async (c) => {
+      const principal = c.get("xmclPrincipal")!;
+      requireAccountWrite(principal.scopes);
+      await (await resolve(c)).accounts.cancelDeletion(
+        principal.accountId,
+        requestId(c),
+      );
+      return c.body(null, 204);
+    });
+  }
 
   return app;
 }

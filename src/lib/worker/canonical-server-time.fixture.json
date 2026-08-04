@@ -1,0 +1,17 @@
+{
+  "eventType": "usage.recorded.v1",
+  "eventId": "usage_123",
+  "schemaVersion": 1,
+  "accountId": "acct_123",
+  "authorizationId": "auth_123",
+  "resource": "server_time",
+  "sourceId": "lease_123",
+  "quantity": 3600,
+  "unit": "second",
+  "rateVersion": 1,
+  "sequence": 1,
+  "intervalStart": "2026-07-22T23:00:00Z",
+  "intervalEnd": "2026-07-23T00:00:00Z",
+  "occurredAt": "2026-07-23T00:00:00Z",
+  "idempotencyKey": "m5:lease_123:1"
+}

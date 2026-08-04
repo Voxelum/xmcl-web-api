@@ -25,6 +25,9 @@ export const USER_SESSION_SCOPES = [
   "account:read",
   "account:write",
   "session:manage",
+  "ai:invoke",
+  "modpack:read",
+  "modpack:write",
 ] as const;
 
 export const ACCESS_TOKEN_TTL_MS = 24 * 60 * 60_000;

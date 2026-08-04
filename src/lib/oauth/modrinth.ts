@@ -25,9 +25,6 @@ export function createModrinthOAuth(options: {
       launcherAvailable: true,
     },
     clientSecret: options.clientSecret,
-    // Modrinth's token endpoint expects the client secret as the raw
-    // Authorization header, unlike the other OAuth providers.
-    clientSecretLocation: "authorization",
     fetch: options.fetch,
     mapUser: (body) => ({ subject: body.id, displayName: body.username }),
   });

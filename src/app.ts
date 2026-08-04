@@ -4,56 +4,145 @@ import { HTTPException } from "hono/http-exception";
 
 import appinstaller from "./routes/appinstaller.ts";
 import appx from "./routes/appx.ts";
-import account from "./routes/account.ts";
+import backupStoragePolicy from "./routes/backupStoragePolicy.ts";
 import elyby from "./routes/elyby.ts";
 import flights from "./routes/flights.ts";
 import group from "./routes/group.ts";
-import multiplayer from "./routes/multiplayer.ts";
 import kookBadge from "./routes/kookBadge.ts";
 import latest from "./routes/latest.ts";
 import modrinth from "./routes/modrinth.ts";
+import worldBackups from "./routes/worldBackups.ts";
 import notifications from "./routes/notifications.ts";
 import prebuilds from "./routes/prebuilds.ts";
 import releases from "./routes/releases.ts";
 import rtc from "./routes/rtc.ts";
-import session from "./routes/session.ts";
 import translation from "./routes/translation.ts";
+import operations from "./routes/operations.ts";
 import zulu from "./routes/zulu.ts";
+import account from "./routes/account.ts";
+import session from "./routes/session.ts";
+import servers from "./routes/servers.ts";
+import billing from "./routes/billing.ts";
+import paypal from "./routes/paypal.ts";
+import usageSettlement from "./routes/usageSettlement.ts";
+import worker from "./routes/worker.ts";
+import ai from "./routes/ai.ts";
+import modpackDeployments from "./routes/modpackDeployments.ts";
+import sharedHosting from "./routes/sharedHosting.ts";
+import sharedHostingServices from "./routes/sharedHostingServices.ts";
+import sharedNodeTransport from "./routes/sharedNodeTransport.ts";
+import sharedModdedRuntime from "./routes/sharedModdedRuntime.ts";
+import sharedWorldSeeds from "./routes/sharedWorldSeeds.ts";
+import chatCompletions from "./routes/chatCompletions.ts";
 import type { AppEnv } from "./types.ts";
+import { requestId } from "./lib/accountHttp.ts";
 
 /**
  * Builds the shared Hono application. This is the single source of truth for all
  * HTTP routes and is reused by every platform entry point (Deno, Cloudflare
- * Workers, Azure Functions). Platform-specific behaviour (DB connector, realtime
- * upgrade, translation queue, geo) is injected via context variables set in
- * per-platform middleware.
+ * Workers, Azure Functions). Platform-specific behaviour (DB connector,
+ * realtime upgrade, geo) is injected via context variables set in per-platform
+ * middleware.
  */
-export function createApp(register?: (app: Hono<AppEnv>) => void) {
-  const app = new Hono<AppEnv>();
+export interface CreateAppOptions {
+  /**
+   * Limits the mounted route family for an isolated public domain. The
+   * default keeps the historical all-routes composition used by tests and
+   * non-Cloudflare runtimes.
+   */
+  routeSurface?: "all" | "common" | "ai" | "signaling";
+  /**
+   * Test composition can mount routes with injected fakes. Production only
+   * enables these routes once its complete durable composition is available.
+   */
+  commercialRoutes?: boolean;
+  /** Public payment routes can be enabled without shared-hosting composition. */
+  billingRoutes?: boolean;
+  /** Mounts authenticated internal node transport after complete composition. */
+  sharedNodeTransportRoutes?: boolean;
+  /** PayPal routes stay separately gated until provider reconciliation is deployed. */
+  paymentRoutes?: boolean;
+  /**
+   * Most deployments retain the historical permissive CORS middleware. Isolated
+   * control planes can opt out and attach CORS only to their reviewed routes.
+   */
+  corsOptions?: Parameters<typeof cors>[0] | false;
+  /** Isolated control planes mount account/session routes only after their guard. */
+  accountSessionRoutes?: boolean;
+  /** Local demo disables the real provider-backed chat proxy. */
+  chatCompletionsRoutes?: boolean;
+}
 
-  app.use("*", cors());
+export function createApp(
+  register?: (app: Hono<AppEnv>) => void,
+  options: CreateAppOptions = {},
+) {
+  const app = new Hono<AppEnv>();
+  const surface = options.routeSurface ?? "all";
+  const allRoutes = surface === "all";
+  const commonRoutes = allRoutes || surface === "common";
+  const aiRoutes = allRoutes || surface === "ai";
+  const signalingRoutes = allRoutes || surface === "signaling";
+
+  if (options.corsOptions !== false) {
+    app.use("*", cors(options.corsOptions));
+  }
 
   // Platform entry points inject their middleware here (geo, DB, realtime
-  // upgrade, translation queue) before the shared routes run.
+  // upgrade) before the shared routes run.
   register?.(app);
 
-  app.route("/", latest);
-  app.route("/", releases);
-  app.route("/", notifications);
-  app.route("/", flights);
-  app.route("/", translation);
-  app.route("/", group);
-  app.route("/", multiplayer);
-  app.route("/", rtc);
-  app.route("/", zulu);
-  app.route("/", elyby);
-  app.route("/", modrinth);
-  app.route("/", kookBadge);
-  app.route("/", appx);
-  app.route("/", appinstaller);
-  app.route("/", prebuilds);
-  app.route("/", session);
-  app.route("/", account);
+  if (commonRoutes) {
+    app.route("/", latest);
+    app.route("/", releases);
+    app.route("/", notifications);
+    app.route("/", flights);
+    app.route("/", translation);
+    app.route("/", zulu);
+    app.route("/", elyby);
+    app.route("/", modrinth);
+    app.route("/", kookBadge);
+    app.route("/", appx);
+    app.route("/", appinstaller);
+    app.route("/", prebuilds);
+    app.route("/", backupStoragePolicy);
+  }
+  if (signalingRoutes) {
+    app.route("/", group);
+    app.route("/", rtc);
+  }
+  if (options.accountSessionRoutes !== false && commonRoutes) {
+    app.route("/", session);
+    app.route("/", account);
+  }
+  if (options.chatCompletionsRoutes !== false && aiRoutes) {
+    app.route("/", chatCompletions);
+  }
+  if (commonRoutes) {
+    const enableCommercialRoutes = options.commercialRoutes !== false;
+    if (enableCommercialRoutes || options.billingRoutes === true) {
+      app.route("/", billing);
+    }
+    if (enableCommercialRoutes || options.paymentRoutes === true) {
+      app.route("/", paypal);
+    }
+    if (enableCommercialRoutes) {
+      app.route("/", worldBackups);
+      app.route("/", servers);
+      app.route("/", operations);
+      app.route("/", usageSettlement);
+      app.route("/", worker);
+      app.route("/", ai);
+      app.route("/", modpackDeployments);
+      app.route("/", sharedHosting);
+      app.route("/", sharedHostingServices);
+      app.route("/", sharedModdedRuntime);
+      app.route("/", sharedWorldSeeds);
+    }
+    if (options.sharedNodeTransportRoutes === true) {
+      app.route("/", sharedNodeTransport);
+    }
+  }
 
   // Index: list the registered routes (mirrors the original `/`).
   app.get("/", (c) => {
@@ -72,9 +161,20 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
     if (err instanceof HTTPException) {
       return err.getResponse();
     }
-    console.error(err);
+    const id = requestId(c);
+    console.error({
+      event: "app.exception",
+      requestId: id,
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      errorName: err.name,
+    });
     return c.json(
-      { error: "Internal Server Error", message: err.message },
+      {
+        error: "internal_error",
+        message: "Internal Server Error",
+        requestId: id,
+      },
       500,
     );
   });

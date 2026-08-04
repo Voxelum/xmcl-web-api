@@ -9,4 +9,3 @@ export default new Hono<AppEnv>().get("/releases/:filename", (c) => {
     `https://github.com/Voxelum/x-minecraft-launcher/releases/download/v${version}/${fileName}`,
   );
 });
-

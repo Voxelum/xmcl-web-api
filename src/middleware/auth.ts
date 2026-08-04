@@ -16,7 +16,9 @@ export function minecraftAuth(strict = true) {
 
     if (!authorization || !authorization.startsWith("Bearer ")) {
       if (strict) {
-        throw new HTTPException(400, { message: "Require authorization header" });
+        throw new HTTPException(400, {
+          message: "Require authorization header",
+        });
       }
     }
 
@@ -26,10 +28,14 @@ export function minecraftAuth(strict = true) {
         { method: "GET", headers: { authorization } },
       );
       if (response.status !== 200) {
-        const body = await response.text();
         if (strict) {
-          console.error(body);
-          throw new HTTPException(401, { message: body });
+          console.warn({
+            event: "minecraft_auth.rejected",
+            providerStatus: response.status,
+          });
+          throw new HTTPException(401, {
+            message: "Invalid Minecraft access token",
+          });
         }
       } else {
         c.set(

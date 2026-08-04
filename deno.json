@@ -9,6 +9,7 @@
         "hono/": "npm:/hono@^4.12.27/",
         "@mikro-orm/core": "npm:@mikro-orm/core@^7.1.4",
         "@mikro-orm/mongodb": "npm:@mikro-orm/mongodb@^7.1.4",
+        "mongodb": "npm:mongodb@6.15.0",
         "xxhash-wasm": "npm:xxhash-wasm@^1.1.0",
         "node-html-parser": "npm:node-html-parser@^6.1.13"
     },
@@ -17,6 +18,9 @@
         "lib": ["deno.window", "dom", "dom.iterable"]
     },
     "tasks": {
-        "start": "deno run --allow-net --allow-read --allow-env --allow-sys --unstable-kv --env index.ts"
+        "start": "deno run --allow-net --allow-read --allow-env --allow-sys --unstable-kv --env index.ts",
+        "local-demo": "deno run --allow-net --allow-env local_demo.ts",
+        "local-demo:smoke": "deno run --allow-net --allow-env scripts/local_demo_smoke.ts",
+        "check:local-demo": "deno check local_demo.ts scripts/local_demo_smoke.ts"
     }
 }

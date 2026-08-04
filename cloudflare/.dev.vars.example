@@ -11,6 +11,12 @@ MONGO_CONNECION_STRING=""
 RTC_SECRET=""
 CLOUDFLARE_API_TOKEN=""
 CLOUDFLARE_APP_ID=""
-AGNES_API_KEY=""
 CURSEFORGE_KEY=""
-MODRINTH_SECRET=""
+XMCL_MODRINTH_CLIENT_ID=""
+XMCL_MODRINTH_CLIENT_SECRET=""
+
+# Staging-only PayPal Sandbox webhook proxy. Keep all three as Worker secrets
+# in deployed environments; the URL must be the fixed Azure /api webhook path.
+PAYPAL_WEBHOOK_PROXY_URL=""
+XMCL_PAYPAL_WEBHOOK_PROXY_KEY_ID=""
+XMCL_PAYPAL_WEBHOOK_PROXY_SECRET=""

@@ -32,6 +32,12 @@ export interface DurableObjectState {
 
 /** Cloudflare's server-side WebSocket (superset of the DOM WebSocket). */
 export interface CfWebSocket {
+  accept(): void;
+  addEventListener(
+    type: "message",
+    listener: (event: MessageEvent) => void,
+  ): void;
+  addEventListener(type: "close" | "error", listener: () => void): void;
   send(message: string | ArrayBuffer | ArrayBufferView): void;
   close(code?: number, reason?: string): void;
   serializeAttachment(value: unknown): void;
@@ -57,17 +63,6 @@ export interface ExecutionContext {
 export interface ScheduledController {
   readonly scheduledTime: number;
   readonly cron: string;
-}
-
-export interface Message<T> {
-  readonly body: T;
-  ack(): void;
-  retry(): void;
-}
-
-export interface MessageBatch<T> {
-  readonly queue: string;
-  readonly messages: Message<T>[];
 }
 
 declare global {

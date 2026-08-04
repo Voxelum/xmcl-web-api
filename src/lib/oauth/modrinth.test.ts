@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
-import { createModrinthOAuth, DEFAULT_MODRINTH_CLIENT_ID } from "./modrinth.ts";
+import {
+  createModrinthOAuth,
+  DEFAULT_MODRINTH_CLIENT_ID,
+} from "./modrinth.ts";
 
-Deno.test("uses Modrinth's required Authorization client-secret header for browser exchange", async () => {
+Deno.test("uses the configured Modrinth OAuth client and client secret for browser exchange", async () => {
   const requests: Request[] = [];
   const adapter = createModrinthOAuth({
     redirectUris: ["https://preview.example.invalid/oauth/callback"],
@@ -40,11 +43,11 @@ Deno.test("uses Modrinth's required Authorization client-secret header for brows
   });
   assert.equal(
     requests[0].headers.get("authorization"),
-    "configured-modrinth-secret",
+    null,
   );
   const form = new URLSearchParams(await requests[0].text());
   assert.equal(form.get("client_id"), "configured-modrinth-client");
-  assert.equal(form.get("client_secret"), null);
+  assert.equal(form.get("client_secret"), "configured-modrinth-secret");
 });
 
 Deno.test("uses the existing registered Modrinth client ID by default", () => {

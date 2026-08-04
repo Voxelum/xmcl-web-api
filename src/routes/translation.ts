@@ -3,7 +3,10 @@ import { HTTPException } from "hono/http-exception";
 import { getConfig } from "../config.ts";
 import { getHasher } from "../lib/hasher.ts";
 import { forwardHeaders } from "../proxy.ts";
-import { runTranslation, type TranslationJob } from "../translation_service.ts";
+import {
+  recordTranslationRequest,
+  type TranslationContentType,
+} from "../translation_requests.ts";
 import type { AppEnv } from "../types.ts";
 
 interface ModrinthResponseBody {
@@ -15,8 +18,20 @@ interface I18nEntry {
   content?: string;
 }
 
+const TRANSLATION_RETRY_AFTER_SECONDS = 86_400;
+const TRANSLATION_RATE_LIMIT_CAPACITY = 60;
+const TRANSLATION_RATE_LIMIT_WINDOW_MS = 60_000;
+const TRANSLATION_MAX_CONCURRENT_PER_CLIENT = 5;
 const I18N_NOT_FOUND_TTL_MS = 6 * 60 * 60_000;
 const I18N_NOT_FOUND_CACHE_LIMIT = 2_048;
+
+interface TranslationRateBucket {
+  tokens: number;
+  updatedAt: number;
+}
+
+const translationRateBuckets = new Map<string, TranslationRateBucket>();
+const translationActiveRequests = new Map<string, number>();
 
 // In-memory circuit breaker for the community i18n CDN. When
 // raw.githubusercontent rate-limits us (429, or a secondary 403), continuing to
@@ -118,143 +133,188 @@ function firstLanguage(header: string | undefined): string | undefined {
   return first || undefined;
 }
 
+function translationClientKey(c: Parameters<typeof getConfig>[0]): string {
+  return c.req.header("cf-connecting-ip") ??
+    c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
+    c.req.header("x-real-ip") ??
+    "unknown";
+}
+
+function acquireTranslationPermit(client: string):
+  | { retryAfter: number; release: () => void }
+  | undefined {
+  const now = Date.now();
+  const active = translationActiveRequests.get(client) ?? 0;
+  if (active >= TRANSLATION_MAX_CONCURRENT_PER_CLIENT) {
+    return { retryAfter: 1, release: () => {} };
+  }
+
+  const previous = translationRateBuckets.get(client) ?? {
+    tokens: TRANSLATION_RATE_LIMIT_CAPACITY,
+    updatedAt: now,
+  };
+  const refill = Math.max(0, now - previous.updatedAt) *
+    TRANSLATION_RATE_LIMIT_CAPACITY / TRANSLATION_RATE_LIMIT_WINDOW_MS;
+  const bucket = {
+    tokens: Math.min(TRANSLATION_RATE_LIMIT_CAPACITY, previous.tokens + refill),
+    updatedAt: now,
+  };
+  if (bucket.tokens < 1) {
+    translationRateBuckets.set(client, bucket);
+    return {
+      retryAfter: Math.max(
+        1,
+        Math.ceil(
+          (1 - bucket.tokens) * TRANSLATION_RATE_LIMIT_WINDOW_MS /
+            TRANSLATION_RATE_LIMIT_CAPACITY / 1000,
+        ),
+      ),
+      release: () => {},
+    };
+  }
+
+  bucket.tokens -= 1;
+  translationRateBuckets.set(client, bucket);
+  translationActiveRequests.set(client, active + 1);
+  return {
+    retryAfter: 0,
+    release: () => {
+      const current = translationActiveRequests.get(client) ?? 1;
+      if (current <= 1) translationActiveRequests.delete(client);
+      else translationActiveRequests.set(client, current - 1);
+    },
+  };
+}
+
 export default new Hono<AppEnv>().get("/translation", async (c) => {
-  const config = getConfig(c);
-
-  const type = c.req.query("type");
-  if (!type) throw new HTTPException(400, { message: "No type specified" });
-  if (type !== "modrinth" && type !== "curseforge") {
-    throw new HTTPException(400, { message: "Invalid type" });
-  }
-
-  const id = c.req.query("id");
-  if (!id) throw new HTTPException(400, { message: "No id specified" });
-
-  const lang = firstLanguage(c.req.header("Accept-Language"));
-  if (!lang) throw new HTTPException(400, { message: "No language specified" });
-
-  const getCurseforgeDescription = async (modId: string) => {
-    const headers = forwardHeaders(c.req.raw);
-    headers.set("x-api-key", config.CURSEFORGE_KEY ?? "");
-    const response = await fetch(
-      `https://api.curseforge.com/v1/mods/${modId}/description`,
-      { headers },
-    );
-    if (!response.ok) {
-      throw new HTTPException(response.status as 400, {
-        message: await response.text(),
-      });
-    }
-    return ((await response.json()) as { data: string }).data;
-  };
-
-  const getModrinthDescription = async (projectId: string) => {
-    const response = await fetch(
-      `https://api.modrinth.com/v2/project/${projectId}`,
-      { headers: forwardHeaders(c.req.raw) },
-    );
-    if (!response.ok) {
-      throw new HTTPException(response.status as 400, {
-        message: await response.text(),
-      });
-    }
-    return ((await response.json()) as ModrinthResponseBody).body;
-  };
-
-  const db = await c.var.getDb();
-
-  // English content needs no translation.
-  if (lang === "*" || lang.startsWith("en")) {
-    return c.body(null, 204);
-  }
-
-  // Telemetry: count requests per project to inform a future hot/cold DB split.
-  // Runs concurrently with the description fetch and never breaks the response.
-  const recordRequest = db
-    .collection("translation_requests")
-    .updateOne(
-      { _id: `${type}:${id}` },
+  const permit = acquireTranslationPermit(translationClientKey(c));
+  if (!permit || permit.retryAfter > 0) {
+    return c.json(
       {
-        $inc: { count: 1, [`langs.${lang}`]: 1 },
-        $set: { type, projectId: id, lastAccess: new Date() },
+        error: "rate_limited",
+        message: "Too many translation requests",
       },
-      { upsert: true },
-    )
-    .catch(() => {});
-
-  const [body] = await Promise.all([
-    type === "curseforge"
-      ? getCurseforgeDescription(id)
-      : getModrinthDescription(id),
-    recordRequest,
-  ]);
-  const contentType: "text/html" | "text/markdown" = type === "curseforge"
-    ? "text/html"
-    : "text/markdown";
-
-  const hash = await getHasher();
-  const bodyHash = hash(body);
-  const newColl = db.collection(`${lang}_translation`);
-
-  const respond = (content: string) =>
-    c.body(content, 200, {
-      "content-language": lang,
-      "content-type": contentType,
-      "cache-control": "public, max-age=86400",
-    });
-
-  // Community i18n repo (served as raw files) is the cheapest source: a plain
-  // CDN GET, no DB round-trip. Layout is `<base>/<locale>/<id>.json` and each
-  // file mirrors the cached document, validated by `bodyHash` so a stale
-  // translation (source text changed) falls through to the DB / a fresh run.
-  const i18nBase = (config.TRANSLATION_I18N_BASE ??
-    "https://raw.githubusercontent.com/Voxelum/xmcl-community-content-i18n-extra/main")
-    .replace(/\/+$/, "");
-  const githubFound = await fetchI18n(i18nBase, lang, id);
-  if (
-    githubFound && githubFound.bodyHash === bodyHash &&
-    typeof githubFound.content === "string"
-  ) {
-    return respond(githubFound.content);
+      429,
+      { "retry-after": String(permit?.retryAfter ?? 1) },
+    );
   }
 
-  // New cache: keyed by project id in `<locale>_translation`, validated by hash.
-  const newFound = await newColl.findOne({ _id: { $eq: id } });
-  if (newFound && newFound.bodyHash === bodyHash) {
-    return respond(newFound.content);
-  }
+  try {
+    const config = getConfig(c);
 
-  // Legacy cache: keyed by hash(body + lang) in `translated`; migrate on hit.
-  if (!newFound) {
-    const legacyId = hash(body + lang);
-    const legacyColl = db.collection("translated");
-    const legacyFound = await legacyColl.findOne({ _id: { $eq: legacyId } });
-    if (legacyFound) {
-      await newColl.replaceOne(
-        { _id: id },
-        { _id: id, bodyHash, content: legacyFound.content, contentType, type },
-        { upsert: true },
-      );
-      await legacyColl.deleteOne({ _id: legacyId });
-      return respond(legacyFound.content);
+    const type = c.req.query("type");
+    if (!type) throw new HTTPException(400, { message: "No type specified" });
+    if (type !== "modrinth" && type !== "curseforge") {
+      throw new HTTPException(400, { message: "Invalid type" });
     }
-  }
 
-  const job: TranslationJob = { lang, body, bodyHash, contentType, type, id };
+    const id = c.req.query("id");
+    if (!id) throw new HTTPException(400, { message: "No id specified" });
 
-  // Offload to a queue when the platform provides one; otherwise translate now.
-  const enqueued = c.var.enqueueTranslation
-    ? await c.var.enqueueTranslation(job)
-    : false;
-  if (enqueued) {
-    return c.body(null, 202);
-  }
+    const lang = firstLanguage(c.req.header("Accept-Language"));
+    if (!lang) {
+      throw new HTTPException(400, { message: "No language specified" });
+    }
 
-  const result = await runTranslation(db, job, {
-    agnes: config.AGNES_API_KEY,
-  });
-  if (typeof result === "object") {
-    throw new HTTPException(500, { message: result.error.message });
+    const getCurseforgeDescription = async (modId: string) => {
+      const headers = forwardHeaders(c.req.raw);
+      headers.set("x-api-key", config.CURSEFORGE_KEY ?? "");
+      const response = await fetch(
+        `https://api.curseforge.com/v1/mods/${modId}/description`,
+        { headers },
+      );
+      if (!response.ok) {
+        throw new HTTPException(response.status as 400, {
+          message: await response.text(),
+        });
+      }
+      return ((await response.json()) as { data: string }).data;
+    };
+
+    const getModrinthDescription = async (projectId: string) => {
+      const response = await fetch(
+        `https://api.modrinth.com/v2/project/${projectId}`,
+        { headers: forwardHeaders(c.req.raw) },
+      );
+      if (!response.ok) {
+        throw new HTTPException(response.status as 400, {
+          message: await response.text(),
+        });
+      }
+      return ((await response.json()) as ModrinthResponseBody).body;
+    };
+
+    // English content needs no translation.
+    if (lang === "*" || lang.startsWith("en")) {
+      return c.body(null, 204);
+    }
+
+    const body = type === "curseforge"
+      ? await getCurseforgeDescription(id)
+      : await getModrinthDescription(id);
+    const contentType: TranslationContentType = type === "curseforge"
+      ? "text/html"
+      : "text/markdown";
+
+    const hash = await getHasher();
+    const bodyHash = hash(body);
+    const db = await c.var.getDb();
+    const newColl = db.collection(`${lang}_translation`);
+
+    const respond = (content: string) =>
+      c.body(content, 200, {
+        "content-language": lang,
+        "content-type": contentType,
+        "cache-control": "public, max-age=86400",
+        "vary": "accept-language",
+      });
+
+    // Community i18n repo (served as raw files) is the cheapest source: a plain
+    // CDN GET, no DB round-trip. Layout is `<base>/<locale>/<id>.json` and each
+    // file mirrors the cached document, validated by `bodyHash` so a stale
+    // translation (source text changed) falls through to the DB / a fresh run.
+    const i18nBase = (config.TRANSLATION_I18N_BASE ??
+      "https://raw.githubusercontent.com/Voxelum/xmcl-community-content-i18n-extra/main")
+      .replace(/\/+$/, "");
+    const githubFound = await fetchI18n(i18nBase, lang, id);
+    if (
+      githubFound && githubFound.bodyHash === bodyHash &&
+      typeof githubFound.content === "string"
+    ) {
+      return respond(githubFound.content);
+    }
+
+    // New cache: keyed by project id in `<locale>_translation`, validated by hash.
+    const newFound = await newColl.findOne({ _id: { $eq: id } });
+    if (newFound && newFound.bodyHash === bodyHash) {
+      return respond(newFound.content);
+    }
+
+    // Legacy cache: keyed by hash(body + lang) in `translated`. Keep serving
+    // validated legacy entries, but leave cache writes to the external worker.
+    if (!newFound) {
+      const legacyId = hash(body + lang);
+      const legacyColl = db.collection("translated");
+      const legacyFound = await legacyColl.findOne({ _id: { $eq: legacyId } });
+      if (legacyFound) {
+        return respond(legacyFound.content);
+      }
+    }
+
+    // The source was fetched and hashed above; only now do we durably record the
+    // miss. The external daily worker claims this metadata and refetches source
+    // content itself, so request documents never contain source bodies.
+    await recordTranslationRequest(db, {
+      lang,
+      type,
+      projectId: id,
+      bodyHash,
+      contentType,
+    });
+    return c.body(null, 202, {
+      "retry-after": String(TRANSLATION_RETRY_AFTER_SECONDS),
+    });
+  } finally {
+    permit.release();
   }
-  return respond(result);
 });

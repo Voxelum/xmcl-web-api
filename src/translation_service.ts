@@ -21,9 +21,9 @@ interface ChatError {
 /**
  * Translate a job and persist the result into `${lang}_translation`.
  *
- * Shared by the synchronous path in the `/translation` route and the async
- * consumers (Deno.Kv queue / Cloudflare Queue) so behaviour is identical
- * regardless of how the work is scheduled.
+ * Used by the external batch worker after it claims a request from
+ * `translation_requests`. The source body exists only in that worker's memory;
+ * it is never written to the request ledger.
  *
  * Returns the translated content, or a `ChatError` if the LLM call failed.
  */
@@ -32,7 +32,12 @@ export async function runTranslation(
   job: TranslationJob,
   keys: TranslationKeys,
 ): Promise<string | ChatError> {
-  const result = await translate(job.lang, job.body, job.contentType, keys.agnes);
+  const result = await translate(
+    job.lang,
+    job.body,
+    job.contentType,
+    keys.agnes,
+  );
 
   if (typeof result === "object") {
     return result as ChatError;

@@ -3,6 +3,18 @@
  * contracts/ until the shared contract owner publishes the Account schema.
  */
 export const accountApiFixtures = {
+  consumedSharedContracts: {
+    version: "shared/v1",
+    d1d4BackupStoragePolicy: {
+      source: "src/lib/backup-storage-policy.fixture.json",
+      freeBytes: 1_073_741_824,
+      policyVersion: 1,
+    },
+    directM1Consumption: [
+      "D1/D4: XMCL-session authentication for GET /v1/backup-storage-policy",
+    ],
+    notOwnedByM1: ["D2", "D3", "D5", "D6"],
+  },
   launcherExchangeRequest: {
     loginTransactionId: "ltx_fixture_001",
     completedAt: "2026-07-22T14:00:00.000Z",
@@ -22,7 +34,7 @@ export const accountApiFixtures = {
       refreshToken: "<xmcl-refresh-token>",
       scopes: ["account:read", "account:write", "session:manage"],
       issuedAt: "2026-07-22T14:00:00.000Z",
-      expiresAt: "2026-07-23T14:00:00.000Z",
+      expiresAt: "2026-07-22T14:15:00.000Z",
     },
   },
   errors: {

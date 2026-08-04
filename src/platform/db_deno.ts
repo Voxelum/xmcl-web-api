@@ -10,7 +10,8 @@ import type { Db, DbFactory, MongoCollection } from "../db.ts";
 let dbPromise: Promise<Db> | undefined;
 
 function connect(config: AppConfig): Promise<Db> {
-  const connStr = config.MONGO_CONNECION_STRING || Deno.env.get("MONGO_CONNECION_STRING");
+  const connStr = config.MONGO_CONNECION_STRING ||
+    Deno.env.get("MONGO_CONNECION_STRING");
   if (!connStr) {
     throw new Error("MONGO_CONNECION_STRING is not set");
   }
@@ -24,10 +25,35 @@ function connect(config: AppConfig): Promise<Db> {
           findOne(filter: Record<string, unknown>) {
             return coll.findOne(filter as any);
           },
-          updateOne(filter: Record<string, unknown>, update: Record<string, unknown>, options?: { upsert?: boolean }) {
+          findOneAndUpdate(
+            filter: Record<string, unknown>,
+            update: Record<string, unknown>,
+            options?: {
+              sort?: Record<string, 1 | -1>;
+              returnDocument?: "before" | "after";
+            },
+          ) {
+            // The Deno Mongo driver exposes Mongo's atomic command as
+            // `findAndModify`; the npm driver calls the same command
+            // `findOneAndUpdate`.
+            return coll.findAndModify(filter as any, {
+              update: update as any,
+              sort: options?.sort as any,
+              new: options?.returnDocument === "after",
+            } as any);
+          },
+          updateOne(
+            filter: Record<string, unknown>,
+            update: Record<string, unknown>,
+            options?: { upsert?: boolean },
+          ) {
             return coll.updateOne(filter as any, update as any, options);
           },
-          replaceOne(filter: Record<string, unknown>, replacement: Record<string, unknown>, options?: { upsert?: boolean }) {
+          replaceOne(
+            filter: Record<string, unknown>,
+            replacement: Record<string, unknown>,
+            options?: { upsert?: boolean },
+          ) {
             return coll.replaceOne(filter as any, replacement as any, options);
           },
           deleteOne(filter: Record<string, unknown>) {
