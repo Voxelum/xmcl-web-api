@@ -1,4 +1,12 @@
 /**
+ * Detects the retired legacy `/group/:id` signaling path.
+ */
+export function isLegacyGroupPath(request: Request): boolean {
+  const { pathname } = new URL(request.url);
+  return /^\/group\/[^/]+\/?$/.test(pathname);
+}
+
+/**
  * Detects a WebSocket upgrade request for `/group/:id` and returns the group id.
  *
  * Used by the platform entry points to intercept realtime upgrades before the

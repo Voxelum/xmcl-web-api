@@ -67,12 +67,17 @@ surfaces:
 | --- | --- |
 | `api.xmcl.app` | Common APIs, including `/translation` |
 | `ai.xmcl.app` | `POST /ai/chat/completions` only |
-| `signaling.xmcl.app` | `/v2/multiplayer/*`, `/group/:id` WebSocket, and `/rtc/official` |
+| `signaling.xmcl.app` | `/v2/multiplayer/*`, legacy `/group/*` blocked, and `/rtc/official` |
 
 The shared application also supports these surfaces when deployed as separate
 Workers or on another runtime. Requests to an unmapped preview hostname use
 the common surface unless `XMCL_API_SURFACE` is set to `ai`, `signaling`, or
 `common`.
+
+The legacy `/group/:id` protocol used by old friend-presence and multiplayer
+clients is retired. Cloudflare blocks `/group` and `/group/*` at the edge, and
+the Worker returns `410` before touching a Durable Object. New multiplayer
+clients must use `/v2/multiplayer/*` on `signaling.xmcl.app`.
 
 ### Translation batch worker
 

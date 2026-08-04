@@ -3,7 +3,10 @@ import { createMiddleware } from "hono/factory";
 import type { AppConfig } from "../src/config.ts";
 import { createProductionApp } from "../src/lib/productionComposition.ts";
 import { createDbMiddleware } from "../src/middleware/db.ts";
-import { matchGroupUpgrade } from "../src/realtime/match.ts";
+import {
+  isLegacyGroupPath,
+  matchGroupUpgrade,
+} from "../src/realtime/match.ts";
 import { runServerControlScheduledSweep } from "../src/lib/serverControlScheduling.ts";
 import { runSharedHostingBillingScheduledSweep } from "../src/lib/sharedHostingScheduling.ts";
 import { runSharedNodeScheduledSweep } from "../src/lib/sharedNodeScheduling.ts";
@@ -932,6 +935,11 @@ async function dispatchCloudflareRequest(
   if (stagingM3) return stagingM3;
   const proxied = await proxyPayPalWebhook(request, env);
   if (proxied) return proxied;
+  if (isLegacyGroupPath(request)) {
+    return new Response("Legacy group signaling is no longer supported", {
+      status: 410,
+    });
+  }
   const routeSurface = routeSurfaceForHost(
     new URL(request.url).hostname,
     env.XMCL_API_SURFACE,
