@@ -15,11 +15,13 @@ import { xmclAuth } from "../middleware/xmclAuth.ts";
 function publicAccount(account: {
   accountId: string;
   status: string;
+  tier?: string;
   createdAt: string;
 }) {
   return {
     accountId: account.accountId,
     status: account.status,
+    tier: account.tier ?? "free",
     createdAt: account.createdAt,
   };
 }

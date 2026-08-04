@@ -14,3 +14,17 @@ CLOUDFLARE_APP_ID=""
 AGNES_API_KEY=""
 CURSEFORGE_KEY=""
 MODRINTH_SECRET=""
+
+# XMCL account sessions and short-lived RS256 tokens for offline services.
+XMCL_SESSION_SECRET=""
+XMCL_OFFLINE_JWT_PRIVATE_JWK=""
+XMCL_OFFLINE_JWT_PREVIOUS_PUBLIC_JWKS='{"keys":[]}'
+XMCL_OFFLINE_JWT_KEY_ID="xmcl-offline-1"
+XMCL_OFFLINE_JWT_ISSUER="https://api.xmcl.app"
+XMCL_OFFLINE_JWT_AUDIENCE="xmcl-ai-routing"
+XMCL_OFFLINE_JWT_TTL_SECONDS="900"
+
+# Private LLM routing configuration consumed by xmcl-ai-routing.
+LLM_POOL_SERVICE_SECRET=""
+LLM_POOL_SERVICE_HEADER="x-service-secret"
+LLM_POOL_CONFIG='{"free":[{"endpoint":"https://api.openai.com","model":"gpt-4.1-mini","key":"replace-me"}]}'

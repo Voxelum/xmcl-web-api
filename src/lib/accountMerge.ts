@@ -129,6 +129,7 @@ export class AccountMergeService {
         )
       ) destination.identities.push(identity);
     }
+    destination.tier = mergedTier(destination.tier, source.tier);
     const now = this.now().toISOString();
     source.status = "merged";
     source.mergedIntoAccountId = destination.accountId;
@@ -187,4 +188,15 @@ export class AccountMergeService {
       updatedAt: time,
     };
   }
+}
+
+function mergedTier(
+  destination: string | undefined,
+  source: string | undefined,
+) {
+  const destinationTier = destination || "free";
+  const sourceTier = source || "free";
+  return destinationTier === "free" && sourceTier !== "free"
+    ? sourceTier
+    : destinationTier;
 }

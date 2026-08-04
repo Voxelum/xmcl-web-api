@@ -27,6 +27,19 @@ export interface AppConfig {
    */
   TRANSLATION_I18N_BASE?: string;
   XMCL_SESSION_SECRET?: string;
+  /** RSA private JWK used to sign short-lived tokens for offline services. */
+  XMCL_OFFLINE_JWT_PRIVATE_JWK?: string;
+  /** Old public JWKS retained through key rotation and token expiry. */
+  XMCL_OFFLINE_JWT_PREVIOUS_PUBLIC_JWKS?: string;
+  XMCL_OFFLINE_JWT_KEY_ID?: string;
+  XMCL_OFFLINE_JWT_ISSUER?: string;
+  XMCL_OFFLINE_JWT_AUDIENCE?: string;
+  XMCL_OFFLINE_JWT_TTL_SECONDS?: string;
+  /** Shared secret accepted by the private LLM pool endpoint. */
+  LLM_POOL_SERVICE_SECRET?: string;
+  LLM_POOL_SERVICE_HEADER?: string;
+  /** Tier-keyed JSON arrays of endpoint/model/key entries. */
+  LLM_POOL_CONFIG?: string;
   /** Server-only HMAC secret for short-lived multiplayer room admission tickets. */
   XMCL_MULTIPLAYER_TICKET_SECRET?: string;
   XMCL_MICROSOFT_CLIENT_ID?: string;

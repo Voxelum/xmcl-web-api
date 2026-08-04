@@ -129,6 +129,10 @@ All runtimes serve the same routes (defined once in [`src/app.ts`](src/app.ts)):
 - `/prebuilds` - GitHub Actions prebuild workflow runs and artifacts
 - `/v1/auth/*`, `/v1/sessions/*`, `/v1/account/*` - XMCL account, OAuth, and
   session APIs
+- `POST /v1/auth/gateway-token` - Exchanges an authenticated XMCL session for a
+  short-lived RS256 token for offline service verification
+- `GET /.well-known/jwks.json` - Public keys for offline XMCL token verification
+- `GET /llm-pool` - Service-secret-protected tiered LLM routing configuration
 
 ## Environment Variables
 
@@ -149,6 +153,85 @@ The same variables are used across every runtime (read via `hono/adapter`:
 - `CLOUDFLARE_APP_ID` - Cloudflare TURN app id (optional)
 - `XMCL_SESSION_SECRET` - At least 32 characters used to sign XMCL session
   access tokens
+- `XMCL_OFFLINE_JWT_PRIVATE_JWK` - Complete RSA private JWK used to sign
+  short-lived offline-service tokens; set as a Worker secret
+- `XMCL_OFFLINE_JWT_PREVIOUS_PUBLIC_JWKS` - Optional public JWKS containing old
+  verification keys retained during signing-key rotation
+- `XMCL_OFFLINE_JWT_KEY_ID` - Published JWT key id (default:
+  `xmcl-offline-1`)
+- `XMCL_OFFLINE_JWT_ISSUER` - Offline token issuer (default:
+  `https://api.xmcl.app`)
+- `XMCL_OFFLINE_JWT_AUDIENCE` - Offline token audience (default:
+  `xmcl-ai-routing`)
+- `XMCL_OFFLINE_JWT_TTL_SECONDS` - Token lifetime from 60 to 900 seconds
+  (default: 900)
+- `LLM_POOL_SERVICE_SECRET` - Secret required in the `x-service-secret` header
+  by `/llm-pool`
+- `LLM_POOL_SERVICE_HEADER` - Optional service-secret header name override
+- `LLM_POOL_CONFIG` - Secret JSON object keyed by account tier, whose values are
+  arrays of `{ "endpoint", "model", "key" }`
+
+### LLM gateway authentication contract
+
+Clients continue to receive the existing revocable XMCL session token after
+OAuth sign-in. Before calling the LLM gateway, a client exchanges that session:
+
+```http
+POST /v1/auth/gateway-token
+Authorization: Bearer <xmcl-session-token>
+```
+
+```json
+{
+  "accessToken": "<rs256-jwt>",
+  "tokenType": "Bearer",
+  "expiresIn": 900,
+  "expiresAt": "2026-08-04T07:30:00.000Z"
+}
+```
+
+The JWT header is `{ "alg": "RS256", "typ": "at+jwt", "kid": "..." }`.
+Claims include `iss`, `aud`, `sub` (XMCL account id), `sid`, `scope`, `tier`,
+`iat`, and `exp`. `xmcl-ai-routing` validates it locally from
+`/.well-known/jwks.json`; it does not connect to MongoDB. Revoking the original
+XMCL session prevents new gateway tokens, while an already-issued gateway token
+remains valid for at most fifteen minutes. The gateway checks expiry when a
+request starts; an accepted streaming response may continue after token expiry.
+
+The gateway retrieves routing configuration with:
+
+```http
+GET /llm-pool
+X-Service-Secret: <service-secret>
+```
+
+The response is a tier-keyed object:
+
+```json
+{
+  "free": [
+    {
+      "endpoint": "https://api.openai.com",
+      "model": "gpt-4.1-mini",
+      "key": "<provider-key>"
+    }
+  ]
+}
+```
+
+The response uses `Cache-Control: no-store`; the gateway owns the one-hour
+in-memory cache. Provider keys are stored only in the encrypted Worker secret.
+
+Generate a new signing key without writing it to disk:
+
+```sh
+deno run scripts/generateOfflineJwtKey.ts xmcl-offline-2026-08
+```
+
+Set its `privateJwk` as `XMCL_OFFLINE_JWT_PRIVATE_JWK`. During rotation, put the
+old public JWK in `XMCL_OFFLINE_JWT_PREVIOUS_PUBLIC_JWKS`, deploy the new key,
+and retain the old public key for at least the token TTL plus the JWKS cache
+duration.
 - `XMCL_MICROSOFT_CLIENT_ID`, `XMCL_MICROSOFT_CLIENT_SECRET` - Microsoft OAuth
   application credentials
 - `XMCL_MODRINTH_CLIENT_ID`, `XMCL_MODRINTH_CLIENT_SECRET` - Modrinth OAuth
@@ -234,6 +317,11 @@ wrangler queues create xmcl-translation
 # Set secrets (see .dev.vars.example for the full list)
 wrangler secret put MONGO_CONNECION_STRING
 wrangler secret put GITHUB_PAT
+wrangler secret put XMCL_SESSION_SECRET
+wrangler secret put XMCL_OFFLINE_JWT_PRIVATE_JWK
+wrangler secret put XMCL_OFFLINE_JWT_PREVIOUS_PUBLIC_JWKS
+wrangler secret put LLM_POOL_SERVICE_SECRET
+wrangler secret put LLM_POOL_CONFIG
 # ...RTC_SECRET, AGNES_API_KEY, CURSEFORGE_KEY,
 #    MODRINTH_SECRET, CLOUDFLARE_API_TOKEN, CLOUDFLARE_APP_ID
 
