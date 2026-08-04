@@ -20,12 +20,14 @@ function providerFrom(c: Context<AppEnv>): OAuthProvider {
 function publicAccount(account: {
   accountId: string;
   status: string;
+  tier?: string;
   createdAt: string;
   deletionEffectiveAt?: string;
 }) {
   return {
     accountId: account.accountId,
     status: account.status,
+    tier: account.tier ?? "free",
     createdAt: account.createdAt,
     ...(account.deletionEffectiveAt
       ? { deletionEffectiveAt: account.deletionEffectiveAt }

@@ -19,6 +19,7 @@ export interface AccountIdentity {
 export interface Account {
   accountId: string;
   status: AccountStatus;
+  tier?: string;
   createdAt: string;
   identities: AccountIdentity[];
   sessionIds?: string[];
@@ -296,6 +297,7 @@ export class AccountService {
       account = {
         accountId: randomId("acct"),
         status: "active",
+        tier: "free",
         createdAt: this.now().toISOString(),
         identities: [],
       };

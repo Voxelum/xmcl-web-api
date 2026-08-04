@@ -11,6 +11,7 @@ import group from "./routes/group.ts";
 import multiplayer from "./routes/multiplayer.ts";
 import kookBadge from "./routes/kookBadge.ts";
 import latest from "./routes/latest.ts";
+import llm from "./routes/llm.ts";
 import modrinth from "./routes/modrinth.ts";
 import notifications from "./routes/notifications.ts";
 import prebuilds from "./routes/prebuilds.ts";
@@ -38,6 +39,7 @@ export function createApp(register?: (app: Hono<AppEnv>) => void) {
   register?.(app);
 
   app.route("/", latest);
+  app.route("/", llm);
   app.route("/", releases);
   app.route("/", notifications);
   app.route("/", flights);
