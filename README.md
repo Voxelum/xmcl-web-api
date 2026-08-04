@@ -35,7 +35,7 @@ src/
   translation_service.ts  runTranslation(): external worker translate + cache logic
 
 index.ts            Deno entry      → Deno.serve
-cloudflare/worker.ts  Cloudflare entry → fetch/scheduled + GroupRoom DO
+cloudflare/worker.ts  Cloudflare entry → fetch/scheduled + SignalingRoom DO
 azure/index.ts      Azure entry     → @azure/functions HTTP trigger
 ```
 
@@ -51,7 +51,7 @@ untouched and `new Function`/JIT (forbidden on `workerd`) is avoided.
 | --- | --- | --- | --- |
 | HTTP server | `Deno.serve(app.fetch)` | `export default { fetch }` | HTTP trigger → `app.fetch` |
 | Geo | `geoip-country` (forwarded IP) | `request.cf.country` (native) | `geoip-country` |
-| `/group/:id` | native WS + `BroadcastChannel` | `GroupRoom` Durable Object | not supported → `501` |
+| `/group/:id` | native WS + `BroadcastChannel` | `SignalingRoom` Durable Object | not supported → `501` |
 | `/translation` | Mongo request ledger | Mongo request ledger | Mongo request ledger |
 
 WebSocket upgrades for `/group/:id` are intercepted in each entry **before**
@@ -155,7 +155,7 @@ surface listed above:
 - `/flights` - Feature flight information for gradual rollouts
 - `/translation` - Translation services for mod descriptions (Modrinth and CurseForge)
 - `/group/:id` - Real-time WebSocket communication for launcher user groups
-  (Deno: native WS + `BroadcastChannel`; Cloudflare: `GroupRoom` Durable Object;
+  (Deno: native WS + `BroadcastChannel`; Cloudflare: `SignalingRoom` Durable Object;
   Azure: returns `501`)
 - `/rtc/official` - WebRTC signaling for peer connections
 - `/zulu` - Proxies the Zulu JRE manifest from xmcl-static-resource
@@ -386,7 +386,8 @@ The same variables are used across every runtime (read via `hono/adapter`:
 
 ### Cloudflare-only bindings (wrangler.toml)
 
-- `GROUP_ROOM` - Durable Object namespace (class `GroupRoom`) for `/group/:id`
+- `SIGNALING_ROOM` - Durable Object namespace (class `SignalingRoom`) for
+  `/group/:id`
 - `api.xmcl.app`, `ai.xmcl.app`, and `signaling.xmcl.app` are custom domains on
   the Worker. Keep the Cloudflare edge rate-limiting rule for
   `/translation` scoped to the `api.xmcl.app` hostname.
@@ -490,7 +491,7 @@ wrangler secret put GITHUB_PAT
 wrangler deploy
 ```
 
-The `GroupRoom` Durable Object backs `/group/:id` (replacing the Deno
+The `SignalingRoom` Durable Object backs `/group/:id` (replacing the Deno
 `BroadcastChannel` fan-out), while `/translation` records durable Mongo
 requests for the external batch worker. The Worker Cron remains available only
 to its unrelated scheduled services. Geo is resolved natively from

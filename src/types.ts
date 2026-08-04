@@ -142,6 +142,8 @@ export interface AppVariables {
  */
 export interface AppBindings {
   GROUP_ROOM?: unknown;
+  MULTIPLAYER_ROOM?: unknown;
+  SIGNALING_ROOM?: unknown;
   SHARED_NODE_WORKSPACE_SIGNER?: unknown;
   [key: string]: unknown;
 }

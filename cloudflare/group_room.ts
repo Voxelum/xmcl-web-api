@@ -7,7 +7,8 @@ import type {
 } from "./cf_types.ts";
 import { workerErrorFields } from "./observability.ts";
 
-export type GroupRoomNamespace = DurableObjectNamespace;
+export type SignalingRoomNamespace = DurableObjectNamespace;
+export type GroupRoomNamespace = SignalingRoomNamespace;
 
 interface SocketMeta {
   clientId: string;
@@ -15,7 +16,7 @@ interface SocketMeta {
 
 /**
  * One Durable Object instance per group id, addressed via
- * `GROUP_ROOM.idFromName(group)`. Backs `/group/:id` realtime messaging and
+ * `SIGNALING_ROOM.idFromName(group)`. Backs `/group/:id` realtime messaging and
  * replaces the Deno Deploy `BroadcastChannel(group)` fan-out: every socket for
  * a group connects to the same instance and we relay to the other sockets.
  *
@@ -33,7 +34,7 @@ interface SocketMeta {
  * Cloudflare. Sockets are held in memory; the instance stays alive while any
  * socket is connected.
  */
-export class GroupRoom {
+export class SignalingRoom {
   private readonly sockets = new Map<CfWebSocket, SocketMeta>();
 
   constructor(_state: DurableObjectState, _env: unknown) {}
@@ -132,3 +133,8 @@ function bytesToUuid(bytes: Uint8Array): string {
     .join("")
     .replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, "$1-$2-$3-$4-$5");
 }
+
+// Keep the module-level name available to local tests and compatibility tools.
+// The Worker exports only SignalingRoom so the deleted historical GroupRoom
+// class is not reintroduced to Cloudflare's class registry.
+export { SignalingRoom as GroupRoom };

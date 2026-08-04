@@ -45,14 +45,15 @@ import {
 import type { AppEnv } from "../src/types.ts";
 import type { DbFactory } from "../src/db.ts";
 import type { ExecutionContext, ScheduledController } from "./cf_types.ts";
-import { GroupRoom } from "./group_room.ts";
+import { SignalingRoom } from "./group_room.ts";
 import {
   observeWorkerRequest,
   workerErrorFields,
 } from "./observability.ts";
 
 // The Durable Object class must be exported from the worker module.
-export { GroupRoom };
+export { MultiplayerRoom } from "./multiplayer_room.ts";
+export { SignalingRoom };
 
 // bson initializes secure randomness at module evaluation time, which Cloudflare
 // rejects in Worker global scope. Loading the Mongo connector on first database
@@ -834,7 +835,7 @@ function hasHmacSecret(value: string | undefined): value is string {
 /**
  * Cloudflare Workers entry point. Reuses the shared Hono app and injects the
  * Cloudflare-specific platform behaviour:
- *  - `/group/:id` realtime upgrades are forwarded to the GroupRoom Durable
+ *  - `/group/:id` realtime upgrades are forwarded to the SignalingRoom Durable
  *    Object (intercepted before the app so CORS never touches the 101 response).
  *  - `/translation` records cache misses in Mongo for an external batch worker.
  *  - geo is resolved natively via `request.cf.country` (see src/geo.ts).
@@ -939,7 +940,7 @@ async function dispatchCloudflareRequest(
     ? matchGroupUpgrade(request)
     : undefined;
   if (group !== undefined) {
-    const ns = env.GROUP_ROOM;
+    const ns = env.SIGNALING_ROOM;
     const stub = ns.get(ns.idFromName(group));
     return stub.fetch(request);
   }
@@ -956,6 +957,24 @@ export default {
       request,
       () => dispatchCloudflareRequest(request, env, ctx),
     );
+  },
+
+  queue(
+    batch: {
+      queue: string;
+      messages: Array<{ id: string; ack(): void }>;
+    },
+    _env: any,
+    _ctx: ExecutionContext,
+  ): void {
+    console.warn({
+      event: "legacy_translation_queue.drained",
+      queue: batch.queue,
+      messageCount: batch.messages.length,
+    });
+    for (const message of batch.messages) {
+      message.ack();
+    }
   },
 
   scheduled(

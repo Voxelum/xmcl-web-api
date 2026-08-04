@@ -44,12 +44,36 @@ custom_domain = true
 
 # Durable Object backing /group/:id realtime rooms (replaces BroadcastChannel).
 [[durable_objects.bindings]]
-name = "GROUP_ROOM"
-class_name = "GroupRoom"
+name = "MULTIPLAYER_ROOM"
+class_name = "MultiplayerRoom"
 
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["GroupRoom"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["MultiplayerRoom"]
+
+[[migrations]]
+tag = "v3"
+deleted_classes = ["GroupRoom"]
+
+[[durable_objects.bindings]]
+name = "SIGNALING_ROOM"
+class_name = "SignalingRoom"
+
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["SignalingRoom"]
+
+# This legacy consumer remains attached to the production Worker. Translation
+# misses are now processed by the external batch worker; the handler only
+# drains messages left by the retired queue pipeline.
+[[queues.consumers]]
+queue = "xmcl-translation"
+max_batch_size = 1
+max_retries = 3
 
 [triggers]
 crons = ["0 0 * * *"]
