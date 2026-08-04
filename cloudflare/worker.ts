@@ -840,8 +840,9 @@ function hasHmacSecret(value: string | undefined): value is string {
 /**
  * Cloudflare Workers entry point. Reuses the shared Hono app and injects the
  * Cloudflare-specific platform behaviour:
- *  - `/group/:id` realtime upgrades are forwarded to the SignalingRoom Durable
- *    Object (intercepted before the app so CORS never touches the 101 response).
+ *  - Retired `/group/:id` upgrades are rejected before any Durable Object use.
+ *  - `/v1/multiplayer/.../socket` upgrades are forwarded to MultiplayerRoom
+ *    (intercepted before the app so CORS never touches the 101 response).
  *  - `/translation` records cache misses in Mongo for an external batch worker.
  *  - geo is resolved natively via `request.cf.country` (see src/geo.ts).
  */

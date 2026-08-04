@@ -43,7 +43,8 @@ custom_domain = true
 # XMCL_STAGING_ACCOUNT_PROXY_CORS_ORIGINS. It must use a different key ID and
 # secret from the M3 and PayPal proxy identities.
 
-# Durable Object backing /group/:id realtime rooms (replaces BroadcastChannel).
+# MultiplayerRoom backs the versioned signaling service. The historical
+# GroupRoom/SignalingRoom migrations remain for Cloudflare class compatibility.
 [[durable_objects.bindings]]
 name = "MULTIPLAYER_ROOM"
 class_name = "MultiplayerRoom"

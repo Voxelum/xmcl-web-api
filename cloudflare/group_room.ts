@@ -16,9 +16,9 @@ interface SocketMeta {
 
 /**
  * One Durable Object instance per group id, addressed via
- * `SIGNALING_ROOM.idFromName(group)`. Backs `/group/:id` realtime messaging and
- * replaces the Deno Deploy `BroadcastChannel(group)` fan-out: every socket for
- * a group connects to the same instance and we relay to the other sockets.
+ * Historical room implementation retained only for Durable Object migration
+ * compatibility. Public `/group/:id` traffic is retired; v1 multiplayer uses
+ * `MULTIPLAYER_ROOM`.
  *
  * Wire protocol (shared with the Deno realtime implementation):
  *  - Text frames: JSON `{ type, receiver, sender }`. The first `sender` seen on
