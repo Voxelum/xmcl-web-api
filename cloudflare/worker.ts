@@ -2,8 +2,8 @@
 import { createMiddleware } from "hono/factory";
 import { createApp } from "../src/app.ts";
 import type { AppConfig } from "../src/config.ts";
+import type { DbFactory } from "../src/db.ts";
 import { createDbMiddleware } from "../src/middleware/db.ts";
-import { getDb } from "../src/platform/db_npm.ts";
 import {
   runTranslation,
   type TranslationJob,
@@ -18,6 +18,14 @@ import { MultiplayerRoom } from "./multiplayer_room.ts";
 
 // The Durable Object class must be exported from the worker module.
 export { MultiplayerRoom };
+
+// BSON initializes secure randomness at module evaluation time. Importing the
+// connector only while handling a request/job keeps that work out of global
+// scope, which Cloudflare Workers rejects.
+const getCloudflareDb: DbFactory = async (config) => {
+  const { getDb } = await import("../src/platform/db_npm.ts");
+  return getDb(config);
+};
 
 /**
  * Cloudflare Workers entry point. Reuses the shared Hono app and injects the
@@ -44,7 +52,7 @@ const platformMiddleware = createMiddleware<AppEnv>(async (c, next) => {
 });
 
 const app = createApp((a) => {
-  a.use("*", createDbMiddleware(getDb));
+  a.use("*", createDbMiddleware(getCloudflareDb));
   a.use("*", platformMiddleware);
 });
 
@@ -60,7 +68,7 @@ async function processJob(env: any, job: TranslationJob): Promise<void> {
   }
 
   try {
-    const db = await getDb(config);
+    const db = await getCloudflareDb(config);
     const coll = db.collection(`${job.lang}_translation`);
     const found = await coll.findOne({ _id: { $eq: job.id } });
     if (found && found.bodyHash === job.bodyHash) return;

@@ -2,15 +2,14 @@ name = "xmcl-web-api"
 main = "worker.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
+keep_vars = true
 
 # Non-secret defaults. Secrets (GITHUB_PAT, MONGO_CONNECION_STRING, RTC_SECRET,
 # AGNES_API_KEY, CURSEFORGE_KEY, MODRINTH_SECRET,
 # CLOUDFLARE_API_TOKEN, CLOUDFLARE_APP_ID,
 # XMCL_MULTIPLAYER_TICKET_SECRET) must be set with
 # `wrangler secret put <NAME>` or via the dashboard. See .dev.vars.example.
-[vars]
-MONGODB_NAME = "xmcl-api"
-TURNS = ""
+# `keep_vars` preserves secrets managed outside this file.
 
 [[routes]]
 pattern = "api.xmcl.app"
