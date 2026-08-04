@@ -389,8 +389,9 @@ The same variables are used across every runtime (read via `hono/adapter`:
 - `SIGNALING_ROOM` - Durable Object namespace (class `SignalingRoom`) for
   `/group/:id`
 - `api.xmcl.app`, `ai.xmcl.app`, and `signaling.xmcl.app` are custom domains on
-  the Worker. Keep the Cloudflare edge rate-limiting rule for
-  `/translation` scoped to the `api.xmcl.app` hostname.
+  the Worker. The Free Zone edge rate-limiting rule matches the
+  `/translation` path (Free does not support a host field); only the common
+  `api.xmcl.app` surface mounts that path.
 - `XMCL_VULTR_OBJECT_STORAGE_ACCESS_KEY` and
   `XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY` - Worker **secret** bindings for the
   v2 S3 SigV4 signer. They require the endpoint, region, and bucket settings
