@@ -27,6 +27,9 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install application dependencies
+        run: npm ci --omit=optional
+
       - name: Install Cloudflare dependencies
         working-directory: cloudflare
         run: npm install
