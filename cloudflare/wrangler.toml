@@ -76,6 +76,3 @@ new_sqlite_classes = ["SignalingRoom"]
 queue = "xmcl-translation"
 max_batch_size = 1
 max_retries = 3
-
-[triggers]
-crons = ["0 0 * * *"]
