@@ -92,6 +92,12 @@ Deno.test("Azure mounts only authenticated compiler callbacks, never public shar
   );
   assert.equal(
     completePaths.includes(
+      "/v1/internal/shared-runtime-compiler/deployments/:deploymentId/upload-prepared",
+    ),
+    true,
+  );
+  assert.equal(
+    completePaths.includes(
       "/v1/internal/shared-runtime-compiler/deployments/:deploymentId/failed",
     ),
     true,

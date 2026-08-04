@@ -36,6 +36,22 @@ function callbacks(calls: unknown[]) {
       calls.push(input);
       return { status: "published" };
     },
+    prepareCompilerUpload: async (input: {
+      deploymentId: string;
+      compilerRequestId: string;
+      manifestSha256: string;
+      content: Record<string, unknown>;
+      descriptor: Record<string, unknown>;
+    }) => ({
+      existing: false,
+      binding: { ...input, preparedAt: new Date(now).toISOString() },
+    }),
+    compilerReconciliationGrant: async () => ({
+      key: "content",
+      method: "GET",
+      url: "https://storage.example/reconcile",
+      expiresAt: new Date(now + 60_000).toISOString(),
+    }),
   } as unknown as SharedModdedRuntimeService;
   const app = new Hono<AppEnv>();
   const verifier = identity();
@@ -55,20 +71,63 @@ function callbacks(calls: unknown[]) {
     c.set("sharedModdedCompilerRawBody", raw);
     await next();
   });
-  app.route("/", createSharedModdedCompilerRoutes(runtime));
+  app.route("/", createSharedModdedCompilerRoutes(runtime, {
+    issueReconciliation: async () => ({
+      key: "content",
+      method: "GET",
+      url: "https://storage.example/reconcile",
+      expiresAt: new Date(now + 60_000).toISOString(),
+    }),
+  } as never));
   return app;
 }
 
-async function signedRequest(body: Uint8Array) {
-  const target =
-    "/v1/internal/shared-runtime-compiler/deployments/deployment_1/published";
+async function signedRequest(
+  body: Uint8Array,
+  target =
+    "/v1/internal/shared-runtime-compiler/deployments/deployment_1/published",
+) {
   const headers = await identity().signOutgoing({ method: "POST", target, body });
   return new Request(`https://control.example${target}`, {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
     body: body as unknown as BodyInit,
   });
+
 }
+
+Deno.test("upload preparation returns only a bound exact reconciliation grant", async () => {
+  const app = callbacks([]);
+  const body = new TextEncoder().encode(JSON.stringify({
+    schemaVersion: 1,
+    status: "upload_prepared",
+    compilerRequestId: "compile_request_1",
+    deploymentId: "deployment_1",
+    manifestSha256: "a".repeat(64),
+    content: { key: "content", sha256: "b".repeat(64) },
+    descriptor: {},
+  }));
+  const accepted = await app.request(await signedRequest(
+    body,
+    "/v1/internal/shared-runtime-compiler/deployments/deployment_1/upload-prepared",
+  ));
+  assert.equal(accepted.status, 200);
+  assert.deepEqual(await accepted.json(), {
+    schemaVersion: 1,
+    status: "upload_prepared",
+    compilerRequestId: "compile_request_1",
+    deploymentId: "deployment_1",
+    manifestSha256: "a".repeat(64),
+    content: { key: "content", sha256: "b".repeat(64) },
+    descriptor: {},
+    reconciliation: {
+      key: "content",
+      method: "GET",
+      url: "https://storage.example/reconcile",
+      expiresAt: new Date(now + 60_000).toISOString(),
+    },
+  });
+});
 
 Deno.test("compiler callback route authenticates exact raw bytes before changing deployment state", async () => {
   const calls: unknown[] = [];

@@ -141,6 +141,11 @@ export interface SharedModdedDeployment {
   content?: SharedRuntimeContentDescriptor;
   descriptor?: RuntimeDescriptor;
   /**
+   * Persisted before the worker sends its immutable PUT. It authorizes only an
+   * exact digest/descriptor reconciliation GET for this compiler request.
+   */
+  pendingCompilerUpload?: CompilerUploadBinding;
+  /**
    * A worker can lose the response to a published callback after the immutable
    * upload succeeds. This durable payload is reconciled without rebuilding.
    */
@@ -159,6 +164,15 @@ export interface SharedModdedDeployment {
     | "compiler_failed";
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CompilerUploadBinding {
+  deploymentId: string;
+  compilerRequestId: string;
+  manifestSha256: string;
+  content: SharedRuntimeContentDescriptor;
+  descriptor: RuntimeDescriptor;
+  preparedAt: string;
 }
 
 export class SharedModdedRuntimeError extends Error {
@@ -199,6 +213,26 @@ export class CompilerPublicationUncertain extends Error {
   ) {
     super("published_callback_uncertain");
     this.name = "CompilerPublicationUncertain";
+  }
+}
+
+/**
+ * The worker cannot prove an immutable PUT did not commit. The durable upload
+ * binding remains in `compiling` state for a redelivered worker to reconcile;
+ * it is never translated into a failed callback.
+ */
+export class CompilerUploadReconciliationUncertain extends Error {
+  constructor(
+    readonly publication: {
+      deploymentId: string;
+      compilerRequestId: string;
+      manifestSha256: string;
+      content: SharedRuntimeContentDescriptor;
+      descriptor: RuntimeDescriptor;
+    },
+  ) {
+    super("upload_reconciliation_uncertain");
+    this.name = "CompilerUploadReconciliationUncertain";
   }
 }
 
@@ -481,6 +515,7 @@ export class CompilerGrantAuthority {
     ) {
       throw new SharedModdedRuntimeError("state_conflict");
     }
+
     const input = await this.sign(
       deployment.frozenManifest.archive.key,
       "GET",
@@ -494,6 +529,21 @@ export class CompilerGrantAuthority {
       manifestSha256: deployment.manifestSha256,
       grants: [input, output],
     };
+  }
+
+  async issueReconciliation(
+    deployment: SharedModdedDeployment,
+    binding: CompilerUploadBinding,
+  ): Promise<CompilerGrant> {
+    if (
+      binding.deploymentId !== deployment.deploymentId ||
+      binding.compilerRequestId !== deployment.compilerRequestId ||
+      binding.manifestSha256 !== deployment.manifestSha256 ||
+      binding.content.key !== deployment.expectedContentKey
+    ) {
+      throw new SharedModdedRuntimeError("state_conflict");
+    }
+    return await this.sign(deployment.expectedContentKey, "GET");
   }
 
   private async sign(
@@ -787,6 +837,9 @@ export class SharedModdedRuntimeService {
           existing.pendingCompilerPublication,
         );
       }
+      if (existing.status === "compiling" && existing.pendingCompilerUpload) {
+        return await this.retryPendingCompilerUpload(existing);
+      }
       return existing;
     }
     const timestamp = this.now();
@@ -830,6 +883,9 @@ export class SharedModdedRuntimeService {
       if (error instanceof CompilerPublicationUncertain) {
         return await this.reconcileUncertainPublication(error.publication);
       }
+      if (error instanceof CompilerUploadReconciliationUncertain) {
+        return await this.requireDeployment(deploymentId);
+      }
       const failed = await this.options.repository.updateDeployment(
         deploymentId,
         ["compiling"],
@@ -858,6 +914,86 @@ export class SharedModdedRuntimeService {
       throw new SharedModdedRuntimeError("state_conflict");
     }
     return await input.authority.issue(deployment);
+  }
+
+  async compilerReconciliationGrant(input: {
+    binding: CompilerUploadBinding;
+    authority: CompilerGrantAuthority;
+  }) {
+    const deployment = await this.requireDeployment(input.binding.deploymentId);
+    return await input.authority.issueReconciliation(deployment, input.binding);
+  }
+
+  /**
+   * The authenticated worker records its reviewed output before attempting the
+   * immutable PUT. A concurrent delivery receives the original binding rather
+   * than replacing it with a second build's output.
+   */
+  async prepareCompilerUpload(input: {
+    deploymentId: string;
+    compilerRequestId: string;
+    manifestSha256: string;
+    content: SharedRuntimeContentDescriptor;
+    descriptor: RuntimeDescriptor;
+  }): Promise<{ binding: CompilerUploadBinding; existing: boolean }> {
+    const current = await this.requireDeployment(input.deploymentId);
+    if (
+      current.compilerRequestId !== input.compilerRequestId ||
+      current.manifestSha256 !== input.manifestSha256 ||
+      current.expectedContentKey !== input.content.key
+    ) {
+      throw new SharedModdedRuntimeError("state_conflict");
+    }
+    validateCompiledContent(input.content, input.descriptor, current);
+    if (current.status === "published") {
+      if (
+        current.content && current.descriptor &&
+        samePublication(
+          { content: current.content, descriptor: current.descriptor },
+          input,
+        )
+      ) {
+        return {
+          binding: {
+            deploymentId: current.deploymentId,
+            compilerRequestId: current.compilerRequestId,
+            manifestSha256: current.manifestSha256,
+            content: clone(current.content),
+            descriptor: clone(current.descriptor),
+            preparedAt: current.updatedAt,
+          },
+          existing: true,
+        };
+      }
+      throw new SharedModdedRuntimeError("state_conflict");
+    }
+    if (current.status !== "compiling") {
+      throw new SharedModdedRuntimeError("state_conflict");
+    }
+    if (current.pendingCompilerUpload) {
+      return { binding: clone(current.pendingCompilerUpload), existing: true };
+    }
+    const binding: CompilerUploadBinding = {
+      deploymentId: input.deploymentId,
+      compilerRequestId: input.compilerRequestId,
+      manifestSha256: input.manifestSha256,
+      content: clone(input.content),
+      descriptor: clone(input.descriptor),
+      preparedAt: this.now(),
+    };
+    const pending = await this.options.repository.updateDeployment(
+      current.deploymentId,
+      ["compiling"],
+      (value) => ({ ...value, pendingCompilerUpload: clone(binding), updatedAt: this.now() }),
+    );
+    if (pending?.pendingCompilerUpload) {
+      return { binding: clone(pending.pendingCompilerUpload), existing: false };
+    }
+    const raced = await this.requireDeployment(input.deploymentId);
+    if (raced.pendingCompilerUpload) {
+      return { binding: clone(raced.pendingCompilerUpload), existing: true };
+    }
+    throw new SharedModdedRuntimeError("state_conflict");
   }
 
   /**
@@ -928,7 +1064,9 @@ export class SharedModdedRuntimeService {
     }
     if (
       current.status !== "compiling" ||
-      current.manifestSha256 !== input.manifestSha256
+      current.manifestSha256 !== input.manifestSha256 ||
+      !current.pendingCompilerUpload ||
+      !samePublication(current.pendingCompilerUpload, input)
     ) {
       throw new SharedModdedRuntimeError("state_conflict");
     }
@@ -980,7 +1118,7 @@ export class SharedModdedRuntimeService {
       if (current.error === input.code) return current;
       throw new SharedModdedRuntimeError("state_conflict");
     }
-    if (current.status !== "compiling") {
+    if (current.status !== "compiling" || current.pendingCompilerUpload) {
       throw new SharedModdedRuntimeError("state_conflict");
     }
     const failed = await this.options.repository.updateDeployment(
@@ -1163,7 +1301,8 @@ export class SharedModdedRuntimeService {
     }
     validateCompiledContent(input.content, input.descriptor, current);
     if (current.status === "published") {
-      return await this.publishCompilerResult(input);
+      const prepared = await this.prepareCompilerUpload(input);
+      return await this.publishCompilerResult(prepared.binding);
     }
     if (current.status !== "compiling") {
       throw new SharedModdedRuntimeError("state_conflict");
@@ -1191,7 +1330,32 @@ export class SharedModdedRuntimeService {
       }
       throw new SharedModdedRuntimeError("state_conflict");
     }
-    return await this.publishCompilerResult(input);
+    const prepared = await this.prepareCompilerUpload(input);
+    return await this.publishCompilerResult(prepared.binding);
+  }
+
+  private async retryPendingCompilerUpload(deployment: SharedModdedDeployment) {
+    try {
+      await this.options.compiler.submit({
+        deploymentId: deployment.deploymentId,
+        compilerRequestId: deployment.compilerRequestId,
+        accountId: deployment.accountId,
+        serviceId: deployment.serviceId,
+        frozenManifest: deployment.frozenManifest,
+        manifestSha256: deployment.manifestSha256,
+        expectedContentKey: deployment.expectedContentKey,
+      });
+    } catch (error) {
+      if (error instanceof CompilerPublicationUncertain) {
+        return await this.reconcileUncertainPublication(error.publication);
+      }
+      // An existing durable binding means a prior upload may have committed.
+      // Leave it compiling for a later exact reconciliation, never mark failed.
+      if (!(error instanceof CompilerUploadReconciliationUncertain)) {
+        return await this.requireDeployment(deployment.deploymentId);
+      }
+    }
+    return await this.requireDeployment(deployment.deploymentId);
   }
 }
 
@@ -1664,6 +1828,20 @@ function deepFreeze<T>(value: T): Readonly<T> {
 }
 
 function withoutPendingPublication(value: SharedModdedDeployment) {
-  const { pendingCompilerPublication: _, ...deployment } = value;
+  const {
+    pendingCompilerPublication: _publication,
+    pendingCompilerUpload: _upload,
+    ...deployment
+  } = value;
   return deployment;
+}
+
+function samePublication(
+  expected: Pick<CompilerUploadBinding, "content" | "descriptor">,
+  actual: Pick<CompilerUploadBinding, "content" | "descriptor">,
+) {
+  return canonicalJson(expected.content) === canonicalJson(actual.content) &&
+    canonicalJson(expected.descriptor) === canonicalJson(
+      validateRuntimeDescriptor(actual.descriptor),
+    );
 }

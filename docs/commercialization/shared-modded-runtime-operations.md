@@ -62,6 +62,7 @@ private callback routes, and only if **every** setting below validates:
 
 ```text
 POST /v1/internal/shared-runtime-compiler/deployments/:id/grants
+POST /v1/internal/shared-runtime-compiler/deployments/:id/upload-prepared
 POST /v1/internal/shared-runtime-compiler/deployments/:id/published
 POST /v1/internal/shared-runtime-compiler/deployments/:id/failed
 ```
@@ -157,6 +158,17 @@ catalog configuration from that reviewed lock and deploy it with the matching
 immutable image digest; user uploads and compiler callbacks cannot select a
 catalog URL or revision.
 
+Before the immutable PUT, the authenticated compiler posts its exact reviewed
+content digest and descriptor to `upload-prepared`. The control plane
+validates and durably records that binding, then returns a GET grant for only
+that output key. On timeout, response loss, or `412 If-None-Match: *`, the
+worker uses the GET grant to hash and size-check the object against that
+binding. It publishes only after that exact verification. If it cannot prove
+the object, it returns HTTP 200 with `upload_reconciliation_uncertain`; the
+deployment remains compiling and a redelivered job reuses the binding. It never
+records a failed callback after upload preparation and never blindly publishes
+an existing object.
+
 After the immutable output PUT, the compiler can return HTTP 200 with
 `published_callback_uncertain` if its published-callback response was lost. The
 Azure adapter accepts that response only when its exact five-field schema binds
@@ -169,6 +181,7 @@ The compiler callback endpoints are deliberately separate from account routes:
 
 ```text
 POST /v1/internal/shared-runtime-compiler/deployments/:id/grants
+POST /v1/internal/shared-runtime-compiler/deployments/:id/upload-prepared
 POST /v1/internal/shared-runtime-compiler/deployments/:id/published
 POST /v1/internal/shared-runtime-compiler/deployments/:id/failed
 ```

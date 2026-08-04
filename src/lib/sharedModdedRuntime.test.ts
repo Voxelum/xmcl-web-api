@@ -201,7 +201,7 @@ async function publishedFixture() {
     },
     contentSha256: "b".repeat(64),
   };
-  await f.runtime.publishCompilerResult({
+  const publication = {
     deploymentId: deployment.deploymentId,
     compilerRequestId: deployment.compilerRequestId,
     manifestSha256: deployment.manifestSha256,
@@ -218,7 +218,9 @@ async function publishedFixture() {
       ],
     },
     descriptor,
-  });
+  };
+  await f.runtime.prepareCompilerUpload(publication);
+  await f.runtime.publishCompilerResult(publication);
   return { ...f, service, deployment, compilerGrants };
 }
 
@@ -663,7 +665,7 @@ Deno.test("a missing server-side terms acceptance cannot select content", async 
     },
     contentSha256: "b".repeat(64),
   };
-  await f.runtime.publishCompilerResult({
+  const publication = {
     deploymentId: deployment.deploymentId,
     compilerRequestId: deployment.compilerRequestId,
     manifestSha256: deployment.manifestSha256,
@@ -675,7 +677,9 @@ Deno.test("a missing server-side terms acceptance cannot select content", async 
       paths: [".xmcl/runtime.json", ".xmcl/launch.sh"],
     },
     descriptor,
-  });
+  };
+  await f.runtime.prepareCompilerUpload(publication);
+  await f.runtime.publishCompilerResult(publication);
   await assert.rejects(
     () => f.runtime.apply("account_1", deployment.deploymentId, "apply"),
     (error) =>

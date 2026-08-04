@@ -258,6 +258,60 @@ export function createSharedModdedCompilerRoutes(
     },
   );
   app.post(
+    "/v1/internal/shared-runtime-compiler/deployments/:deploymentId/upload-prepared",
+    async (c) => {
+      const identity = c.get("sharedModdedCompilerPrincipal");
+      if (!identity) return c.json({ error: "unauthorized" }, 401);
+      const authority = grants ?? c.get("sharedModdedCompilerGrants");
+      if (!authority) return c.json({ error: "compiler_unavailable" }, 503);
+      try {
+        const body = await compilerBody(c);
+        const compilerRequestId = compilerCallbackHeader(
+          body,
+          [
+            "schemaVersion",
+            "status",
+            "compilerRequestId",
+            "deploymentId",
+            "manifestSha256",
+            "content",
+            "descriptor",
+          ],
+          c.req.param("deploymentId"),
+          "upload_prepared",
+        );
+        const content = body.content;
+        if (!content || typeof content !== "object" || Array.isArray(content)) {
+          throw new SharedModdedRuntimeError("invalid_request", { field: "content" });
+        }
+        const runtime = runtimeFor(c, configured);
+        const prepared = await runtime.prepareCompilerUpload({
+          deploymentId: c.req.param("deploymentId"),
+          compilerRequestId,
+          manifestSha256: requiredString(body, "manifestSha256"),
+          content: content as SharedRuntimeContentDescriptor,
+          descriptor: body.descriptor as RuntimeDescriptor,
+        });
+        const reconciliation = await runtime.compilerReconciliationGrant({
+          binding: prepared.binding,
+          authority,
+        });
+        return c.json({
+          schemaVersion: 1,
+          status: prepared.existing ? "upload_existing" : "upload_prepared",
+          compilerRequestId: prepared.binding.compilerRequestId,
+          deploymentId: prepared.binding.deploymentId,
+          manifestSha256: prepared.binding.manifestSha256,
+          content: prepared.binding.content,
+          descriptor: prepared.binding.descriptor,
+          reconciliation,
+        });
+      } catch (error) {
+        return compilerError(error, c);
+      }
+    },
+  );
+  app.post(
     "/v1/internal/shared-runtime-compiler/deployments/:deploymentId/published",
     async (c) => {
       const identity = c.get("sharedModdedCompilerPrincipal");
@@ -368,7 +422,7 @@ function compilerCallbackHeader(
   body: Record<string, unknown>,
   keys: readonly string[],
   deploymentId: string,
-  status?: "published" | "failed",
+  status?: "published" | "failed" | "upload_prepared",
 ) {
   if (
     body.schemaVersion !== 1 ||

@@ -1,6 +1,7 @@
 import { HmacCompilerServiceIdentity } from "./compilerServiceIdentity.ts";
 import {
   CompilerPublicationUncertain,
+  CompilerUploadReconciliationUncertain,
   type CompilerGrantAuthority,
   type CompilerGrantSet,
   type RuntimeDescriptor,
@@ -107,15 +108,20 @@ export class HttpSharedModdedCompiler implements SharedModdedCompiler {
         throw new SharedModdedRuntimeError(result);
       }
       if (result) {
-        throw new CompilerPublicationUncertain({
+        const uncertain = {
           compilerRequestId: deployment.compilerRequestId,
           ...result,
-        });
+        };
+        if (result.status === "upload_reconciliation_uncertain") {
+          throw new CompilerUploadReconciliationUncertain(uncertain);
+        }
+        throw new CompilerPublicationUncertain(uncertain);
       }
     } catch (error) {
       if (
         error instanceof SharedModdedRuntimeError ||
-        error instanceof CompilerPublicationUncertain
+        error instanceof CompilerPublicationUncertain ||
+        error instanceof CompilerUploadReconciliationUncertain
       ) throw error;
       throw new SharedModdedRuntimeError("compiler_unavailable");
     }
@@ -232,6 +238,7 @@ async function validateCompilerResponse(
   | "compiler_unavailable"
   | "compiler_failed"
   | {
+    status: "published_callback_uncertain" | "upload_reconciliation_uncertain";
     deploymentId: string;
     manifestSha256: string;
     content: SharedRuntimeContentDescriptor;
@@ -275,7 +282,8 @@ async function validateCompilerResponse(
     | "compiler_unavailable"
     | "compiler_failed";
   if (
-    value.status === "published_callback_uncertain" &&
+    ["published_callback_uncertain", "upload_reconciliation_uncertain"]
+      .includes(value.status as string) &&
     value.deploymentId === deployment.deploymentId &&
     value.manifestSha256 === deployment.manifestSha256 &&
     plainObject(value.content) && plainObject(value.descriptor) &&
@@ -288,6 +296,9 @@ async function validateCompilerResponse(
     ])
   ) {
     return {
+      status: value.status as
+        | "published_callback_uncertain"
+        | "upload_reconciliation_uncertain",
       deploymentId: value.deploymentId,
       manifestSha256: value.manifestSha256,
       content: value.content as unknown as SharedRuntimeContentDescriptor,
