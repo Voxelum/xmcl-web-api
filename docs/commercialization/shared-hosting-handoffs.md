@@ -1,14 +1,25 @@
-# Shared Hosting Remaining Work Handoffs
+# Shared Hosting Delivery Status and Remaining Handoffs
 
-The shared-hosting API control plane and Go node-agent specification already
-exist. Do **not** assign every document to a separate agent: some documents
-share an execution boundary. Delegate the three work packages below.
+## Completed implementation (2026-08-04)
 
-| Work package | Handoff documents | Parallelism / dependency |
-| --- | --- | --- |
-| **A. Node execution plane** | [Go node agent](shared-node-agent-handoff.md), [workspace object storage](handoffs/shared-workspace-storage.md) | Assign together to one agent. The agent must implement Vultr Object Storage revision manifests and Docker lifecycle in one idempotent execution path. |
-| **B. Control-plane infrastructure** | [control-plane transport](handoffs/shared-control-plane-transport.md), [Vultr provisioning](handoffs/shared-vultr-node-provisioning.md) | One agent can own both, or two agents sequentially. Provisioning depends on finalized agent registration/bootstrap and transport credentials. |
-| **C. Commercial product surfaces** | [billing and operations](handoffs/shared-billing-operations.md), [website product UI](handoffs/shared-product-ui.md) | Billing can proceed independently now. UI must wait for production payment, transport, agent, and commercial composition; it should not overlap with the API transport implementation. |
+The previously separate execution-plane and control-plane handoffs are now
+implemented and reviewed together:
+
+| Area                      | Delivered state                                                                                                                                                                                                                                     |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Node execution            | Go agent implements command-scoped Object Storage grants, layered workspace restore/sync, credential rotation, UID 1000 workspace ownership, retry/requeue, start/stop crash recovery, initial-world restore, and bounded transfer-grant renewal.   |
+| Control plane             | Azure is the durable Cosmos-backed SGP control plane. It owns registration, signed transport, exact grants, ingress allocation, scheduler placement, Vultr Block Storage/Firewall lifecycle, drain/reconciliation, and hourly trusted billing work. |
+| Runtime/compiler protocol | Generic Java 8/16/17/21/25 image, reviewed runtime catalog, local client-instance bundle validation, exact compiler grants, callback HMAC/replay protection, and immutable upload reconciliation are implemented.                                   |
+| Billing staging           | Mongo ledger, Sandbox webhook verification, and narrow Worker → Azure M3 checkout ingress are implemented; public payment/shared-hosting routes remain disabled.                                                                                    |
+
+## Remaining handoffs
+
+| Work package                       | Required work                                                                                                                                                                           | Gate                                                                                 |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| **A. Trusted compiler deployment** | Supply reviewed read-only JRE roots, approved loader/artifact catalog release, no-Docker/non-root sandbox adapter, workload identity, and server-owned Minecraft/EULA terms acceptance. | The compiler image deliberately returns unavailable until every adapter is injected. |
+| **B. Real SGP acceptance**         | Run bundle → compiler → SGP node → external Minecraft connection → stop/sync → cross-node restore → drain/delete across reviewed Java/loader fixtures.                                  | Requires A; do not run installers on customer nodes.                                 |
+| **C. M1/M3 staging acceptance**    | Configure browser OAuth staging session, then run real PayPal Sandbox order → approval → capture → verified single ledger credit, duplicate and recovery checks.                        | No production PayPal route until this passes.                                        |
+| **D. Public commercial rollout**   | Complete M7 operator/refund/dispute workflows, production payment credentials/webhook, monitoring/alerts, reviewed pricing, and explicit product-route decision.                        | Must not be inferred from the staging proxies.                                       |
 
 The API-side portion of C owns the durable ledger, PayPal provider boundary,
 shared subscription/runtime billing, UTC renewal sweep, quota grace enforcement,
@@ -18,7 +29,8 @@ composition gate is opened.
 
 All production work must preserve these boundaries:
 
-- API control plane owns placement, subscription state, billing, and node lifecycle.
+- API control plane owns placement, subscription state, billing, and node
+  lifecycle.
 - The Go agent owns Docker, local NVMe, and Vultr Object Storage data transfer.
 - Object storage is the canonical stopped-workspace source of truth.
 - A running Minecraft container is never migrated.
