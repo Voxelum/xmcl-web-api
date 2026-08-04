@@ -121,11 +121,13 @@ change does **not** set settings or deploy either service.
 - `MONGO_CONNECION_STRING`, optional `MONGODB_NAME`, and
   `XMCL_SESSION_SECRET` with at least 32 UTF-8 bytes for the existing Azure
   Mongo/Cosmos account runtime.
-- Complete browser OAuth settings for every fixed supported provider:
-  `XMCL_MICROSOFT_CLIENT_ID`, `XMCL_MICROSOFT_CLIENT_SECRET`,
-  `XMCL_MODRINTH_CLIENT_ID`, `XMCL_MODRINTH_CLIENT_SECRET`,
-  `XMCL_GOOGLE_CLIENT_ID`, `XMCL_GOOGLE_CLIENT_SECRET`,
-  `XMCL_DISCORD_CLIENT_ID`, and `XMCL_DISCORD_CLIENT_SECRET`.
+- Complete browser OAuth settings for at least one fixed supported provider:
+  `XMCL_MICROSOFT_CLIENT_ID`/`XMCL_MICROSOFT_CLIENT_SECRET`,
+  `XMCL_MODRINTH_CLIENT_ID`/`XMCL_MODRINTH_CLIENT_SECRET`,
+  `XMCL_GOOGLE_CLIENT_ID`/`XMCL_GOOGLE_CLIENT_SECRET`, or
+  `XMCL_DISCORD_CLIENT_ID`/`XMCL_DISCORD_CLIENT_SECRET`. The account proxy
+  mounts when one complete pair is present; an unconfigured provider remains
+  unavailable through the existing account route.
 - `XMCL_STAGING_ACCOUNT_PROXY_CORS_ORIGINS=https://<staging-pages-origin>`
   (comma-separate further exact Pages origins only). Values are HTTPS origins
   with no trailing slash, path, query, fragment, wildcard, or credentials.
@@ -153,8 +155,7 @@ Use a new M1 key ID and secret. They must differ from both
 `XMCL_PAYPAL_WEBHOOK_PROXY_KEY_ID`/`XMCL_PAYPAL_WEBHOOK_PROXY_SECRET`; the
 composition rejects an equality when the other configured identity is present.
 
-Register the exact Pages callback in the Microsoft, Modrinth, Google, and
-Discord provider dashboards:
+Register the exact Pages callback in each provider dashboard that is configured:
 
 ```text
 https://<staging-pages-origin>/oauth/callback
@@ -171,6 +172,18 @@ consumed Cosmos Mongo nonce before running the existing account/session
 handler. Both proxy hops reject redirects, bound request/response sizes, and
 return sanitized failures.
 
+Cosmos cleans accepted proxy nonces through its supported `_ts` TTL index. Add
+five-minute cleanup indexes for each proxy namespace before enabling staging:
+
+```javascript
+db.staging_account_proxy_nonces.createIndex({ _ts: 1 }, { name: "staging_account_nonce_cleanup", expireAfterSeconds: 300 })
+db.staging_m3_proxy_nonces.createIndex({ _ts: 1 }, { name: "staging_m3_nonce_cleanup", expireAfterSeconds: 300 })
+db.paypal_webhook_proxy_nonces.createIndex({ _ts: 1 }, { name: "paypal_webhook_proxy_nonce_cleanup", expireAfterSeconds: 300 })
+```
+
+The stored application `expiresAt` remains the replay boundary; the Cosmos TTL
+indexes only bound retained storage.
+
 M3 exposes only these authenticated Sandbox routes through the existing staging
 Worker to Azure:
 
@@ -178,6 +191,7 @@ Worker to Azure:
 - `POST /v1/billing/paypal/orders/:orderId/capture`;
 - `GET /v1/billing/balance`, `/v1/billing/rates`, `/v1/billing/ledger`, and
   `/v1/billing/usage`.
+- `GET /v1/billing/orders` and `GET /v1/billing/orders/:orderId`.
 
 There is no balance-credit API. Only the separately verified PayPal webhook can
 credit the durable ledger. The Worker rejects query strings for every M3 route:

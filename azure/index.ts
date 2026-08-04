@@ -19,13 +19,16 @@ import { createAzureHttpApp } from "./httpApp.ts";
 //  - there is no realtime support, so /group/:id returns 501.
 const environment = process.env as Record<string, string | undefined>;
 const hono = createAzureHttpApp(environment);
+const maximumAzureRequestBytes = 4 * 1024 * 1024;
+
+class AzureRequestBodyTooLargeError extends Error {}
 
 async function toRequest(req: HttpRequest): Promise<Request> {
   const method = req.method;
   const headers = new Headers();
   req.headers.forEach((value, key) => headers.set(key, value));
   const hasBody = method !== "GET" && method !== "HEAD";
-  const body = hasBody ? await req.arrayBuffer() : undefined;
+  const body = hasBody ? await readRequestBody(req) : undefined;
 
   // Azure serves HTTP functions under the `api` route prefix, so the incoming
   // path is `/api/<route>`. The shared Hono routes are registered without that
@@ -44,6 +47,41 @@ async function toRequest(req: HttpRequest): Promise<Request> {
   headers.set("x-xmcl-original-target", originalTarget);
 
   return new Request(url, { method, headers, body });
+}
+
+async function readRequestBody(req: HttpRequest): Promise<ArrayBuffer> {
+  const contentLength = req.headers.get("content-length");
+  if (
+    contentLength && /^[0-9]+$/.test(contentLength) &&
+    Number(contentLength) > maximumAzureRequestBytes
+  ) {
+    throw new AzureRequestBodyTooLargeError();
+  }
+  if (!req.body) return new ArrayBuffer(0);
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > maximumAzureRequestBytes) {
+        await reader.cancel();
+        throw new AzureRequestBodyTooLargeError();
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const body = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body.buffer as ArrayBuffer;
 }
 
 function toAzure(res: Response): HttpResponseInit {
@@ -71,6 +109,9 @@ azureApp.http("api", {
       );
       return toAzure(response);
     } catch (e) {
+      if (e instanceof AzureRequestBodyTooLargeError) {
+        return { status: 413, jsonBody: { error: "Payload Too Large" } };
+      }
       ctx.error(e);
       return { status: 500, jsonBody: { error: "Internal Server Error" } };
     }

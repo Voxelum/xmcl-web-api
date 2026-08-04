@@ -149,7 +149,7 @@ export class HmacPayPalWebhookProxyIdentity {
     }
     if (!await nonceStore.consume({
       key: `${this.options.keyId}:${nonce}`,
-      expiresAt: now + PAYPAL_WEBHOOK_PROXY_MAX_AGE_MS,
+      expiresAt: timestamp + PAYPAL_WEBHOOK_PROXY_MAX_AGE_MS,
       now,
     })) {
       throw new PayPalWebhookProxyIdentityError("request_replayed");

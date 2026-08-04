@@ -150,7 +150,7 @@ export class HmacStagingM3ProxyIdentity {
     }
     if (!await nonceStore.consume({
       key: `${this.options.keyId}:${nonce}`,
-      expiresAt: now + STAGING_M3_PROXY_MAX_AGE_MS,
+      expiresAt: timestamp + STAGING_M3_PROXY_MAX_AGE_MS,
       now,
     })) {
       throw new StagingM3ProxyIdentityError("request_replayed");

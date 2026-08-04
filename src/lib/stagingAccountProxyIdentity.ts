@@ -152,7 +152,7 @@ export class HmacStagingAccountProxyIdentity {
     if (
       !await nonceStore.consume({
         key: `${this.options.keyId}:${nonce}`,
-        expiresAt: now + STAGING_ACCOUNT_PROXY_MAX_AGE_MS,
+        expiresAt: timestamp + STAGING_ACCOUNT_PROXY_MAX_AGE_MS,
         now,
       })
     ) {
