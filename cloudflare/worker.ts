@@ -12,9 +12,7 @@ import {
 import { runServerControlScheduledSweep } from "../src/lib/serverControlScheduling.ts";
 import { runSharedHostingBillingScheduledSweep } from "../src/lib/sharedHostingScheduling.ts";
 import { runSharedNodeScheduledSweep } from "../src/lib/sharedNodeScheduling.ts";
-import {
-  createSharedHostingRuntime,
-} from "../src/lib/sharedHostingRuntime.ts";
+import { createSharedHostingRuntime } from "../src/lib/sharedHostingRuntime.ts";
 import { hasSharedNodeRuntimeSettings } from "../src/lib/productionComposition.ts";
 import { createS3SigV4Presigner } from "../src/lib/s3SigV4.ts";
 import {
@@ -51,10 +49,10 @@ import type { AppEnv } from "../src/types.ts";
 import type { DbFactory } from "../src/db.ts";
 import type { ExecutionContext, ScheduledController } from "./cf_types.ts";
 import { SignalingRoom } from "./group_room.ts";
-import {
-  observeWorkerRequest,
-  workerErrorFields,
-} from "./observability.ts";
+import { observeWorkerRequest, workerErrorFields } from "./observability.ts";
+import { getTranslationStore } from "../src/lib/translationStore.ts";
+import { runTranslationScheduledSweep } from "../src/lib/translationScheduling.ts";
+import { getTranslationEdgeCache } from "../src/lib/translationEdgeCache.ts";
 
 // The Durable Object class must be exported from the worker module.
 export { MultiplayerRoom } from "./multiplayer_room.ts";
@@ -149,7 +147,9 @@ export function paypalWebhookProxySettings(
 export function stagingM3ProxySettings(
   env: AppConfig,
 ): StagingM3ProxySettings | undefined {
-  const corsOrigins = parseStagingM3CorsOrigins(env.XMCL_STAGING_M3_CORS_ORIGINS);
+  const corsOrigins = parseStagingM3CorsOrigins(
+    env.XMCL_STAGING_M3_CORS_ORIGINS,
+  );
   if (
     !validKeyId(env.XMCL_STAGING_M3_PROXY_KEY_ID) ||
     !hasHmacSecret(env.XMCL_STAGING_M3_PROXY_SECRET) ||
@@ -326,14 +326,16 @@ export async function proxyPayPalWebhook(
       phase,
     });
     const status = timedOut || (error instanceof DOMException &&
-        (error.name === "TimeoutError" || error.name === "AbortError")
-      )
+        (error.name === "TimeoutError" || error.name === "AbortError"))
       ? 503
       : 502;
-    return new Response(JSON.stringify({ error: "paypal_webhook_proxy_unavailable" }), {
-      status,
-      headers: { "content-type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ error: "paypal_webhook_proxy_unavailable" }),
+      {
+        status,
+        headers: { "content-type": "application/json" },
+      },
+    );
   }
 }
 
@@ -356,15 +358,18 @@ export function stagingM3CorsPreflight(
   }
   const settings = stagingM3ProxySettings(env);
   const origin = request.headers.get("origin") ?? undefined;
-  const requestedMethod = request.headers.get("access-control-request-method") ??
-    undefined;
+  const requestedMethod =
+    request.headers.get("access-control-request-method") ??
+      undefined;
   if (
     !settings || incoming.search || !origin ||
     !settings.corsOrigins.includes(origin) ||
     !isStagingM3CorsRequest(requestedMethod, incoming.pathname) ||
-    !validCorsRequestHeaders(request.headers.get(
-      "access-control-request-headers",
-    ) ?? undefined)
+    !validCorsRequestHeaders(
+      request.headers.get(
+        "access-control-request-headers",
+      ) ?? undefined,
+    )
   ) {
     return new Response("Not Found", { status: 404 });
   }
@@ -564,7 +569,8 @@ export async function proxyStagingM3(
   fetchImpl: typeof fetch = fetch,
 ) {
   const incoming = new URL(request.url);
-  const isStagingCandidate = incoming.hostname === PAYPAL_WEBHOOK_STAGING_HOST &&
+  const isStagingCandidate =
+    incoming.hostname === PAYPAL_WEBHOOK_STAGING_HOST &&
     isStagingM3PathCandidate(incoming.pathname);
   if (!isStagingCandidate) return undefined;
 
@@ -618,19 +624,27 @@ export async function proxyStagingM3(
       controller.abort();
     }, STAGING_M3_PROXY_TIMEOUT_MS);
     try {
-      const response = await fetchImpl(stagingM3TargetUrl(settings.url, target), {
-        method: request.method,
-        headers,
-        body: request.method === "POST" ? raw as unknown as BodyInit : undefined,
-        signal: controller.signal,
-        redirect: "manual",
-        credentials: "omit",
-      });
+      const response = await fetchImpl(
+        stagingM3TargetUrl(settings.url, target),
+        {
+          method: request.method,
+          headers,
+          body: request.method === "POST"
+            ? raw as unknown as BodyInit
+            : undefined,
+          signal: controller.signal,
+          redirect: "manual",
+          credentials: "omit",
+        },
+      );
       if (response.status >= 300 && response.status < 400) {
         throw new Error("backend redirect rejected");
       }
       return new Response(
-        await readLimitedResponse(response, STAGING_M3_PROXY_MAX_RESPONSE_BYTES),
+        await readLimitedResponse(
+          response,
+          STAGING_M3_PROXY_MAX_RESPONSE_BYTES,
+        ),
         {
           status: response.status,
           headers: responseHeadersFor(response, true),
@@ -721,7 +735,9 @@ function parseExactHttpsOrigins(value: string | undefined) {
     return undefined;
   }
   const normalized = origins.map((origin) => new URL(origin).origin);
-  return new Set(normalized).size === normalized.length ? normalized : undefined;
+  return new Set(normalized).size === normalized.length
+    ? normalized
+    : undefined;
 }
 
 function validHttpsOrigin(value: string) {
@@ -843,11 +859,13 @@ function hasHmacSecret(value: string | undefined): value is string {
  *  - Retired `/group/:id` upgrades are rejected before any Durable Object use.
  *  - `/v1/multiplayer/.../socket` upgrades are forwarded to MultiplayerRoom
  *    (intercepted before the app so CORS never touches the 101 response).
- *  - `/translation` records cache misses in Mongo for an external batch worker.
+ *  - `/translation` reads and records access in Azure Table without fetching
+ *    Modrinth or CurseForge on the user request path.
  *  - geo is resolved natively via `request.cf.country` (see src/geo.ts).
  */
 const platformMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const env = c.env as any;
+  c.set("waitUntil", (promise) => c.executionCtx.waitUntil(promise));
   if (env.ADMIN_OPERATION_AUTHENTICATOR) {
     c.set("adminOperationAuthenticator", env.ADMIN_OPERATION_AUTHENTICATOR);
   }
@@ -898,10 +916,15 @@ function createCloudflareApp(
     accessKey: env.XMCL_VULTR_OBJECT_STORAGE_ACCESS_KEY,
     secretKey: env.XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY,
   });
-  return createProductionApp((a) => {
-    a.use("*", createDbMiddleware(getCloudflareDb));
-    a.use("*", platformMiddleware);
-  }, env, { SHARED_NODE_WORKSPACE_SIGNER: signer }, { routeSurface });
+  return createProductionApp(
+    (a) => {
+      a.use("*", createDbMiddleware(getCloudflareDb));
+      a.use("*", platformMiddleware);
+    },
+    env,
+    { SHARED_NODE_WORKSPACE_SIGNER: signer },
+    { routeSurface },
+  );
 }
 
 export function routeSurfaceForHost(
@@ -1016,6 +1039,36 @@ export default {
               new Date(controller.scheduledTime).toISOString(),
             );
           }
+          if (
+            env.AZURE_TRANSLATION_TABLE_URL &&
+            env.AGNES_API_KEYS
+          ) {
+            try {
+              const translationStore = getTranslationStore(env);
+              if (!translationStore) {
+                throw new Error("Translation store is not configured");
+              }
+              const translationResult = await runTranslationScheduledSweep(
+                translationStore,
+                env,
+                {
+                  now: new Date(controller.scheduledTime),
+                  edgeCache: getTranslationEdgeCache(
+                    env.TRANSLATION_CACHE,
+                  ),
+                },
+              );
+              console.log({
+                event: "translation.scheduled.completed",
+                ...translationResult,
+              });
+            } catch (error) {
+              console.error({
+                event: "translation.scheduled.failed",
+                ...workerErrorFields(error),
+              });
+            }
+          }
           const scheduledAt = new Date(controller.scheduledTime).toISOString();
           const signer = createS3SigV4Presigner({
             endpoint: env.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT,
@@ -1024,9 +1077,11 @@ export default {
             accessKey: env.XMCL_VULTR_OBJECT_STORAGE_ACCESS_KEY,
             secretKey: env.XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY,
           });
-          if (hasSharedNodeRuntimeSettings(env, {
-            SHARED_NODE_WORKSPACE_SIGNER: signer,
-          })) {
+          if (
+            hasSharedNodeRuntimeSettings(env, {
+              SHARED_NODE_WORKSPACE_SIGNER: signer,
+            })
+          ) {
             const runtime = createSharedHostingRuntime(
               await getCloudflareDb(env),
               env,

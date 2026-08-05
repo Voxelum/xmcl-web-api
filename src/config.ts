@@ -25,6 +25,13 @@ export interface AppConfig {
    */
   TRANSLATION_I18N_BASE?: string;
   /**
+   * Full HTTPS Azure Table URL, including its SAS query, for translation
+   * cache, access heat, and scheduled-refresh state.
+   */
+  AZURE_TRANSLATION_TABLE_URL?: string;
+  /** Maximum translation entities processed by one scheduled invocation. */
+  TRANSLATION_SCHEDULED_BATCH_LIMIT?: string;
+  /**
    * Server-only JSON array of Agnes API keys used by the authenticated
    * OpenAI-compatible chat proxy.
    */

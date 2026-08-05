@@ -4,4 +4,5 @@ node_modules
 *.js
 *.js.map
 data/*
+.translation-azure-migration-state.json
 aliyun/xmcl-api

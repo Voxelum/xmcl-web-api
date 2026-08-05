@@ -11,6 +11,9 @@ head_sampling_rate = 1
 [observability.logs]
 invocation_logs = false
 
+[triggers]
+crons = ["*/5 * * * *"]
+
 [[routes]]
 pattern = "api.xmcl.app"
 custom_domain = true
@@ -42,6 +45,18 @@ custom_domain = true
 # XMCL_STAGING_ACCOUNT_PROXY_KEY_ID, XMCL_STAGING_ACCOUNT_PROXY_SECRET, and
 # XMCL_STAGING_ACCOUNT_PROXY_CORS_ORIGINS. It must use a different key ID and
 # secret from the M3 and PayPal proxy identities.
+#
+# Translation scheduling uses AZURE_TRANSLATION_TABLE_URL, AGNES_API_KEYS,
+# and CURSEFORGE_KEY as Worker secrets. TRANSLATION_SCHEDULED_BATCH_LIMIT and
+# TRANSLATION_I18N_BASE are optional configuration values.
+#
+# Translation content can be mirrored to an optional Workers KV binding named
+# TRANSLATION_CACHE. Create it with:
+#   wrangler kv namespace create TRANSLATION_CACHE
+# Then add the returned namespace id:
+#   [[kv_namespaces]]
+#   binding = "TRANSLATION_CACHE"
+#   id = "<namespace id>"
 
 # MultiplayerRoom backs the versioned signaling service. The historical
 # GroupRoom/SignalingRoom migrations remain for Cloudflare class compatibility.
@@ -70,8 +85,8 @@ tag = "v4"
 new_sqlite_classes = ["SignalingRoom"]
 
 # This legacy consumer remains attached to the production Worker. Translation
-# misses are now processed by the external batch worker; the handler only
-# drains messages left by the retired queue pipeline.
+# misses are now recorded in Azure Table; the handler only drains messages
+# left by the retired queue pipeline.
 [[queues.consumers]]
 queue = "xmcl-translation"
 max_batch_size = 1
