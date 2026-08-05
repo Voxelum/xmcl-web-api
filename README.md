@@ -118,6 +118,42 @@ The checked-in Worker Cron runs every five minutes. The historical Mongo
 translation ledger remains only for compatibility with the retired external
 workflow and is not used by the request path.
 
+#### MongoDB to Azure Table migration
+
+The migration is idempotent, resumable, and dry-run by default. It migrates
+both `<locale>_translation` documents and request-only demand from
+`translation_requests`. Existing Azure content wins unless overwrite is
+explicitly enabled; access counters and timestamps are merged.
+
+```powershell
+$env:MONGO_CONNECION_STRING = "mongodb://..."
+$env:AZURE_TRANSLATION_TABLE_URL = "https://.../translations?...SAS..."
+
+# Preview inserts/merges without writing.
+deno run --allow-net --allow-read --allow-write --allow-env --env `
+  scripts/migrate_translations_to_azure_table.ts
+
+# Apply and save a resumable local checkpoint.
+$env:TRANSLATION_MIGRATION_APPLY = "1"
+deno run --allow-net --allow-read --allow-write --allow-env --env `
+  scripts/migrate_translations_to_azure_table.ts
+
+# Compare all valid Mongo keys and demand counters with Azure Table.
+deno run --allow-net --allow-env --env `
+  scripts/verify_translations_in_azure_table.ts
+```
+
+Use `TRANSLATION_MIGRATION_LOCALES=ja,zh-CN` for a canary migration. After the
+canary, set `TRANSLATION_MIGRATION_RESET_STATE=1` for the final full/delta
+pass. Legacy translations without a provider type are inferred only when the
+request ledger identifies exactly one provider; ambiguous records are reported
+and skipped rather than assigned to the wrong key.
+
+For cutover, stop the legacy translation worker/request writes, reset and run
+one final apply pass, run the verifier, then deploy the Azure-backed request
+path. The migration preserves stale content for serving while marking a newer
+pending Mongo source version immediately due for retranslation.
+
 ### Other deployments
 
 - **Alibaba Cloud Function (Deno)** — runs the same `index.ts` via a compiled
