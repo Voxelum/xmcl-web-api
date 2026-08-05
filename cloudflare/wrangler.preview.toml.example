@@ -10,7 +10,7 @@ MONGODB_NAME = "xmcl-api-preview-mot"
 TURNS = ""
 
 [[durable_objects.bindings]]
-name = "MULTIPLAYER_ROOM"
+name = "MULTIPLAYER_ROOMS"
 class_name = "MultiplayerRoomObject"
 
 [[migrations]]

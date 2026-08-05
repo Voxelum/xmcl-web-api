@@ -26,7 +26,7 @@ const TICKET_TTL_MS = 5 * 60_000;
 function namespace(
   c: { env: AppEnv["Bindings"] },
 ): MultiplayerRoomObjectNamespace {
-  const binding = c.env.MULTIPLAYER_ROOM as
+  const binding = c.env.MULTIPLAYER_ROOMS as
     | MultiplayerRoomObjectNamespace
     | undefined;
   if (!binding) {
