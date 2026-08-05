@@ -49,3 +49,16 @@ Deno.test("isolated route surfaces expose only their owned APIs", () => {
   assert.equal(signalingPaths.includes("/v1/chat/completions"), false);
   assert.equal(signalingPaths.includes("/translation"), false);
 });
+
+Deno.test("signaling authentication failures preserve account error responses", async () => {
+  const app = createApp(undefined, { routeSurface: "signaling" });
+  const response = await app.request("/v1/multiplayer/rooms", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(body.error, "authentication_required");
+});
