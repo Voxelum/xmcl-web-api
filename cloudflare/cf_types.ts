@@ -32,6 +32,7 @@ export interface DurableObjectState {
 
 /** Cloudflare's server-side WebSocket (superset of the DOM WebSocket). */
 export interface CfWebSocket {
+  readonly readyState: number;
   accept(): void;
   addEventListener(
     type: "message",

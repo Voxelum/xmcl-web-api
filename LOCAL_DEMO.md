@@ -168,7 +168,7 @@ upload URL is created; completing the import runs validation synchronously.
 - The following legacy routes are intentionally outside local-demo coverage and
   must not be used as a local substitute for their platform integration tests:
   `/latest`, `/releases/:filename`, `/notifications`, `/translation`,
-  `/group/:id`, `/rtc/*`, `/zulu`, `/elyby/authlib`, `/modrinth/auth`,
+  `/v1/multiplayer/*`, `/rtc/*`, `/zulu`, `/elyby/authlib`, `/modrinth/auth`,
   `/kook-badge`, `/appx`, `/appinstaller`, and `/prebuilds`. Their original
   handlers can depend on MongoDB, GitHub, translation/release mirrors,
   WebRTC/TURN, or WebSocket platform services. A Mongo-backed request fails

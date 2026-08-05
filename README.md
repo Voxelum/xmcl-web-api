@@ -33,12 +33,12 @@ src/
   routes/           one Hono sub-app per endpoint
   middleware/       db, auth (minecraft/microsoft), geoip (Deno/Azure only)
   lib/              translation scheduling/store, Agnes, xxhash hasher
-  realtime/         group_deno.ts (native WS + BroadcastChannel), match.ts
+  realtime/         Cloudflare WebSocket path matching
   translation_requests.ts legacy Mongo translation ledger
   translation_service.ts  legacy Mongo translation worker
 
 index.ts            Deno entry      → Deno.serve
-cloudflare/worker.ts  Cloudflare entry → fetch/scheduled + SignalingRoom DO
+cloudflare/worker.ts  Cloudflare entry → fetch/scheduled + MultiplayerRoomObject DO
 azure/index.ts      Azure entry     → @azure/functions HTTP trigger
 ```
 
@@ -50,15 +50,15 @@ untouched and `new Function`/JIT (forbidden on `workerd`) is avoided.
 
 ### Platform-specific behaviour
 
-| Concern        | Local/compatibility Deno       | Cloudflare Workers (production realtime) | Azure Functions            |
-| -------------- | ------------------------------ | ---------------------------------------- | -------------------------- |
-| HTTP server    | `Deno.serve(app.fetch)`        | `export default { fetch }`               | HTTP trigger → `app.fetch` |
-| Geo            | `geoip-country` (forwarded IP) | `request.cf.country` (native)            | `geoip-country`            |
-| `/group/:id`   | native WS + `BroadcastChannel` | `SignalingRoom` Durable Object           | not supported → `501`      |
-| `/translation` | Azure/static cache             | Azure/static cache + scheduled refresh   | Azure/static cache         |
+| Concern | Local/compatibility Deno | Cloudflare Workers (production realtime) | Azure Functions |
+| --- | --- | --- | --- |
+| HTTP server | `Deno.serve(app.fetch)` | `export default { fetch }` | HTTP trigger → `app.fetch` |
+| Geo | `geoip-country` (forwarded IP) | `request.cf.country` (native) | `geoip-country` |
+| `/v1/multiplayer/*` WebSocket | not supported | `MultiplayerRoomObject` Durable Object | not supported |
+| `/translation` | Azure/static cache | Azure/static cache + scheduled refresh | Azure/static cache |
 
-WebSocket upgrades for `/group/:id` are intercepted in each entry **before** the
-Hono app runs, so the CORS middleware never touches the immutable `101`
+Cloudflare intercepts `/v1/multiplayer/rooms/:roomId/socket` upgrades before
+the Hono app runs, so CORS middleware never touches the immutable `101`
 response.
 
 ### Production API domains
@@ -66,22 +66,20 @@ response.
 The Cloudflare Worker is bound to three custom domains, with host-based route
 surfaces:
 
-| Domain               | Mounted surface                                                   |
-| -------------------- | ----------------------------------------------------------------- |
-| `api.xmcl.app`       | Common APIs, including `/translation`                             |
-| `ai.xmcl.app`        | `POST /v1/chat/completions` only                                  |
-| `signaling.xmcl.app` | `/v1/multiplayer/*`, legacy paths blocked, and `/v1/rtc/official` |
+| Domain | Mounted surface |
+| --- | --- |
+| `api.xmcl.app` | Common APIs, including `/translation` |
+| `ai.xmcl.app` | `POST /v1/chat/completions` only |
+| `signaling.xmcl.app` | `/v1/multiplayer/*` and `/v1/rtc/official` |
 
 The shared application also supports these surfaces when deployed as separate
 Workers or on another runtime. Requests to an unmapped preview hostname use the
 common surface unless `XMCL_API_SURFACE` is set to `ai`, `signaling`, or
 `common`.
 
-The legacy `/group/:id` protocol used by old friend-presence and multiplayer
-clients is retired. Cloudflare blocks `/group` and `/group/*` at the edge, and
-the Worker returns `410` before touching a Durable Object. New multiplayer
-clients must use `/v1/multiplayer/*` on `signaling.xmcl.app`. The former
-`/v2/multiplayer/*` path was never public and is not retained.
+Multiplayer clients use only `/v1/multiplayer/*` on `signaling.xmcl.app`.
+Rooms use `master`/`member` roles and revisioned room-state snapshots; no
+legacy signaling paths or incremental room events are retained.
 
 ### Translation cache pipeline
 
@@ -207,9 +205,8 @@ surface listed above:
 - `/flights` - Feature flight information for gradual rollouts
 - `/translation` - Translation services for mod descriptions (Modrinth and
   CurseForge)
-- `/group/:id` - Real-time WebSocket communication for launcher user groups
-  (Deno: native WS + `BroadcastChannel`; Cloudflare: `SignalingRoom` Durable
-  Object; Azure: returns `501`)
+- `/v1/multiplayer/*` - Authenticated multiplayer room creation, admission,
+  closure, and Cloudflare Durable Object WebSocket signaling
 - `/v1/rtc/official` - WebRTC signaling for peer connections
 - `/zulu` - Proxies the Zulu JRE manifest from xmcl-static-resource
 - `/elyby/authlib` - Authentication library access
@@ -432,8 +429,8 @@ The same variables are used across every runtime (read via `hono/adapter`:
 
 ### Cloudflare-only bindings (wrangler.toml)
 
-- `SIGNALING_ROOM` - Durable Object namespace (class `SignalingRoom`) for
-  `/group/:id`
+- `MULTIPLAYER_ROOM` - Durable Object namespace (class `MultiplayerRoomObject`) for
+  `/v1/multiplayer/*`
 - `api.xmcl.app`, `ai.xmcl.app`, and `signaling.xmcl.app` are custom domains on
   the Worker. The Free Zone edge rate-limiting rule matches the `/translation`
   path (Free does not support a host field); only the common `api.xmcl.app`
@@ -538,9 +535,10 @@ wrangler secret put GITHUB_PAT
 wrangler deploy
 ```
 
-The `SignalingRoom` Durable Object backs `/group/:id` (replacing the Deno
-`BroadcastChannel` fan-out). `/translation` records Azure Table demand and the
-Worker Cron refreshes due translations. Geo is resolved natively from
+The `MultiplayerRoomObject` Durable Object backs `/v1/multiplayer/*`, while
+`/translation` records Azure Table demand and the Worker Cron refreshes due
+translations.
+Geo is resolved natively from
 `request.cf.country`. `nodejs_compat` is enabled so the MongoDB driver works on
 `workerd`; a MongoDB Atlas connection string is required.
 

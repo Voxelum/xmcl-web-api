@@ -9,20 +9,25 @@ import { xmclAuth } from "../middleware/xmclAuth.ts";
 import type { AccountRuntimeResolver } from "../middleware/xmclAuth.ts";
 import type { AppEnv } from "../types.ts";
 
-interface MultiplayerRoomStub {
+interface MultiplayerRoomObjectStub {
   fetch(request: Request): Promise<Response>;
 }
 
-interface MultiplayerRoomNamespace {
+interface MultiplayerRoomObjectNamespace {
   idFromName(name: string): unknown;
-  get(id: unknown, options?: { locationHint?: string }): MultiplayerRoomStub;
+  get(
+    id: unknown,
+    options?: { locationHint?: string },
+  ): MultiplayerRoomObjectStub;
 }
 
 const TICKET_TTL_MS = 5 * 60_000;
 
-function namespace(c: { env: AppEnv["Bindings"] }): MultiplayerRoomNamespace {
+function namespace(
+  c: { env: AppEnv["Bindings"] },
+): MultiplayerRoomObjectNamespace {
   const binding = c.env.MULTIPLAYER_ROOM as
-    | MultiplayerRoomNamespace
+    | MultiplayerRoomObjectNamespace
     | undefined;
   if (!binding) {
     throw new HTTPException(501, {
@@ -88,7 +93,7 @@ async function issueTicket(input: {
   const issuedAt = Date.now();
   const peerId = randomId();
   const ticket = await signMultiplayerTicket({
-    version: 1,
+    version: 2,
     roomId: input.roomId,
     accountId: input.accountId,
     peerId,
@@ -119,14 +124,14 @@ export function createMultiplayerRoutes(resolve?: AccountRuntimeResolver) {
         message: "maxPeers must be an integer from 2 to 16",
       });
     }
-    const ownerDisplayName = displayName(input.displayName);
+    const masterDisplayName = displayName(input.displayName);
     const secret = ticketSecret(c);
     const roomId = randomId();
     const principal = c.get("xmclPrincipal")!;
     const ns = namespace(c);
     const stub = ns.get(ns.idFromName(roomId));
     const initialized = await stub.fetch(
-      new Request("https://room.internal/v2/initialize", {
+      new Request("https://room.internal/initialize", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -134,7 +139,7 @@ export function createMultiplayerRoutes(resolve?: AccountRuntimeResolver) {
         },
         body: JSON.stringify({
           roomId,
-          ownerId: principal.accountId,
+          masterAccountId: principal.accountId,
           maxPeers,
           expiresAt: Date.now() + 24 * 60 * 60_000,
         }),
@@ -148,13 +153,14 @@ export function createMultiplayerRoutes(resolve?: AccountRuntimeResolver) {
     const admission = await issueTicket({
       roomId,
       accountId: principal.accountId,
-      displayName: ownerDisplayName,
-      role: "host",
+      displayName: masterDisplayName,
+      role: "master",
       secret,
     });
     return c.json({
       roomId,
       maxPeers,
+      role: "master" satisfies MultiplayerRole,
       socketUrl: `/v1/multiplayer/rooms/${roomId}/socket`,
       ...admission,
     }, 201);
@@ -170,7 +176,7 @@ export function createMultiplayerRoutes(resolve?: AccountRuntimeResolver) {
     const secret = ticketSecret(c);
     const ns = namespace(c);
     const admissionCheck = await ns.get(ns.idFromName(roomId)).fetch(
-      new Request("https://room.internal/v2/admission", {
+      new Request("https://room.internal/admission", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -197,7 +203,18 @@ export function createMultiplayerRoutes(resolve?: AccountRuntimeResolver) {
     }
     const admissionState = await admissionCheck.json() as {
       role: MultiplayerRole;
+      maxPeers: number;
     };
+    if (
+      !["master", "member"].includes(admissionState.role) ||
+      !Number.isSafeInteger(admissionState.maxPeers) ||
+      admissionState.maxPeers < 2 ||
+      admissionState.maxPeers > 16
+    ) {
+      throw new HTTPException(502, {
+        message: "Invalid multiplayer room admission",
+      });
+    }
     const admission = await issueTicket({
       roomId,
       accountId: principal.accountId,
@@ -207,6 +224,8 @@ export function createMultiplayerRoutes(resolve?: AccountRuntimeResolver) {
     });
     return c.json({
       roomId,
+      role: admissionState.role,
+      maxPeers: admissionState.maxPeers,
       socketUrl: `/v1/multiplayer/rooms/${roomId}/socket`,
       ...admission,
     });
@@ -218,7 +237,7 @@ export function createMultiplayerRoutes(resolve?: AccountRuntimeResolver) {
     const secret = ticketSecret(c);
     const ns = namespace(c);
     const response = await ns.get(ns.idFromName(roomId)).fetch(
-      new Request("https://room.internal/v2/close", {
+      new Request("https://room.internal/close", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -229,7 +248,7 @@ export function createMultiplayerRoutes(resolve?: AccountRuntimeResolver) {
     );
     if (response.status === 403) {
       throw new HTTPException(403, {
-        message: "Only the room owner can close the room",
+        message: "Only the current room master can close the room",
       });
     }
     if (response.status === 404) {

@@ -1,7 +1,7 @@
-export type MultiplayerRole = "host" | "guest";
+export type MultiplayerRole = "master" | "member";
 
 export interface MultiplayerTicketClaims {
-  version: 1;
+  version: 2;
   roomId: string;
   accountId: string;
   peerId: string;
@@ -80,12 +80,12 @@ export async function verifyMultiplayerTicket(
       new TextDecoder().decode(decodeBase64Url(payload)),
     ) as MultiplayerTicketClaims;
     if (
-      claims.version !== 1 ||
+      claims.version !== 2 ||
       !claims.roomId ||
       !claims.accountId ||
       !claims.peerId ||
       !claims.displayName ||
-      !["host", "guest"].includes(claims.role) ||
+      !["master", "member"].includes(claims.role) ||
       !Number.isSafeInteger(claims.issuedAt) ||
       !Number.isSafeInteger(claims.expiresAt) ||
       claims.issuedAt > now + 30_000 ||

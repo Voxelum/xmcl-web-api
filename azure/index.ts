@@ -16,7 +16,7 @@ import { createAzureHttpApp } from "./httpApp.ts";
 //  - geo is resolved from the proxy-forwarded IP via geoip-country.
 //  - MongoDB is accessed through the npm MongoDB driver.
 //  - translation cache misses are recorded for the external batch worker.
-//  - there is no realtime support, so /group/:id returns 501.
+//  - there is no WebSocket multiplayer support.
 const environment = process.env as Record<string, string | undefined>;
 const hono = createAzureHttpApp(environment);
 const maximumAzureRequestBytes = 4 * 1024 * 1024;

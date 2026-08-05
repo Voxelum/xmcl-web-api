@@ -7,7 +7,6 @@ import appx from "./routes/appx.ts";
 import backupStoragePolicy from "./routes/backupStoragePolicy.ts";
 import elyby from "./routes/elyby.ts";
 import flights from "./routes/flights.ts";
-import group from "./routes/group.ts";
 import multiplayer from "./routes/multiplayer.ts";
 import kookBadge from "./routes/kookBadge.ts";
 import latest from "./routes/latest.ts";
@@ -109,7 +108,6 @@ export function createApp(
     app.route("/", backupStoragePolicy);
   }
   if (signalingRoutes) {
-    app.route("/", group);
     app.route("/", multiplayer);
     app.route("/", rtc);
   }

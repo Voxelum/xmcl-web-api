@@ -62,11 +62,10 @@ custom_domain = true
 #   binding = "TRANSLATION_CACHE"
 #   id = "<namespace id>"
 
-# MultiplayerRoom backs the versioned signaling service. The historical
-# GroupRoom/SignalingRoom migrations remain for Cloudflare class compatibility.
+# MultiplayerRoomObject backs the versioned signaling service.
 [[durable_objects.bindings]]
 name = "MULTIPLAYER_ROOM"
-class_name = "MultiplayerRoom"
+class_name = "MultiplayerRoomObject"
 
 [[migrations]]
 tag = "v1"
@@ -80,13 +79,14 @@ new_sqlite_classes = ["MultiplayerRoom"]
 tag = "v3"
 deleted_classes = ["GroupRoom"]
 
-[[durable_objects.bindings]]
-name = "SIGNALING_ROOM"
-class_name = "SignalingRoom"
-
 [[migrations]]
 tag = "v4"
 new_sqlite_classes = ["SignalingRoom"]
+
+[[migrations]]
+tag = "v5"
+new_sqlite_classes = ["MultiplayerRoomObject"]
+deleted_classes = ["MultiplayerRoom", "SignalingRoom"]
 
 # This legacy consumer remains attached to the production Worker. Translation
 # misses are now recorded in Azure Table; the handler only drains messages

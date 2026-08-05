@@ -137,15 +137,11 @@ export interface AppVariables {
 }
 
 /**
- * Cloudflare resource bindings. Absent on Deno/Azure (where the realtime group
- * endpoint uses the native WebSocket upgrade instead of a Durable Object).
- * Secret/text vars are read through hono/adapter `env(c)` and typed in
- * `AppConfig`, so they are intentionally loose here.
+ * Cloudflare resource bindings. Secret/text vars are read through hono/adapter
+ * `env(c)` and typed in `AppConfig`, so they are intentionally loose here.
  */
 export interface AppBindings {
-  GROUP_ROOM?: unknown;
   MULTIPLAYER_ROOM?: unknown;
-  SIGNALING_ROOM?: unknown;
   SHARED_NODE_WORKSPACE_SIGNER?: unknown;
   TRANSLATION_CACHE?: unknown;
   [key: string]: unknown;
