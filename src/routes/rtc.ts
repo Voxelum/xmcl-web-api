@@ -2,7 +2,7 @@
 import { Hono } from "hono";
 import { getConfig } from "../config.ts";
 import type { Db } from "../db.ts";
-import { minecraftAuth } from "../middleware/auth.ts";
+import { xmclAuth } from "../middleware/xmclAuth.ts";
 
 import type { AppEnv } from "../types.ts";
 
@@ -100,7 +100,7 @@ const stuns = [
 
 export default new Hono<AppEnv>().post(
   "/v1/rtc/official",
-  minecraftAuth(false),
+  xmclAuth(),
   async (c) => {
     const config = getConfig(c);
     const turns = parseTurns(config.TURNS);
@@ -111,13 +111,11 @@ export default new Hono<AppEnv>().post(
         return undefined;
       }
       try {
-        const profile = c.get("minecraftProfile");
-        if (profile) {
-          const db = await c.var.getDb();
-          await ensureAccount(db, profile.id, "official");
-          return await getTURNCredentials(profile.id, config.RTC_SECRET, turns);
-        }
-        return undefined;
+        const accountId = c.get("xmclPrincipal")?.accountId;
+        if (!accountId) return undefined;
+        const db = await c.var.getDb();
+        await ensureAccount(db, accountId, "official");
+        return await getTURNCredentials(accountId, config.RTC_SECRET, turns);
       } catch (e) {
         console.error({
           event: "rtc.credentials_error",
