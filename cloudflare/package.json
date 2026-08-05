@@ -19,8 +19,8 @@
     "xxhash-wasm": "^1.1.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20240909.0",
+    "@cloudflare/workers-types": "^5.20260804.1",
     "typescript": "^5.5.0",
-    "wrangler": "^3.78.0"
+    "wrangler": "^4.119.0"
   }
 }
