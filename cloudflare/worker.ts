@@ -4,9 +4,7 @@ import type { AppConfig } from "../src/config.ts";
 import { createProductionApp } from "../src/lib/productionComposition.ts";
 import { createDbMiddleware } from "../src/middleware/db.ts";
 import {
-  isLegacyGroupPath,
   isRetiredServicePath,
-  matchGroupUpgrade,
   matchMultiplayerUpgrade,
 } from "../src/realtime/match.ts";
 import { runServerControlScheduledSweep } from "../src/lib/serverControlScheduling.ts";
@@ -48,15 +46,13 @@ import {
 import type { AppEnv } from "../src/types.ts";
 import type { DbFactory } from "../src/db.ts";
 import type { ExecutionContext, ScheduledController } from "./cf_types.ts";
-import { SignalingRoom } from "./group_room.ts";
 import { observeWorkerRequest, workerErrorFields } from "./observability.ts";
 import { getTranslationStore } from "../src/lib/translationStore.ts";
 import { runTranslationScheduledSweep } from "../src/lib/translationScheduling.ts";
 import { getTranslationEdgeCache } from "../src/lib/translationEdgeCache.ts";
 
 // The Durable Object class must be exported from the worker module.
-export { MultiplayerRoom } from "./multiplayer_room.ts";
-export { SignalingRoom };
+export { MultiplayerRoomObject } from "./multiplayer_room.ts";
 
 // bson initializes secure randomness at module evaluation time, which Cloudflare
 // rejects in Worker global scope. Loading the Mongo connector on first database
@@ -856,9 +852,9 @@ function hasHmacSecret(value: string | undefined): value is string {
 /**
  * Cloudflare Workers entry point. Reuses the shared Hono app and injects the
  * Cloudflare-specific platform behaviour:
- *  - Retired `/group/:id` upgrades are rejected before any Durable Object use.
- *  - `/v1/multiplayer/.../socket` upgrades are forwarded to MultiplayerRoom
- *    (intercepted before the app so CORS never touches the 101 response).
+ *  - `/v1/multiplayer/.../socket` upgrades are forwarded to
+ *    MultiplayerRoomObject (intercepted before the app so CORS never touches
+ *    the 101 response).
  *  - `/translation` reads and records access in Azure Table without fetching
  *    Modrinth or CurseForge on the user request path.
  *  - geo is resolved natively via `request.cf.country` (see src/geo.ts).
@@ -961,11 +957,6 @@ async function dispatchCloudflareRequest(
   if (stagingM3) return stagingM3;
   const proxied = await proxyPayPalWebhook(request, env);
   if (proxied) return proxied;
-  if (isLegacyGroupPath(request)) {
-    return new Response("Legacy group signaling is no longer supported", {
-      status: 410,
-    });
-  }
   if (isRetiredServicePath(request)) {
     return new Response("This API path has been retired", { status: 410 });
   }
@@ -979,18 +970,10 @@ async function dispatchCloudflareRequest(
   if (roomId !== undefined) {
     const ns = env.MULTIPLAYER_ROOM;
     const internalUrl = new URL(request.url);
-    internalUrl.pathname = "/v2/connect";
+    internalUrl.pathname = "/connect";
     return ns.get(ns.idFromName(roomId)).fetch(
       new Request(internalUrl, request),
     );
-  }
-  const group = routeSurface === "signaling"
-    ? matchGroupUpgrade(request)
-    : undefined;
-  if (group !== undefined) {
-    const ns = env.SIGNALING_ROOM;
-    const stub = ns.get(ns.idFromName(group));
-    return stub.fetch(request);
   }
   return createCloudflareApp(env, routeSurface).fetch(request, env, ctx);
 }

@@ -1,12 +1,7 @@
 import { createDbMiddleware } from "./src/middleware/db.ts";
 import { geoipMiddleware } from "./src/middleware/geoip.ts";
 import { getDb } from "./src/platform/db_deno.ts";
-import { upgradeGroupDeno } from "./src/realtime/group_deno.ts";
-import {
-  isLegacyGroupPath,
-  isRetiredServicePath,
-  matchGroupUpgrade,
-} from "./src/realtime/match.ts";
+import { isRetiredServicePath } from "./src/realtime/match.ts";
 import {
   runServerControlScheduledSweep,
   type ServerControlScheduledWork,
@@ -22,17 +17,8 @@ const app = createProductionApp((a) => {
 }, Deno.env.toObject());
 
 Deno.serve({ port: 8080 }, (request) => {
-  if (isLegacyGroupPath(request)) {
-    return new Response("Legacy group signaling is no longer supported", {
-      status: 410,
-    });
-  }
   if (isRetiredServicePath(request)) {
     return new Response("This API path has been retired", { status: 410 });
-  }
-  const group = matchGroupUpgrade(request);
-  if (group !== undefined) {
-    return upgradeGroupDeno(request, group);
   }
   return app.fetch(request);
 });

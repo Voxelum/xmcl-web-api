@@ -1,7 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { Hono } from "hono";
 import { getConfig } from "../config.ts";
-import type { Db } from "../db.ts";
 import { xmclAuth } from "../middleware/xmclAuth.ts";
 
 import type { AppEnv } from "../types.ts";
@@ -70,21 +69,6 @@ async function getTURNCredentials(
   return result;
 }
 
-async function ensureAccount(db: Db, name: string, namespace: string) {
-  const collection = db.collection("turnusers_lt");
-  await collection.updateOne(
-    { name: `${namespace}:${name}`, realm: "xmcl" },
-    {
-      $set: {
-        name: `${namespace}:${name}`,
-        realm: "xmcl",
-        hmackey: "5eb36f16f3bca1acf48639d9919c5094",
-      },
-    },
-    { upsert: true },
-  );
-}
-
 const stuns = [
   "stun.miwifi.com:3478",
   "stun.l.google.com:19302",
@@ -113,8 +97,6 @@ export default new Hono<AppEnv>().post(
       try {
         const accountId = c.get("xmclPrincipal")?.accountId;
         if (!accountId) return undefined;
-        const db = await c.var.getDb();
-        await ensureAccount(db, accountId, "official");
         return await getTURNCredentials(accountId, config.RTC_SECRET, turns);
       } catch (e) {
         console.error({

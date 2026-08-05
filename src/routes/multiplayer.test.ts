@@ -6,7 +6,10 @@ import type { AppEnv } from "../types.ts";
 import { createMultiplayerRoutes } from "./multiplayer.ts";
 
 const secret = "multiplayer-test-secret-with-at-least-32-characters";
-const rooms = new Map<string, { ownerId: string; closed: boolean }>();
+const rooms = new Map<
+  string,
+  { masterAccountId: string; maxPeers: number; closed: boolean }
+>();
 const calls: string[] = [];
 const namespace = {
   idFromName: (name: string) => name,
@@ -17,21 +20,28 @@ const namespace = {
       const input = request.body
         ? await request.json() as Record<string, string>
         : {};
-      if (path === "/v2/initialize") {
-        rooms.set(roomId, { ownerId: input.ownerId, closed: false });
+      if (path === "/initialize") {
+        rooms.set(roomId, {
+          masterAccountId: input.masterAccountId,
+          maxPeers: Number(input.maxPeers),
+          closed: false,
+        });
         return new Response(null, { status: 204 });
       }
       const room = rooms.get(roomId);
       if (!room) return new Response(null, { status: 404 });
-      if (path === "/v2/admission") {
+      if (path === "/admission") {
         return room.closed
           ? new Response(null, { status: 410 })
           : Response.json({
-            role: input.accountId === room.ownerId ? "host" : "guest",
+            role: input.accountId === room.masterAccountId
+              ? "master"
+              : "member",
+            maxPeers: room.maxPeers,
           });
       }
-      if (path === "/v2/close") {
-        if (input.accountId !== room.ownerId) {
+      if (path === "/close") {
+        if (input.accountId !== room.masterAccountId) {
           return new Response(null, { status: 403 });
         }
         room.closed = true;
@@ -44,14 +54,15 @@ const namespace = {
 let authenticatedAccountId = "account_1";
 const runtime = {
   sessions: {
-    verify: async () => ({
-      accountId: authenticatedAccountId,
-      scopes: ["account:read"],
-    }),
+    verify: () =>
+      Promise.resolve({
+        accountId: authenticatedAccountId,
+        scopes: ["account:read"],
+      }),
   },
 } as unknown as AccountRuntime;
 const app = new Hono<AppEnv>();
-app.route("/", createMultiplayerRoutes(async () => runtime));
+app.route("/", createMultiplayerRoutes(() => Promise.resolve(runtime)));
 const env = {
   MULTIPLAYER_ROOM: namespace,
   XMCL_MULTIPLAYER_TICKET_SECRET: secret,
@@ -70,9 +81,11 @@ Deno.test("multiplayer routes create, join, and close a Durable Object room", as
   assert.equal(created.status, 201);
   const creation = await created.json();
   assert.equal(creation.maxPeers, 4);
-  const owner = await verifyMultiplayerTicket(creation.ticket, secret);
-  assert.equal(owner?.roomId, creation.roomId);
-  assert.equal(owner?.role, "host");
+  assert.equal(creation.role, "master");
+  const masterClaims = await verifyMultiplayerTicket(creation.ticket, secret);
+  assert.equal(masterClaims?.roomId, creation.roomId);
+  assert.equal(masterClaims?.role, "master");
+  assert.equal(masterClaims?.version, 2);
 
   authenticatedAccountId = "account_2";
   const joined = await app.request(
@@ -85,11 +98,15 @@ Deno.test("multiplayer routes create, join, and close a Durable Object room", as
     env,
   );
   assert.equal(joined.status, 200);
+  const joinedAdmission = await joined.json();
+  assert.equal(joinedAdmission.role, "member");
+  assert.equal(joinedAdmission.maxPeers, 4);
   const member = await verifyMultiplayerTicket(
-    (await joined.json()).ticket,
+    joinedAdmission.ticket,
     secret,
   );
-  assert.equal(member?.role, "guest");
+  assert.equal(member?.role, "member");
+  assert.equal(member?.version, 2);
 
   authenticatedAccountId = "account_1";
   const closed = await app.request(
@@ -98,7 +115,7 @@ Deno.test("multiplayer routes create, join, and close a Durable Object room", as
     env,
   );
   assert.equal(closed.status, 204);
-  assert.deepEqual(calls, ["/v2/initialize", "/v2/admission", "/v2/close"]);
+  assert.deepEqual(calls, ["/initialize", "/admission", "/close"]);
 });
 
 Deno.test("multiplayer routes reject invalid room settings before creating a DO", async () => {

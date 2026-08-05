@@ -10,12 +10,12 @@ MONGODB_NAME = "xmcl-api-preview-mot"
 TURNS = ""
 
 [[durable_objects.bindings]]
-name = "GROUP_ROOM"
-class_name = "GroupRoom"
+name = "MULTIPLAYER_ROOM"
+class_name = "MultiplayerRoomObject"
 
 [[migrations]]
 tag = "mot-v1"
-new_sqlite_classes = ["GroupRoom"]
+new_sqlite_classes = ["MultiplayerRoomObject"]
 
 [triggers]
 crons = ["0 0 * * *"]
