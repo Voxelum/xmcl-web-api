@@ -2,6 +2,10 @@ import type { AppConfig } from "../config.ts";
 import { getHasher } from "./hasher.ts";
 import { parseAgnesApiKeys } from "./agnes.ts";
 import { translate } from "./translation.ts";
+import type {
+  TranslationEdgeCache,
+  TranslationEdgeValue,
+} from "./translationEdgeCache.ts";
 import {
   type TranslationContentType,
   type TranslationRecord,
@@ -14,6 +18,8 @@ const LEASE_MS = 20 * 60_000;
 const HOT_REFRESH_MS = 6 * 60 * 60_000;
 const NORMAL_REFRESH_MS = 24 * 60 * 60_000;
 const RETRY_MS = 60 * 60_000;
+const EDGE_SYNC_RETRY_MS = 5 * 60_000;
+const EDGE_STALE_GRACE_MS = 10 * 60_000;
 const SOURCE_TIMEOUT_MS = 30_000;
 
 export interface TranslationScheduledResult {
@@ -21,6 +27,10 @@ export interface TranslationScheduledResult {
   translated: number;
   unchanged: number;
   failed: number;
+  edgeSynced: number;
+  edgeSyncFailed: number;
+  edgeRetryScheduled: number;
+  edgeOnly: number;
 }
 
 export async function runTranslationScheduledSweep(
@@ -31,6 +41,7 @@ export async function runTranslationScheduledSweep(
     clock?: () => Date;
     fetcher?: typeof fetch;
     translateSource?: typeof translateScheduledSource;
+    edgeCache?: TranslationEdgeCache;
   } = {},
 ): Promise<TranslationScheduledResult> {
   const now = input.now ?? new Date();
@@ -45,6 +56,10 @@ export async function runTranslationScheduledSweep(
     translated: 0,
     unchanged: 0,
     failed: 0,
+    edgeSynced: 0,
+    edgeSyncFailed: 0,
+    edgeRetryScheduled: 0,
+    edgeOnly: 0,
   };
 
   for (let index = 0; index < due.length; index++) {
@@ -58,6 +73,43 @@ export async function runTranslationScheduledSweep(
     if (!claimed) continue;
     result.claimed++;
 
+    if (claimed.edgeSyncPending && claimed.content) {
+      try {
+        const attemptedAt = clock();
+        const resumeAt = claimed.edgeSyncResumeAt
+          ? new Date(claimed.edgeSyncResumeAt)
+          : nextRefreshAt(claimed, attemptedAt);
+        const edgeValue: TranslationEdgeValue = {
+          locale: claimed.locale,
+          type: claimed.type,
+          projectId: claimed.projectId,
+          content: claimed.content,
+          contentType: claimed.contentType,
+          sourceHash: claimed.sourceHash,
+          updatedAt: claimed.updatedAt,
+          validUntil: edgeRetryValidUntil(resumeAt, attemptedAt),
+        };
+        if (await syncEdgeCache(input.edgeCache, edgeValue, result)) {
+          await store.completeEdgeSync(claimed);
+        } else {
+          await store.retryEdgeSync(
+            claimed,
+            new Date(attemptedAt.getTime() + EDGE_SYNC_RETRY_MS),
+          );
+          result.edgeRetryScheduled++;
+        }
+        result.edgeOnly++;
+      } catch (error) {
+        console.error({
+          event: "translation.edge_cache.retry_failed",
+          locale: claimed.locale,
+          type: claimed.type,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+      continue;
+    }
+
     try {
       const source = await fetchTranslationSource(
         claimed,
@@ -66,7 +118,36 @@ export async function runTranslationScheduledSweep(
       );
       const sourceHash = (await getHasher())(source.body);
       if (claimed.content && claimed.sourceHash === sourceHash) {
-        await store.complete(claimed, nextRefreshAt(claimed, clock()));
+        const completedAt = clock();
+        const refreshAt = nextRefreshAt(claimed, completedAt);
+        const edgeValue = {
+          locale: claimed.locale,
+          type: claimed.type,
+          projectId: claimed.projectId,
+          content: claimed.content,
+          contentType: claimed.contentType,
+          sourceHash: claimed.sourceHash,
+          updatedAt: completedAt.toISOString(),
+          validUntil: edgeValidUntil(refreshAt),
+        };
+        if (input.edgeCache) {
+          await store.stageEdgeSync(claimed, {
+            content: claimed.content,
+            contentType: claimed.contentType,
+            sourceHash,
+            nextProcessAt: refreshAt,
+          });
+          await finishStagedEdgeSync(
+            store,
+            claimed,
+            input.edgeCache,
+            edgeValue,
+            completedAt,
+            result,
+          );
+        } else {
+          await store.complete(claimed, refreshAt);
+        }
         result.unchanged++;
         continue;
       }
@@ -77,12 +158,41 @@ export async function runTranslationScheduledSweep(
         source.contentType,
         apiKeys[index % apiKeys.length],
       );
-      await store.putTranslation(claimed, {
+      const completedAt = clock();
+      const refreshAt = nextRefreshAt(claimed, completedAt);
+      const edgeValue = {
+        locale: claimed.locale,
+        type: claimed.type,
+        projectId: claimed.projectId,
         content,
         contentType: source.contentType,
         sourceHash,
-        nextProcessAt: nextRefreshAt(claimed, clock()),
-      });
+        updatedAt: completedAt.toISOString(),
+        validUntil: edgeValidUntil(refreshAt),
+      };
+      if (input.edgeCache) {
+        await store.stageEdgeSync(claimed, {
+          content,
+          contentType: source.contentType,
+          sourceHash,
+          nextProcessAt: refreshAt,
+        });
+        await finishStagedEdgeSync(
+          store,
+          claimed,
+          input.edgeCache,
+          edgeValue,
+          completedAt,
+          result,
+        );
+      } else {
+        await store.putTranslation(claimed, {
+          content,
+          contentType: source.contentType,
+          sourceHash,
+          nextProcessAt: refreshAt,
+        });
+      }
       result.translated++;
     } catch (error) {
       result.failed++;
@@ -106,6 +216,57 @@ export async function runTranslationScheduledSweep(
   }
 
   return result;
+}
+
+async function syncEdgeCache(
+  edgeCache: TranslationEdgeCache | undefined,
+  value: TranslationEdgeValue,
+  result: TranslationScheduledResult,
+): Promise<boolean> {
+  if (!edgeCache) return true;
+  try {
+    await edgeCache.put(value);
+    result.edgeSynced++;
+    return true;
+  } catch (error) {
+    result.edgeSyncFailed++;
+    console.error({
+      event: "translation.edge_cache.sync_failed",
+      locale: value.locale,
+      type: value.type,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+    return false;
+  }
+}
+
+async function finishStagedEdgeSync(
+  store: TranslationStore,
+  claimed: TranslationRecord,
+  edgeCache: TranslationEdgeCache,
+  value: TranslationEdgeValue,
+  completedAt: Date,
+  result: TranslationScheduledResult,
+) {
+  const synced = await syncEdgeCache(edgeCache, value, result);
+  try {
+    if (synced) {
+      await store.completeEdgeSync(claimed);
+      return;
+    }
+    await store.retryEdgeSync(
+      claimed,
+      new Date(completedAt.getTime() + EDGE_SYNC_RETRY_MS),
+    );
+    result.edgeRetryScheduled++;
+  } catch (error) {
+    console.error({
+      event: "translation.edge_cache.state_finalize_failed",
+      locale: value.locale,
+      type: value.type,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+  }
 }
 
 export async function fetchTranslationSource(
@@ -184,4 +345,17 @@ function nextRefreshAt(record: TranslationRecord, now: Date) {
     ? HOT_REFRESH_MS
     : NORMAL_REFRESH_MS;
   return new Date(now.getTime() + interval);
+}
+
+function edgeValidUntil(nextRefreshAt: Date) {
+  return new Date(nextRefreshAt.getTime() + EDGE_STALE_GRACE_MS).toISOString();
+}
+
+function edgeRetryValidUntil(resumeAt: Date, attemptedAt: Date) {
+  return new Date(
+    Math.max(
+      resumeAt.getTime() + EDGE_STALE_GRACE_MS,
+      attemptedAt.getTime() + EDGE_SYNC_RETRY_MS + EDGE_STALE_GRACE_MS,
+    ),
+  ).toISOString();
 }

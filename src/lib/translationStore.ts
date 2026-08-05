@@ -22,6 +22,8 @@ export interface TranslationRecord extends TranslationKey {
   lastError?: string;
   leaseToken?: string;
   leaseExpiresAt?: string;
+  edgeSyncPending?: boolean;
+  edgeSyncResumeAt?: string;
   etag?: string;
 }
 
@@ -52,6 +54,17 @@ export interface TranslationStore {
     error: string,
     nextProcessAt: Date,
   ): Promise<void>;
+  stageEdgeSync(
+    record: TranslationRecord,
+    input: {
+      content: string;
+      contentType: TranslationContentType;
+      sourceHash: string;
+      nextProcessAt: Date;
+    },
+  ): Promise<void>;
+  completeEdgeSync(record: TranslationRecord): Promise<void>;
+  retryEdgeSync(record: TranslationRecord, retryAt: Date): Promise<void>;
 }
 
 interface AzureTableEntity {
@@ -72,6 +85,8 @@ interface AzureTableEntity {
   LastError?: string;
   LeaseToken?: string;
   LeaseExpiresAt?: string;
+  EdgeSyncPending?: boolean;
+  EdgeSyncResumeAt?: string;
   "odata.etag"?: string;
 }
 
@@ -180,6 +195,8 @@ export class AzureTableTranslationStore implements TranslationStore {
         Date.parse(record.leaseExpiresAt) <= now.getTime()
       )
       .sort((a, b) =>
+        Number(Boolean(b.edgeSyncPending)) -
+          Number(Boolean(a.edgeSyncPending)) ||
         b.accessCount - a.accessCount ||
         Date.parse(a.nextProcessAt) - Date.parse(b.nextProcessAt)
       )
@@ -261,6 +278,56 @@ export class AzureTableTranslationStore implements TranslationStore {
       lastError: error.slice(0, 1_000),
       leaseToken: undefined,
       leaseExpiresAt: undefined,
+    }));
+  }
+
+  async stageEdgeSync(
+    record: TranslationRecord,
+    input: {
+      content: string;
+      contentType: TranslationContentType;
+      sourceHash: string;
+      nextProcessAt: Date;
+    },
+  ): Promise<void> {
+    await this.mergeLeaseOwned(record, "stage edge sync", (current) => ({
+      ...current,
+      content: input.content,
+      contentType: input.contentType,
+      sourceHash: input.sourceHash,
+      status: "processing",
+      edgeSyncPending: true,
+      edgeSyncResumeAt: input.nextProcessAt.toISOString(),
+      updatedAt: new Date().toISOString(),
+      lastError: undefined,
+    }));
+  }
+
+  async completeEdgeSync(record: TranslationRecord): Promise<void> {
+    await this.mergeLeaseOwned(record, "complete edge sync", (current) => ({
+      ...current,
+      status: "ready",
+      nextProcessAt: current.edgeSyncResumeAt || current.nextProcessAt,
+      updatedAt: new Date().toISOString(),
+      leaseToken: undefined,
+      leaseExpiresAt: undefined,
+      edgeSyncPending: false,
+      edgeSyncResumeAt: undefined,
+    }));
+  }
+
+  async retryEdgeSync(
+    record: TranslationRecord,
+    retryAt: Date,
+  ): Promise<void> {
+    await this.mergeLeaseOwned(record, "retry edge sync", (current) => ({
+      ...current,
+      status: "ready",
+      nextProcessAt: retryAt.toISOString(),
+      updatedAt: new Date().toISOString(),
+      leaseToken: undefined,
+      leaseExpiresAt: undefined,
+      edgeSyncPending: true,
     }));
   }
 
@@ -367,6 +434,8 @@ function toEntity(record: TranslationRecord): AzureTableEntity {
     LastError: record.lastError ?? "",
     LeaseToken: record.leaseToken ?? "",
     LeaseExpiresAt: record.leaseExpiresAt ?? "",
+    EdgeSyncPending: record.edgeSyncPending ?? false,
+    EdgeSyncResumeAt: record.edgeSyncResumeAt ?? "",
   } as AzureTableEntity;
 }
 
@@ -399,6 +468,8 @@ function fromEntity(
     lastError: entity.LastError,
     leaseToken: entity.LeaseToken,
     leaseExpiresAt: entity.LeaseExpiresAt,
+    edgeSyncPending: entity.EdgeSyncPending === true,
+    edgeSyncResumeAt: entity.EdgeSyncResumeAt || undefined,
     etag: responseEtag || entity["odata.etag"],
   };
 }

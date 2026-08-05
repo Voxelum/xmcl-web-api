@@ -179,6 +179,69 @@ Deno.test("Azure translation store pages all due rows before prioritizing", asyn
   assert.equal(due[0].projectId, "hot");
 });
 
+Deno.test("Azure translation store stages content with edge sync state", async () => {
+  const current = record({
+    status: "processing",
+    nextProcessAt: "2026-01-02T00:00:00.000Z",
+    leaseToken: "lease-token",
+    leaseExpiresAt: "2099-01-01T00:20:00.000Z",
+  });
+  let mergedBody: Record<string, unknown> | undefined;
+  const store = new AzureTableTranslationStore(
+    tableUrl,
+    async (input, init) => {
+      const request = new Request(input, init);
+      if (request.method === "GET") {
+        return Response.json(toAzureEntity(current), {
+          headers: { etag: current.etag! },
+        });
+      }
+      mergedBody = await request.json();
+      return new Response(null, { status: 204 });
+    },
+  );
+  await store.stageEdgeSync(
+    current,
+    {
+      content: "translation",
+      contentType: "text/markdown",
+      sourceHash: "source-hash",
+      nextProcessAt: new Date("2026-01-02T00:00:00.000Z"),
+    },
+  );
+  assert.equal(
+    mergedBody?.NextProcessAt,
+    "2026-01-02T00:00:00.000Z",
+  );
+  assert.equal(mergedBody?.Content, "translation");
+  assert.equal(mergedBody?.EdgeSyncPending, true);
+  assert.equal(
+    mergedBody?.EdgeSyncResumeAt,
+    "2026-01-02T00:00:00.000Z",
+  );
+});
+
+Deno.test("Azure translation store prioritizes edge retries over hot refreshes", async () => {
+  const hot = record({ projectId: "hot", accessCount: 500 });
+  const edgeRetry = record({
+    projectId: "edge-retry",
+    accessCount: 1,
+    edgeSyncPending: true,
+  });
+  const store = new AzureTableTranslationStore(
+    tableUrl,
+    () =>
+      Promise.resolve(Response.json({
+        value: [toAzureEntity(hot), toAzureEntity(edgeRetry)],
+      })),
+  );
+  const due = await store.listDue(
+    new Date("2099-01-01T00:00:00.000Z"),
+    1,
+  );
+  assert.equal(due[0].projectId, "edge-retry");
+});
+
 function toAzureEntity(value: TranslationRecord) {
   return {
     PartitionKey: value.locale,
@@ -197,5 +260,7 @@ function toAzureEntity(value: TranslationRecord) {
     UpdatedAt: value.updatedAt,
     LeaseToken: value.leaseToken,
     LeaseExpiresAt: value.leaseExpiresAt,
+    EdgeSyncPending: value.edgeSyncPending,
+    EdgeSyncResumeAt: value.edgeSyncResumeAt,
   };
 }

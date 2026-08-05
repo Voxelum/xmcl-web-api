@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { Hono } from "hono";
 import type { Db, MongoCollection } from "../db.ts";
 import type {
+  TranslationEdgeCache,
+  TranslationEdgeValue,
+} from "../lib/translationEdgeCache.ts";
+import type {
   TranslationKey,
   TranslationRecord,
   TranslationStore,
@@ -380,6 +384,15 @@ class MemoryTranslationStore implements TranslationStore {
   fail() {
     return Promise.resolve();
   }
+  stageEdgeSync() {
+    return Promise.resolve();
+  }
+  completeEdgeSync() {
+    return Promise.resolve();
+  }
+  retryEdgeSync() {
+    return Promise.resolve();
+  }
 }
 
 class FailingTranslationStore extends MemoryTranslationStore {
@@ -392,13 +405,35 @@ class FailingTranslationStore extends MemoryTranslationStore {
   }
 }
 
+class MemoryEdgeCache implements TranslationEdgeCache {
+  readonly values = new Map<string, TranslationEdgeValue>();
+
+  get(key: TranslationKey) {
+    return Promise.resolve(
+      this.values.get(`${key.locale}:${key.type}:${key.projectId}`),
+    );
+  }
+
+  put(value: TranslationEdgeValue) {
+    this.values.set(
+      `${value.locale}:${value.type}:${value.projectId}`,
+      value,
+    );
+    return Promise.resolve();
+  }
+}
+
 function translationApp(
   store: TranslationStore,
   staticBase =
     "https://raw.githubusercontent.com/Voxelum/xmcl-community-content-i18n-extra/main",
+  edgeCache?: TranslationEdgeCache,
 ) {
   const app = new Hono<AppEnv>();
-  app.route("/", createTranslationRoutes(() => store, staticBase));
+  app.route(
+    "/",
+    createTranslationRoutes(() => store, staticBase, () => edgeCache),
+  );
   return app;
 }
 
@@ -435,6 +470,69 @@ Deno.test("translation serves dynamic cache without fetching project source", as
   assert.equal(await cached.text(), "Cached translation");
   assert.equal(cached.headers.get("x-xmcl-translation-source"), "azure-table");
   assert.equal(fetches, 0);
+});
+
+Deno.test("translation serves KV before Azure and still records demand", async () => {
+  const store = new MemoryTranslationStore();
+  const edge = new MemoryEdgeCache();
+  edge.values.set("ja:modrinth:edge-project", {
+    locale: "ja",
+    type: "modrinth",
+    projectId: "edge-project",
+    content: "Edge translation",
+    contentType: "text/markdown",
+    updatedAt: "2026-08-05T00:00:00.000Z",
+    validUntil: "2099-08-05T00:00:00.000Z",
+  });
+  const app = translationApp(store, "https://i18n.example", edge);
+  const response = await withTranslationFetch(
+    () => {
+      throw new Error("KV hit must not fetch");
+    },
+    () =>
+      app.request(
+        "/translation?type=modrinth&id=edge-project",
+        { headers: { "accept-language": "ja" } },
+      ),
+  );
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), "Edge translation");
+  assert.equal(
+    response.headers.get("x-xmcl-translation-source"),
+    "cloudflare-kv",
+  );
+  await Promise.resolve();
+  assert.equal(store.accesses, 1);
+});
+
+Deno.test("translation Table fallback never writes KV from request path", async () => {
+  const store = new MemoryTranslationStore();
+  const edge = new MemoryEdgeCache();
+  const now = new Date().toISOString();
+  store.records.set("ja:modrinth:read-through", {
+    locale: "ja",
+    type: "modrinth",
+    projectId: "read-through",
+    content: "Table translation",
+    contentType: "text/markdown",
+    status: "ready",
+    accessCount: 1,
+    firstAccessedAt: now,
+    lastAccessedAt: now,
+    nextProcessAt: now,
+    updatedAt: now,
+  });
+  const app = translationApp(store, "https://i18n.example", edge);
+  const response = await app.request(
+    "/translation?type=modrinth&id=read-through",
+    { headers: { "accept-language": "ja" } },
+  );
+  assert.equal(response.status, 200);
+  await Promise.resolve();
+  assert.equal(
+    edge.values.get("ja:modrinth:read-through"),
+    undefined,
+  );
 });
 
 Deno.test("translation serves modern static layout and records access", async () => {

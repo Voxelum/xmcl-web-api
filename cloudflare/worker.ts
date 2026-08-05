@@ -52,6 +52,7 @@ import { SignalingRoom } from "./group_room.ts";
 import { observeWorkerRequest, workerErrorFields } from "./observability.ts";
 import { getTranslationStore } from "../src/lib/translationStore.ts";
 import { runTranslationScheduledSweep } from "../src/lib/translationScheduling.ts";
+import { getTranslationEdgeCache } from "../src/lib/translationEdgeCache.ts";
 
 // The Durable Object class must be exported from the worker module.
 export { MultiplayerRoom } from "./multiplayer_room.ts";
@@ -1050,7 +1051,12 @@ export default {
               const translationResult = await runTranslationScheduledSweep(
                 translationStore,
                 env,
-                { now: new Date(controller.scheduledTime) },
+                {
+                  now: new Date(controller.scheduledTime),
+                  edgeCache: getTranslationEdgeCache(
+                    env.TRANSLATION_CACHE,
+                  ),
+                },
               );
               console.log({
                 event: "translation.scheduled.completed",

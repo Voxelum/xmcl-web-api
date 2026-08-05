@@ -118,6 +118,35 @@ The checked-in Worker Cron runs every five minutes. The historical Mongo
 translation ledger remains only for compatibility with the retired external
 workflow and is not used by the request path.
 
+Cloudflare can additionally bind a Workers KV namespace as
+`TRANSLATION_CACHE`. KV is only an edge copy of completed content:
+
+1. A request checks KV before Azure Table.
+2. A scheduled translation commits Azure Table first, then writes KV.
+3. A KV write failure does not roll back the authoritative Table result.
+4. A failed KV write advances the Table refresh time so Cron retries in about
+   five minutes.
+
+Each KV entry expires ten minutes after its next scheduled Table source
+refresh. If propagation fails, the old edge value therefore becomes a miss
+shortly after refresh and requests fall back to the newer Table content.
+Access counts, leases, failures, and scheduling remain only in Azure Table.
+Request handling never writes KV, which prevents an older Table snapshot from
+racing with and overwriting a newer scheduled result.
+
+Provision the namespace, then add the returned ID to `cloudflare/wrangler.toml`:
+
+```powershell
+cd cloudflare
+npx wrangler kv namespace create TRANSLATION_CACHE
+```
+
+```toml
+[[kv_namespaces]]
+binding = "TRANSLATION_CACHE"
+id = "<namespace id>"
+```
+
 #### MongoDB to Azure Table migration
 
 The migration is idempotent, resumable, and dry-run by default. It migrates

@@ -49,6 +49,14 @@ custom_domain = true
 # Translation scheduling uses AZURE_TRANSLATION_TABLE_URL, AGNES_API_KEYS,
 # and CURSEFORGE_KEY as Worker secrets. TRANSLATION_SCHEDULED_BATCH_LIMIT and
 # TRANSLATION_I18N_BASE are optional configuration values.
+#
+# Translation content can be mirrored to an optional Workers KV binding named
+# TRANSLATION_CACHE. Create it with:
+#   wrangler kv namespace create TRANSLATION_CACHE
+# Then add the returned namespace id:
+#   [[kv_namespaces]]
+#   binding = "TRANSLATION_CACHE"
+#   id = "<namespace id>"
 
 # MultiplayerRoom backs the versioned signaling service. The historical
 # GroupRoom/SignalingRoom migrations remain for Cloudflare class compatibility.

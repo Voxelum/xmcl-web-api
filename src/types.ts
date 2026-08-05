@@ -147,6 +147,7 @@ export interface AppBindings {
   MULTIPLAYER_ROOM?: unknown;
   SIGNALING_ROOM?: unknown;
   SHARED_NODE_WORKSPACE_SIGNER?: unknown;
+  TRANSLATION_CACHE?: unknown;
   [key: string]: unknown;
 }
 

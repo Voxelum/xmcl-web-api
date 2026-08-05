@@ -8,6 +8,10 @@ import {
   type TranslationStore,
   type TranslationType,
 } from "../lib/translationStore.ts";
+import {
+  getTranslationEdgeCache,
+  type TranslationEdgeCache,
+} from "../lib/translationEdgeCache.ts";
 import type { AppEnv } from "../types.ts";
 
 interface StaticTranslation {
@@ -31,6 +35,9 @@ interface TranslationRateBucket {
 }
 
 type StoreResolver = (c: Context<AppEnv>) => TranslationStore | undefined;
+type EdgeCacheResolver = (
+  c: Context<AppEnv>,
+) => TranslationEdgeCache | undefined;
 
 const translationRateBuckets = new Map<string, TranslationRateBucket>();
 const translationActiveRequests = new Map<string, number>();
@@ -44,6 +51,8 @@ let staticCooldownUntil = 0;
 export function createTranslationRoutes(
   resolveStore: StoreResolver = (c) => getTranslationStore(getConfig(c)),
   staticTranslationBase?: string,
+  resolveEdgeCache: EdgeCacheResolver = (c) =>
+    getTranslationEdgeCache(c.env.TRANSLATION_CACHE),
 ) {
   return new Hono<AppEnv>().get("/translation", async (c) => {
     const permit = acquireTranslationPermit(translationClientKey(c));
@@ -62,6 +71,30 @@ export function createTranslationRoutes(
       const key = requestKey(c);
       if (key.locale === "en" || key.locale.startsWith("en-")) {
         return c.body(null, 204);
+      }
+
+      const edgeCache = resolveEdgeCache(c);
+      if (edgeCache) {
+        try {
+          const edge = await edgeCache.get(key);
+          if (edge) {
+            deferResolvedAccess(c, resolveStore, key);
+            return translationResponse(
+              c,
+              edge.content,
+              edge.contentType,
+              key.locale,
+              "cloudflare-kv",
+            );
+          }
+        } catch (error) {
+          console.error({
+            event: "translation.edge_cache.read_failed",
+            locale: key.locale,
+            type: key.type,
+            errorName: error instanceof Error ? error.name : "UnknownError",
+          });
+        }
       }
 
       let store: TranslationStore | undefined;
@@ -305,12 +338,37 @@ function deferAccess(
   else void work;
 }
 
+function deferResolvedAccess(
+  c: Context<AppEnv>,
+  resolveStore: StoreResolver,
+  key: TranslationKey,
+) {
+  const work = Promise.resolve()
+    .then(() => resolveStore(c))
+    .then((store) => store?.recordAccess(key))
+    .catch((error) => {
+      console.error({
+        event: "translation.access_record.failed",
+        locale: key.locale,
+        type: key.type,
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+    });
+  deferWork(c, work);
+}
+
+function deferWork(c: Context<AppEnv>, work: Promise<unknown>) {
+  const waitUntil = c.get("waitUntil");
+  if (waitUntil) waitUntil(work);
+  else void work;
+}
+
 function translationResponse(
   c: Context<AppEnv>,
   content: string,
   contentType: "text/html" | "text/markdown",
   locale: string,
-  source: "azure-table" | "static",
+  source: "cloudflare-kv" | "azure-table" | "static",
 ) {
   return c.body(content, 200, {
     "content-language": locale,
