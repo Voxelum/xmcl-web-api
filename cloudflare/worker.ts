@@ -968,7 +968,7 @@ async function dispatchCloudflareRequest(
     ? matchMultiplayerUpgrade(request)
     : undefined;
   if (roomId !== undefined) {
-    const ns = env.MULTIPLAYER_ROOM;
+    const ns = env.MULTIPLAYER_ROOMS;
     const internalUrl = new URL(request.url);
     internalUrl.pathname = "/connect";
     return ns.get(ns.idFromName(roomId)).fetch(

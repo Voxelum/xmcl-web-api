@@ -429,7 +429,7 @@ The same variables are used across every runtime (read via `hono/adapter`:
 
 ### Cloudflare-only bindings (wrangler.toml)
 
-- `MULTIPLAYER_ROOM` - Durable Object namespace (class `MultiplayerRoomObject`) for
+- `MULTIPLAYER_ROOMS` - Durable Object namespace (class `MultiplayerRoomObject`) for
   `/v1/multiplayer/*`
 - `api.xmcl.app`, `ai.xmcl.app`, and `signaling.xmcl.app` are custom domains on
   the Worker. The Free Zone edge rate-limiting rule matches the `/translation`

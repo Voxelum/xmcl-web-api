@@ -64,7 +64,7 @@ const runtime = {
 const app = new Hono<AppEnv>();
 app.route("/", createMultiplayerRoutes(() => Promise.resolve(runtime)));
 const env = {
-  MULTIPLAYER_ROOM: namespace,
+  MULTIPLAYER_ROOMS: namespace,
   XMCL_MULTIPLAYER_TICKET_SECRET: secret,
 };
 const headers = {

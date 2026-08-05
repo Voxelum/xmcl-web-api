@@ -141,7 +141,7 @@ export interface AppVariables {
  * `env(c)` and typed in `AppConfig`, so they are intentionally loose here.
  */
 export interface AppBindings {
-  MULTIPLAYER_ROOM?: unknown;
+  MULTIPLAYER_ROOMS?: unknown;
   SHARED_NODE_WORKSPACE_SIGNER?: unknown;
   TRANSLATION_CACHE?: unknown;
   [key: string]: unknown;
