@@ -17,20 +17,31 @@ Deno.test("retired service paths are identified before Worker dispatch", () => {
 });
 
 Deno.test("v1 multiplayer WebSocket paths resolve their room id", () => {
-  const roomId = "9e0c6ed7-bc94-4f15-b8b7-fac70d02a0bb";
-  const request = new Request(
-    `wss://signaling.xmcl.app/v1/multiplayer/rooms/${roomId}/socket`,
-    { headers: { upgrade: "websocket" } },
-  );
-  assert.equal(matchMultiplayerUpgrade(request), roomId);
+  for (
+    const [roomId, expected] of [
+      [
+        "9e0c6ed7-bc94-4f15-b8b7-fac70d02a0bb",
+        "9e0c6ed7-bc94-4f15-b8b7-fac70d02a0bb",
+      ],
+      ["test", "test"],
+      ["My_Room-1", "my_room-1"],
+    ]
+  ) {
+    const request = new Request(
+      `wss://signaling.xmcl.app/v1/multiplayer/rooms/${roomId}/socket`,
+      { headers: { upgrade: "websocket" } },
+    );
+    assert.equal(matchMultiplayerUpgrade(request), expected);
+  }
 });
 
-Deno.test("v1 multiplayer WebSocket paths reject non-UUID room ids", () => {
+Deno.test("v1 multiplayer WebSocket paths reject invalid room ids", () => {
   for (
     const roomId of [
-      "room-1",
-      "9e0c6ed7-bc94-4f15-b8b7-fac70d02a0b",
-      "9e0c6ed7-bc94-4f15-b8b7-fac70d02a0bb-extra",
+      "-room",
+      "room.name",
+      "room%20name",
+      "a".repeat(65),
       "%zz",
     ]
   ) {

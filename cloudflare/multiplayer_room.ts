@@ -55,7 +55,6 @@ export class MultiplayerRoomObject {
 
   fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === "/initialize") return this.initialize(request);
     if (url.pathname === "/admission") return this.admission(request);
     if (url.pathname === "/close") return this.closeRoom(request);
     if (url.pathname !== "/connect") {
@@ -222,62 +221,54 @@ export class MultiplayerRoomObject {
     socket.close(1011, "WebSocket error");
   }
 
-  private async initialize(request: Request): Promise<Response> {
-    if (!this.isInternal(request)) {
-      return new Response("Forbidden", { status: 403 });
-    }
-    const input = await this.jsonObject(request);
-    if (!input || typeof input.roomId !== "string") {
-      return new Response("Invalid room", { status: 400 });
-    }
-    const existing = await this.room();
-    if (existing) {
-      const sameRoom = existing.roomId === input.roomId;
-      return new Response(sameRoom ? null : "Conflict", {
-        status: sameRoom ? 204 : 409,
-      });
-    }
-    if (
-      typeof input.masterAccountId !== "string" ||
-      !Number.isSafeInteger(input.maxPeers) || Number(input.maxPeers) < 2 ||
-      Number(input.maxPeers) > 16 ||
-      !Number.isSafeInteger(input.expiresAt) ||
-      Number(input.expiresAt) <= Date.now()
-    ) {
-      return new Response("Invalid room", { status: 400 });
-    }
-    const room: RoomState = {
-      roomId: input.roomId,
-      masterAccountId: input.masterAccountId,
-      status: "waiting-master",
-      createdAt: Date.now(),
-      expiresAt: Number(input.expiresAt),
-      maxPeers: Number(input.maxPeers),
-      revision: 0,
-      members: {},
-    };
-    await this.persist(room);
-    await this.state.storage.setAlarm(room.expiresAt);
-    return new Response(null, { status: 204 });
-  }
-
   private async admission(request: Request): Promise<Response> {
     if (!this.isInternal(request)) {
       return new Response("Forbidden", { status: 403 });
     }
-    const room = await this.room();
-    if (!room) return new Response("Not found", { status: 404 });
-    if (room.status === "closed" || room.expiresAt <= Date.now()) {
-      return new Response("Room closed", { status: 410 });
-    }
     const input = await this.jsonObject(request);
-    if (!input || typeof input.accountId !== "string") {
+    if (
+      !input ||
+      typeof input.roomId !== "string" ||
+      typeof input.accountId !== "string"
+    ) {
       return new Response("Invalid admission", { status: 400 });
+    }
+    let room = await this.room();
+    if (room && (room.status === "closed" || room.expiresAt <= Date.now())) {
+      await this.finishRoom(room, "Room expired");
+      room = undefined;
+    }
+    let created = false;
+    if (!room) {
+      if (
+        !Number.isSafeInteger(input.maxPeers) || Number(input.maxPeers) < 2 ||
+        Number(input.maxPeers) > 16 ||
+        !Number.isSafeInteger(input.expiresAt) ||
+        Number(input.expiresAt) <= Date.now()
+      ) {
+        return new Response("Invalid room", { status: 400 });
+      }
+      room = {
+        roomId: input.roomId,
+        masterAccountId: input.accountId,
+        status: "waiting-master",
+        createdAt: Date.now(),
+        expiresAt: Number(input.expiresAt),
+        maxPeers: Number(input.maxPeers),
+        revision: 0,
+        members: {},
+      };
+      await this.persist(room);
+      await this.state.storage.setAlarm(room.expiresAt);
+      created = true;
+    } else if (room.roomId !== input.roomId) {
+      return new Response("Room conflict", { status: 409 });
     }
     if (input.accountId === room.masterAccountId) {
       return Response.json({
         role: "master" satisfies MultiplayerRole,
         maxPeers: room.maxPeers,
+        created,
       });
     }
     if (room.status !== "open" || !this.masterSocket(room)) {
@@ -293,6 +284,7 @@ export class MultiplayerRoomObject {
     return Response.json({
       role: "member" satisfies MultiplayerRole,
       maxPeers: room.maxPeers,
+      created,
     });
   }
 

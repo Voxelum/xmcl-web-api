@@ -206,7 +206,9 @@ surface listed above:
 - `/translation` - Translation services for mod descriptions (Modrinth and
   CurseForge)
 - `/v1/multiplayer/*` - Authenticated multiplayer room creation, admission,
-  closure, and Cloudflare Durable Object WebSocket signaling
+  closure, and Cloudflare Durable Object WebSocket signaling. Joining a valid
+  named room creates it when absent, and that first authenticated user becomes
+  its master.
 - `/v1/rtc/official` - WebRTC signaling for peer connections
 - `/zulu` - Proxies the Zulu JRE manifest from xmcl-static-resource
 - `/elyby/authlib` - Authentication library access
