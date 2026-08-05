@@ -53,6 +53,8 @@ export interface MicrosoftProfile {
 export interface AppVariables {
   /** Lazily opens (and caches) the MongoDB connection for this isolate. */
   getDb: () => Promise<Db>;
+  /** Keeps non-critical persistence alive after a Cloudflare response. */
+  waitUntil?: (promise: Promise<unknown>) => void;
   /** Set by the Minecraft auth middleware when a valid token is present. */
   minecraftProfile?: MicrosoftMinecraftProfile;
   /** Set by the Microsoft Graph auth middleware. */
@@ -145,6 +147,7 @@ export interface AppBindings {
   MULTIPLAYER_ROOM?: unknown;
   SIGNALING_ROOM?: unknown;
   SHARED_NODE_WORKSPACE_SIGNER?: unknown;
+  TRANSLATION_CACHE?: unknown;
   [key: string]: unknown;
 }
 
