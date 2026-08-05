@@ -1,141 +1,334 @@
+import type { Context } from "hono";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { getConfig } from "../config.ts";
-import { getHasher } from "../lib/hasher.ts";
-import { forwardHeaders } from "../proxy.ts";
 import {
-  recordTranslationRequest,
-  type TranslationContentType,
-} from "../translation_requests.ts";
+  getTranslationStore,
+  type TranslationKey,
+  type TranslationStore,
+  type TranslationType,
+} from "../lib/translationStore.ts";
 import type { AppEnv } from "../types.ts";
 
-interface ModrinthResponseBody {
-  body: string;
+interface StaticTranslation {
+  content?: unknown;
+  contentType?: unknown;
+  type?: unknown;
 }
 
-interface I18nEntry {
-  bodyHash?: string;
-  content?: string;
-}
-
-const TRANSLATION_RETRY_AFTER_SECONDS = 86_400;
+const TRANSLATION_RETRY_AFTER_SECONDS = 300;
 const TRANSLATION_CACHE_MAX_AGE_SECONDS = 30 * 86_400;
 const TRANSLATION_CACHE_STALE_WHILE_REVALIDATE_SECONDS = 7 * 86_400;
 const TRANSLATION_RATE_LIMIT_CAPACITY = 60;
 const TRANSLATION_RATE_LIMIT_WINDOW_MS = 60_000;
 const TRANSLATION_MAX_CONCURRENT_PER_CLIENT = 5;
-const I18N_NOT_FOUND_TTL_MS = 6 * 60 * 60_000;
-const I18N_NOT_FOUND_CACHE_LIMIT = 2_048;
+const STATIC_NOT_FOUND_TTL_MS = 6 * 60 * 60_000;
+const STATIC_NOT_FOUND_CACHE_LIMIT = 2_048;
 
 interface TranslationRateBucket {
   tokens: number;
   updatedAt: number;
 }
 
+type StoreResolver = (c: Context<AppEnv>) => TranslationStore | undefined;
+
 const translationRateBuckets = new Map<string, TranslationRateBucket>();
 const translationActiveRequests = new Map<string, number>();
+const staticNotFoundUntil = new Map<string, number>();
+const staticInFlight = new Map<
+  string,
+  Promise<StaticTranslation | undefined>
+>();
+let staticCooldownUntil = 0;
 
-// In-memory circuit breaker for the community i18n CDN. When
-// raw.githubusercontent rate-limits us (429, or a secondary 403), continuing to
-// hit it just adds latency to every request and prolongs the limit, so we skip
-// it until the cooldown expires and serve from the DB instead. This state is
-// per worker instance (best-effort on serverless), which is all we need.
-let i18nCooldownUntil = 0;
-const i18nNotFoundUntil = new Map<string, number>();
-const i18nInFlight = new Map<string, Promise<I18nEntry | undefined>>();
+export function createTranslationRoutes(
+  resolveStore: StoreResolver = (c) => getTranslationStore(getConfig(c)),
+  staticTranslationBase?: string,
+) {
+  return new Hono<AppEnv>().get("/translation", async (c) => {
+    const permit = acquireTranslationPermit(translationClientKey(c));
+    if (!permit || permit.retryAfter > 0) {
+      return c.json(
+        {
+          error: "rate_limited",
+          message: "Too many translation requests",
+        },
+        429,
+        { "retry-after": String(permit?.retryAfter ?? 1) },
+      );
+    }
 
-/**
- * Look up a translation from the community i18n CDN
- * (`<base>/<locale>/<id>.json`). Returns `undefined` on any miss, error,
- * timeout, or while rate-limited, so the caller falls through to the DB.
- */
-async function fetchI18n(
-  base: string,
-  lang: string,
-  id: string,
-): Promise<I18nEntry | undefined> {
-  const key = `${base}/${encodeURIComponent(lang)}/${
-    encodeURIComponent(id)
-  }.json`;
-  const notFoundUntil = i18nNotFoundUntil.get(key);
-  if (notFoundUntil && Date.now() < notFoundUntil) return undefined;
+    try {
+      const key = requestKey(c);
+      if (key.locale === "en" || key.locale.startsWith("en-")) {
+        return c.body(null, 204);
+      }
 
-  const existing = i18nInFlight.get(key);
-  if (existing) return await existing;
-  const pending = fetchI18nUncached(key).finally(() => {
-    i18nInFlight.delete(key);
+      let store: TranslationStore | undefined;
+      let dynamic: Awaited<ReturnType<TranslationStore["get"]>> = undefined;
+      try {
+        store = resolveStore(c);
+        dynamic = store ? await store.get(key) : undefined;
+      } catch (error) {
+        console.error({
+          event: "translation.store.read_failed",
+          locale: key.locale,
+          type: key.type,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+      if (dynamic?.content) {
+        deferAccess(c, store!, key);
+        return translationResponse(
+          c,
+          dynamic.content,
+          dynamic.contentType,
+          key.locale,
+          "azure-table",
+        );
+      }
+
+      const staticEntry = await fetchStaticTranslation(
+        staticTranslationBase?.replace(/\/+$/, "") ?? staticBase(getConfig(c)),
+        key,
+      );
+      if (
+        staticEntry && typeof staticEntry.content === "string" &&
+        (staticEntry.type === undefined || staticEntry.type === key.type)
+      ) {
+        if (store) deferAccess(c, store, key);
+        return translationResponse(
+          c,
+          staticEntry.content,
+          staticEntry.contentType === "text/html"
+            ? "text/html"
+            : key.type === "curseforge"
+            ? "text/html"
+            : "text/markdown",
+          key.locale,
+          "static",
+        );
+      }
+
+      if (!store) {
+        console.error({
+          event: "translation.store.not_configured",
+          locale: key.locale,
+          type: key.type,
+        });
+        return c.json(
+          {
+            error: "translation_store_unavailable",
+            message: "Translation storage is not configured",
+          },
+          503,
+        );
+      }
+
+      try {
+        await store.recordAccess(key);
+      } catch (error) {
+        console.error({
+          event: "translation.access_record.failed",
+          locale: key.locale,
+          type: key.type,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+        return c.json(
+          {
+            error: "translation_store_unavailable",
+            message: "Translation demand could not be recorded",
+          },
+          503,
+        );
+      }
+      return c.body(null, 202, {
+        "retry-after": String(TRANSLATION_RETRY_AFTER_SECONDS),
+      });
+    } finally {
+      permit.release();
+    }
   });
-  i18nInFlight.set(key, pending);
+}
+
+export default createTranslationRoutes();
+
+function requestKey(c: Context<AppEnv>): TranslationKey {
+  const type = c.req.query("type");
+  if (type !== "modrinth" && type !== "curseforge") {
+    throw new HTTPException(400, { message: "Invalid type" });
+  }
+  const projectId = c.req.query("id")?.trim();
+  if (
+    !projectId ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(projectId)
+  ) {
+    throw new HTTPException(400, { message: "Invalid id" });
+  }
+  const locale = requestedLocale(c.req.header("accept-language"));
+  if (!locale) {
+    throw new HTTPException(400, { message: "Invalid language" });
+  }
+  return { locale, type, projectId };
+}
+
+export function requestedLocale(value: string | undefined) {
+  if (!value) return undefined;
+  const candidates = value
+    .split(",")
+    .map((part) => {
+      const [tag, ...parameters] = part.trim().split(";");
+      const quality = parameters
+        .map((parameter) => /^q=([01](?:\.\d{1,3})?)$/i.exec(parameter.trim()))
+        .find(Boolean);
+      return {
+        tag,
+        quality: quality ? Number(quality[1]) : 1,
+      };
+    })
+    .filter((candidate) =>
+      candidate.tag !== "*" && candidate.quality > 0 &&
+      /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$/.test(candidate.tag)
+    )
+    .sort((a, b) => b.quality - a.quality);
+  for (const candidate of candidates) {
+    try {
+      return Intl.getCanonicalLocales(candidate.tag)[0];
+    } catch {
+      // Continue to the next valid preference.
+    }
+  }
+  return undefined;
+}
+
+async function fetchStaticTranslation(
+  base: string,
+  key: TranslationKey,
+): Promise<StaticTranslation | undefined> {
+  const modern = `${base}/${encodeURIComponent(key.locale)}/${
+    encodeURIComponent(key.type)
+  }/${encodeURIComponent(key.projectId)}.json`;
+  const modernEntry = await fetchStaticUrl(modern);
+  if (modernEntry) return modernEntry;
+
+  // Migration fallback for the original `<locale>/<projectId>.json` layout.
+  const legacy = `${base}/${encodeURIComponent(key.locale)}/${
+    encodeURIComponent(key.projectId)
+  }.json`;
+  const legacyEntry = await fetchStaticUrl(legacy);
+  return legacyEntry?.type === key.type ? legacyEntry : undefined;
+}
+
+async function fetchStaticUrl(
+  url: string,
+): Promise<StaticTranslation | undefined> {
+  if (Date.now() < staticCooldownUntil) return undefined;
+  const notFoundUntil = staticNotFoundUntil.get(url);
+  if (notFoundUntil && notFoundUntil > Date.now()) return undefined;
+  const existing = staticInFlight.get(url);
+  if (existing) return await existing;
+  const pending = fetchStaticUrlUncached(url).finally(() => {
+    staticInFlight.delete(url);
+  });
+  staticInFlight.set(url, pending);
   return await pending;
 }
 
-async function fetchI18nUncached(
-  key: string,
-): Promise<I18nEntry | undefined> {
-  if (Date.now() < i18nCooldownUntil) return undefined;
-
-  let res: Response;
+async function fetchStaticUrlUncached(
+  url: string,
+): Promise<StaticTranslation | undefined> {
+  let response: Response;
   try {
-    res = await fetch(key, { signal: AbortSignal.timeout(3000) });
-  } catch {
-    return undefined; // network error / timeout -> fall through to DB
-  }
-
-  try {
-    // Too Many Requests, or GitHub's secondary rate limit (403). Back off so we
-    // stop hammering the CDN; honour Retry-After / rate-limit reset when given.
-    if (res.status === 429 || res.status === 403) {
-      const now = Date.now();
-      const retryAfter = Number(res.headers.get("retry-after"));
-      const reset = Number(res.headers.get("x-ratelimit-reset"));
-      let until = now + 60_000; // default 1 min
-      if (Number.isFinite(retryAfter) && retryAfter > 0) {
-        until = now + retryAfter * 1000;
-      } else if (Number.isFinite(reset) && reset * 1000 > now) {
-        until = reset * 1000;
-      }
-      // Never disable the CDN for more than 10 minutes on a single response.
-      i18nCooldownUntil = Math.max(
-        i18nCooldownUntil,
-        Math.min(until, now + 600_000),
-      );
-      return undefined;
-    }
-
-    if (res.status === 404) {
-      rememberI18nNotFound(key);
-      return undefined;
-    }
-    if (!res.ok) return undefined;
-
-    return await res.json() as I18nEntry;
+    response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
   } catch {
     return undefined;
-  } finally {
-    // Ensure the body is drained so the connection can be reused.
-    await res.body?.cancel().catch(() => {});
+  }
+  if (response.status === 429 || response.status === 403) {
+    const now = Date.now();
+    const retryAfter = Number(response.headers.get("retry-after"));
+    const resetAt = Number(response.headers.get("x-ratelimit-reset")) * 1_000;
+    const requestedUntil = Number.isFinite(retryAfter) && retryAfter > 0
+      ? now + retryAfter * 1_000
+      : Number.isFinite(resetAt) && resetAt > now
+      ? resetAt
+      : now + 60_000;
+    staticCooldownUntil = Math.max(
+      staticCooldownUntil,
+      Math.min(requestedUntil, now + 10 * 60_000),
+    );
+    await response.body?.cancel().catch(() => {});
+    return undefined;
+  }
+  if (response.status === 404) {
+    rememberStaticNotFound(url);
+    await response.body?.cancel().catch(() => {});
+    return undefined;
+  }
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
+    return undefined;
+  }
+  try {
+    return await response.json() as StaticTranslation;
+  } catch {
+    return undefined;
   }
 }
 
-function rememberI18nNotFound(key: string) {
+function rememberStaticNotFound(url: string) {
   const now = Date.now();
-  for (const [cachedKey, expiresAt] of i18nNotFoundUntil) {
-    if (expiresAt <= now) i18nNotFoundUntil.delete(cachedKey);
+  for (const [key, expiry] of staticNotFoundUntil) {
+    if (expiry <= now) staticNotFoundUntil.delete(key);
   }
-  if (i18nNotFoundUntil.size >= I18N_NOT_FOUND_CACHE_LIMIT) {
-    const oldest = i18nNotFoundUntil.keys().next().value;
-    if (oldest) i18nNotFoundUntil.delete(oldest);
+  if (staticNotFoundUntil.size >= STATIC_NOT_FOUND_CACHE_LIMIT) {
+    const oldest = staticNotFoundUntil.keys().next().value;
+    if (oldest) staticNotFoundUntil.delete(oldest);
   }
-  i18nNotFoundUntil.set(key, now + I18N_NOT_FOUND_TTL_MS);
+  staticNotFoundUntil.set(url, now + STATIC_NOT_FOUND_TTL_MS);
 }
 
-function firstLanguage(header: string | undefined): string | undefined {
-  if (!header) return undefined;
-  const first = header.split(",")[0]?.split(";")[0]?.trim();
-  return first || undefined;
+function deferAccess(
+  c: Context<AppEnv>,
+  store: TranslationStore,
+  key: TranslationKey,
+) {
+  const work = store.recordAccess(key).catch((error) => {
+    console.error({
+      event: "translation.access_record.failed",
+      locale: key.locale,
+      type: key.type,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+  });
+  const waitUntil = c.get("waitUntil");
+  if (waitUntil) waitUntil(work);
+  else void work;
 }
 
-function translationClientKey(c: Parameters<typeof getConfig>[0]): string {
+function translationResponse(
+  c: Context<AppEnv>,
+  content: string,
+  contentType: "text/html" | "text/markdown",
+  locale: string,
+  source: "azure-table" | "static",
+) {
+  return c.body(content, 200, {
+    "content-language": locale,
+    "content-type": contentType,
+    "cache-control": `public, max-age=${TRANSLATION_CACHE_MAX_AGE_SECONDS}, ` +
+      `stale-while-revalidate=${TRANSLATION_CACHE_STALE_WHILE_REVALIDATE_SECONDS}`,
+    "x-xmcl-translation-source": source,
+    "vary": "accept-language",
+  });
+}
+
+function staticBase(config: ReturnType<typeof getConfig>) {
+  return (config.TRANSLATION_I18N_BASE ??
+    "https://raw.githubusercontent.com/Voxelum/xmcl-community-content-i18n-extra/main")
+    .replace(/\/+$/, "");
+}
+
+function translationClientKey(c: Context<AppEnv>) {
   return c.req.header("cf-connecting-ip") ??
     c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
     c.req.header("x-real-ip") ??
@@ -150,7 +343,6 @@ function acquireTranslationPermit(client: string):
   if (active >= TRANSLATION_MAX_CONCURRENT_PER_CLIENT) {
     return { retryAfter: 1, release: () => {} };
   }
-
   const previous = translationRateBuckets.get(client) ?? {
     tokens: TRANSLATION_RATE_LIMIT_CAPACITY,
     updatedAt: now,
@@ -168,13 +360,12 @@ function acquireTranslationPermit(client: string):
         1,
         Math.ceil(
           (1 - bucket.tokens) * TRANSLATION_RATE_LIMIT_WINDOW_MS /
-            TRANSLATION_RATE_LIMIT_CAPACITY / 1000,
+            TRANSLATION_RATE_LIMIT_CAPACITY / 1_000,
         ),
       ),
       release: () => {},
     };
   }
-
   bucket.tokens -= 1;
   translationRateBuckets.set(client, bucket);
   translationActiveRequests.set(client, active + 1);
@@ -187,138 +378,3 @@ function acquireTranslationPermit(client: string):
     },
   };
 }
-
-export default new Hono<AppEnv>().get("/translation", async (c) => {
-  const permit = acquireTranslationPermit(translationClientKey(c));
-  if (!permit || permit.retryAfter > 0) {
-    return c.json(
-      {
-        error: "rate_limited",
-        message: "Too many translation requests",
-      },
-      429,
-      { "retry-after": String(permit?.retryAfter ?? 1) },
-    );
-  }
-
-  try {
-    const config = getConfig(c);
-
-    const type = c.req.query("type");
-    if (!type) throw new HTTPException(400, { message: "No type specified" });
-    if (type !== "modrinth" && type !== "curseforge") {
-      throw new HTTPException(400, { message: "Invalid type" });
-    }
-
-    const id = c.req.query("id");
-    if (!id) throw new HTTPException(400, { message: "No id specified" });
-
-    const lang = firstLanguage(c.req.header("Accept-Language"));
-    if (!lang) {
-      throw new HTTPException(400, { message: "No language specified" });
-    }
-
-    const getCurseforgeDescription = async (modId: string) => {
-      const headers = forwardHeaders(c.req.raw);
-      headers.set("x-api-key", config.CURSEFORGE_KEY ?? "");
-      const response = await fetch(
-        `https://api.curseforge.com/v1/mods/${modId}/description`,
-        { headers },
-      );
-      if (!response.ok) {
-        throw new HTTPException(response.status as 400, {
-          message: await response.text(),
-        });
-      }
-      return ((await response.json()) as { data: string }).data;
-    };
-
-    const getModrinthDescription = async (projectId: string) => {
-      const response = await fetch(
-        `https://api.modrinth.com/v2/project/${projectId}`,
-        { headers: forwardHeaders(c.req.raw) },
-      );
-      if (!response.ok) {
-        throw new HTTPException(response.status as 400, {
-          message: await response.text(),
-        });
-      }
-      return ((await response.json()) as ModrinthResponseBody).body;
-    };
-
-    // English content needs no translation.
-    if (lang === "*" || lang.startsWith("en")) {
-      return c.body(null, 204);
-    }
-
-    const body = type === "curseforge"
-      ? await getCurseforgeDescription(id)
-      : await getModrinthDescription(id);
-    const contentType: TranslationContentType = type === "curseforge"
-      ? "text/html"
-      : "text/markdown";
-
-    const hash = await getHasher();
-    const bodyHash = hash(body);
-    const db = await c.var.getDb();
-    const newColl = db.collection(`${lang}_translation`);
-
-    const respond = (content: string) =>
-      c.body(content, 200, {
-        "content-language": lang,
-        "content-type": contentType,
-        "cache-control":
-          `public, max-age=${TRANSLATION_CACHE_MAX_AGE_SECONDS}, ` +
-          `stale-while-revalidate=${TRANSLATION_CACHE_STALE_WHILE_REVALIDATE_SECONDS}`,
-        "vary": "accept-language",
-      });
-
-    // Community i18n repo (served as raw files) is the cheapest source: a plain
-    // CDN GET, no DB round-trip. Layout is `<base>/<locale>/<id>.json` and each
-    // file mirrors the cached document, validated by `bodyHash` so a stale
-    // translation (source text changed) falls through to the DB / a fresh run.
-    const i18nBase = (config.TRANSLATION_I18N_BASE ??
-      "https://raw.githubusercontent.com/Voxelum/xmcl-community-content-i18n-extra/main")
-      .replace(/\/+$/, "");
-    const githubFound = await fetchI18n(i18nBase, lang, id);
-    if (
-      githubFound && githubFound.bodyHash === bodyHash &&
-      typeof githubFound.content === "string"
-    ) {
-      return respond(githubFound.content);
-    }
-
-    // New cache: keyed by project id in `<locale>_translation`, validated by hash.
-    const newFound = await newColl.findOne({ _id: { $eq: id } });
-    if (newFound && newFound.bodyHash === bodyHash) {
-      return respond(newFound.content);
-    }
-
-    // Legacy cache: keyed by hash(body + lang) in `translated`. Keep serving
-    // validated legacy entries, but leave cache writes to the external worker.
-    if (!newFound) {
-      const legacyId = hash(body + lang);
-      const legacyColl = db.collection("translated");
-      const legacyFound = await legacyColl.findOne({ _id: { $eq: legacyId } });
-      if (legacyFound) {
-        return respond(legacyFound.content);
-      }
-    }
-
-    // The source was fetched and hashed above; only now do we durably record the
-    // miss. The external daily worker claims this metadata and refetches source
-    // content itself, so request documents never contain source bodies.
-    await recordTranslationRequest(db, {
-      lang,
-      type,
-      projectId: id,
-      bodyHash,
-      contentType,
-    });
-    return c.body(null, 202, {
-      "retry-after": String(TRANSLATION_RETRY_AFTER_SECONDS),
-    });
-  } finally {
-    permit.release();
-  }
-});

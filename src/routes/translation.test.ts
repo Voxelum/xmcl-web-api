@@ -1,13 +1,19 @@
 import assert from "node:assert/strict";
-import { createApp } from "../app.ts";
+import { Hono } from "hono";
 import type { Db, MongoCollection } from "../db.ts";
-import { getHasher } from "../lib/hasher.ts";
+import type {
+  TranslationKey,
+  TranslationRecord,
+  TranslationStore,
+} from "../lib/translationStore.ts";
 import {
   claimNextTranslationRequest,
   completeTranslationRequest,
   failTranslationRequest,
   recordTranslationRequest,
 } from "../translation_requests.ts";
+import type { AppEnv } from "../types.ts";
+import { createTranslationRoutes, requestedLocale } from "./translation.ts";
 
 type Document = Record<string, unknown>;
 
@@ -322,189 +328,265 @@ async function withTranslationFetch<T>(
   }
 }
 
-function translationApp(db: Db) {
-  return createApp((app) => {
-    app.use("*", async (c, next) => {
-      c.set("getDb", async () => db);
-      await next();
-    });
-  });
+class MemoryTranslationStore implements TranslationStore {
+  readonly records = new Map<string, TranslationRecord>();
+  accesses = 0;
+
+  key(key: TranslationKey) {
+    return `${key.locale}:${key.type}:${key.projectId}`;
+  }
+
+  get(key: TranslationKey) {
+    return Promise.resolve(this.records.get(this.key(key)));
+  }
+
+  recordAccess(key: TranslationKey, now = new Date()) {
+    this.accesses++;
+    const id = this.key(key);
+    const existing = this.records.get(id);
+    const timestamp = now.toISOString();
+    const record: TranslationRecord = existing
+      ? {
+        ...existing,
+        accessCount: existing.accessCount + 1,
+        lastAccessedAt: timestamp,
+      }
+      : {
+        ...key,
+        contentType: key.type === "modrinth" ? "text/markdown" : "text/html",
+        status: "pending",
+        accessCount: 1,
+        firstAccessedAt: timestamp,
+        lastAccessedAt: timestamp,
+        nextProcessAt: timestamp,
+        updatedAt: timestamp,
+      };
+    this.records.set(id, record);
+    return Promise.resolve(record);
+  }
+
+  listDue() {
+    return Promise.resolve([]);
+  }
+  claim() {
+    return Promise.resolve(undefined);
+  }
+  putTranslation() {
+    return Promise.resolve();
+  }
+  complete() {
+    return Promise.resolve();
+  }
+  fail() {
+    return Promise.resolve();
+  }
 }
 
-function translationResponse(url: URL): Response {
-  if (url.hostname === "api.modrinth.com") {
-    return Response.json({ body: "Fresh source description" });
+class FailingTranslationStore extends MemoryTranslationStore {
+  override get(): Promise<TranslationRecord | undefined> {
+    return Promise.reject(new Error("Azure unavailable"));
   }
-  if (url.hostname === "i18n.example") {
-    return new Response(null, { status: 404 });
+
+  override recordAccess(): Promise<TranslationRecord> {
+    return Promise.reject(new Error("Azure unavailable"));
   }
-  throw new Error(`Unexpected fetch ${url}`);
 }
 
-Deno.test("translation serves matching cache entries and records misses for batch work", async () => {
-  const db = new MemoryDb();
-  const app = translationApp(db);
-  const bodyHash = (await getHasher())("Fresh source description");
-  db.collection("ja_translation").seed({
-    _id: "cached-project",
-    bodyHash,
+function translationApp(
+  store: TranslationStore,
+  staticBase =
+    "https://raw.githubusercontent.com/Voxelum/xmcl-community-content-i18n-extra/main",
+) {
+  const app = new Hono<AppEnv>();
+  app.route("/", createTranslationRoutes(() => store, staticBase));
+  return app;
+}
+
+Deno.test("translation serves dynamic cache without fetching project source", async () => {
+  const store = new MemoryTranslationStore();
+  const now = new Date().toISOString();
+  store.records.set("ja:modrinth:cached-project", {
+    locale: "ja",
+    type: "modrinth",
+    projectId: "cached-project",
     content: "Cached translation",
+    contentType: "text/markdown",
+    status: "ready",
+    accessCount: 10,
+    firstAccessedAt: now,
+    lastAccessedAt: now,
+    nextProcessAt: now,
+    updatedAt: now,
   });
-  const environment = { TRANSLATION_I18N_BASE: "https://i18n.example" };
-
+  const app = translationApp(store, "https://i18n.example");
+  let fetches = 0;
   const cached = await withTranslationFetch(
-    translationResponse,
+    () => {
+      fetches++;
+      throw new Error("cache hit must not fetch");
+    },
     () =>
       app.request(
         "/translation?type=modrinth&id=cached-project",
         { headers: { "accept-language": "ja" } },
-        environment,
       ),
   );
   assert.equal(cached.status, 200);
   assert.equal(await cached.text(), "Cached translation");
-  assert.equal(
-    cached.headers.get("cache-control"),
-    "public, max-age=2592000, stale-while-revalidate=604800",
-  );
-  assert.equal(db.collection("translation_requests").documents.size, 0);
-
-  const missed = await withTranslationFetch(
-    translationResponse,
-    () =>
-      app.request(
-        "/translation?type=modrinth&id=missing-project",
-        { headers: { "accept-language": "ja" } },
-        environment,
-      ),
-  );
-  assert.equal(missed.status, 202);
-  assert.equal(missed.headers.get("retry-after"), "86400");
-  const request = await db.collection("translation_requests").findOne({
-    _id: "ja:modrinth:missing-project",
-  });
-  assert.ok(request);
-  assert.equal(request.bodyHash, bodyHash);
-  assert.equal(request.contentType, "text/markdown");
-  assert.equal("body" in request, false);
+  assert.equal(cached.headers.get("x-xmcl-translation-source"), "azure-table");
+  assert.equal(fetches, 0);
 });
 
-Deno.test("translation does not record a request when the source fetch fails", async () => {
-  const db = new MemoryDb();
-  const app = translationApp(db);
-
+Deno.test("translation serves modern static layout and records access", async () => {
+  const store = new MemoryTranslationStore();
+  const app = translationApp(store, "https://i18n.example");
+  let fetchedPath = "";
   const response = await withTranslationFetch(
-    (url) =>
-      url.hostname === "api.modrinth.com"
-        ? new Response("unavailable", { status: 503 })
-        : new Response(null, { status: 404 }),
+    (url) => {
+      fetchedPath = url.pathname;
+      return Response.json({
+        type: "modrinth",
+        contentType: "text/markdown",
+        content: "Static translation",
+      });
+    },
     () =>
       app.request(
-        "/translation?type=modrinth&id=missing-project",
+        "/translation?type=modrinth&id=static-project",
         { headers: { "accept-language": "ja" } },
-        { TRANSLATION_I18N_BASE: "https://i18n.example" },
+      ),
+  );
+  assert.equal(fetchedPath, "/ja/modrinth/static-project.json");
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), "Static translation");
+  await Promise.resolve();
+  assert.equal(store.accesses, 1);
+});
+
+Deno.test("translation uses legacy static files only when provider type matches", async () => {
+  const store = new MemoryTranslationStore();
+  const app = translationApp(store, "https://i18n.example");
+  const paths: string[] = [];
+  const response = await withTranslationFetch(
+    (url) => {
+      paths.push(url.pathname);
+      if (url.pathname.includes("/modrinth/")) {
+        return new Response(null, { status: 404 });
+      }
+      return Response.json({
+        type: "curseforge",
+        content: "Wrong provider",
+      });
+    },
+    () =>
+      app.request(
+        "/translation?type=modrinth&id=legacy-project",
+        { headers: { "accept-language": "ja" } },
+      ),
+  );
+  assert.equal(response.status, 202);
+  assert.deepEqual(paths, [
+    "/ja/modrinth/legacy-project.json",
+    "/ja/legacy-project.json",
+  ]);
+});
+
+Deno.test("translation serves static cache while Azure Table is unavailable", async () => {
+  const app = translationApp(
+    new FailingTranslationStore(),
+    "https://i18n.example",
+  );
+  const response = await withTranslationFetch(
+    () =>
+      Response.json({
+        type: "modrinth",
+        content: "Static fallback",
+      }),
+    () =>
+      app.request(
+        "/translation?type=modrinth&id=azure-outage-static",
+        { headers: { "accept-language": "ja" } },
+      ),
+  );
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), "Static fallback");
+});
+
+Deno.test("translation returns 503 when a miss cannot be recorded", async () => {
+  const app = translationApp(
+    new FailingTranslationStore(),
+    "https://i18n.example",
+  );
+  const response = await withTranslationFetch(
+    () => new Response(null, { status: 404 }),
+    () =>
+      app.request(
+        "/translation?type=modrinth&id=azure-outage-miss",
+        { headers: { "accept-language": "ja" } },
       ),
   );
   assert.equal(response.status, 503);
-  assert.equal(db.collection("translation_requests").documents.size, 0);
+  assert.equal(
+    (await response.json()).error,
+    "translation_store_unavailable",
+  );
 });
 
-Deno.test("translation negatively caches missing community files", async () => {
-  const db = new MemoryDb();
-  const app = translationApp(db);
-  let sourceCalls = 0;
-  let i18nCalls = 0;
-  const request = () =>
-    app.request(
-      "/translation?type=modrinth&id=negative-cache-project",
-      { headers: { "accept-language": "fr" } },
-    );
-
-  await withTranslationFetch(
+Deno.test("translation miss records access without fetching provider source", async () => {
+  const store = new MemoryTranslationStore();
+  const app = translationApp(store, "https://i18n.example");
+  let providerFetches = 0;
+  const response = await withTranslationFetch(
     (url) => {
-      if (url.hostname === "api.modrinth.com") {
-        sourceCalls += 1;
-        return Response.json({ body: "Fresh source description" });
-      }
-      if (url.hostname === "raw.githubusercontent.com") {
-        i18nCalls += 1;
-        return new Response(null, { status: 404 });
-      }
-      throw new Error(`Unexpected fetch ${url}`);
+      if (
+        url.hostname === "api.modrinth.com" ||
+        url.hostname === "api.curseforge.com"
+      ) providerFetches++;
+      return new Response(null, { status: 404 });
+    },
+    () =>
+      app.request(
+        "/translation?type=modrinth&id=missing-project",
+        { headers: { "accept-language": "ja" } },
+      ),
+  );
+  assert.equal(response.status, 202);
+  assert.equal(response.headers.get("retry-after"), "300");
+  assert.equal(providerFetches, 0);
+  assert.equal(store.accesses, 1);
+  assert.ok(store.records.has("ja:modrinth:missing-project"));
+});
+
+Deno.test("translation static misses are negatively cached", async () => {
+  const store = new MemoryTranslationStore();
+  const app = translationApp(store, "https://i18n.example");
+  let i18nCalls = 0;
+  await withTranslationFetch(
+    () => {
+      i18nCalls++;
+      return new Response(null, { status: 404 });
     },
     async () => {
+      const request = () =>
+        app.request(
+          "/translation?type=modrinth&id=negative-cache-project",
+          { headers: { "accept-language": "fr" } },
+        );
       assert.equal((await request()).status, 202);
       assert.equal((await request()).status, 202);
     },
   );
-
-  assert.equal(sourceCalls, 2);
-  assert.equal(i18nCalls, 1);
-});
-
-Deno.test("translation preserves the longest concurrent CDN cooldown", async () => {
-  const db = new MemoryDb();
-  const app = translationApp(db);
-  const originalNow = Date.now;
-  let now = 1_000;
-  const i18nResolvers = new Map<string, (response: Response) => void>();
-  let i18nCalls = 0;
-  Date.now = () => now;
-  try {
-    await withTranslationFetch(
-      (url) => {
-        if (url.hostname === "api.modrinth.com") {
-          return Response.json({ body: "Fresh source description" });
-        }
-        if (url.hostname === "raw.githubusercontent.com") {
-          i18nCalls += 1;
-          const id = url.pathname.includes("cooldown-long")
-            ? "long"
-            : "short";
-          return new Promise<Response>((resolve) => {
-            i18nResolvers.set(id, resolve);
-          });
-        }
-        throw new Error(`Unexpected fetch ${url}`);
-      },
-      async () => {
-        const long = app.request(
-          "/translation?type=modrinth&id=cooldown-long",
-          { headers: { "accept-language": "de" } },
-        );
-        const short = app.request(
-          "/translation?type=modrinth&id=cooldown-short",
-          { headers: { "accept-language": "de" } },
-        );
-        while (i18nResolvers.size < 2) await Promise.resolve();
-
-        i18nResolvers.get("long")!(new Response(null, {
-          status: 429,
-          headers: { "retry-after": "600" },
-        }));
-        assert.equal((await long).status, 202);
-        i18nResolvers.get("short")!(new Response(null, {
-          status: 429,
-          headers: { "retry-after": "60" },
-        }));
-        assert.equal((await short).status, 202);
-
-        now += 61_000;
-        const duringLongCooldown = await app.request(
-          "/translation?type=modrinth&id=cooldown-third",
-          { headers: { "accept-language": "de" } },
-        );
-        assert.equal(duringLongCooldown.status, 202);
-      },
-    );
-  } finally {
-    Date.now = originalNow;
-  }
+  // Modern and legacy paths are each fetched once.
   assert.equal(i18nCalls, 2);
 });
 
+Deno.test("translation locale selection honors quality and canonical form", () => {
+  assert.equal(requestedLocale("zh-cn;q=0.8, zh-TW;q=0.9"), "zh-TW");
+  assert.equal(requestedLocale("invalid_locale"), undefined);
+});
+
 Deno.test("translation applies a per-client request limit", async () => {
-  const app = translationApp(new MemoryDb());
+  const app = translationApp(new MemoryTranslationStore());
   const headers = {
     "accept-language": "en",
     "cf-connecting-ip": "translation-rate-limit-test",
