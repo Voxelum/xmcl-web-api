@@ -310,6 +310,8 @@ The same variables are used across every runtime (read via `hono/adapter`:
 - `MONGODB_NAME` - Database name (default: "xmcl-api")
 - `GITHUB_PAT` - GitHub Personal Access Token for API access
 - `RTC_SECRET` - Secret for WebRTC TURN credential signing
+- `XMCL_MULTIPLAYER_TICKET_SECRET` - dedicated secret of at least 32 characters
+  for signing multiplayer room admission tickets
 - `CURSEFORGE_KEY` - API key for CurseForge integration
 - `AGNES_API_KEYS` - server-only JSON array of Agnes API keys for
   `POST /v1/chat/completions`.

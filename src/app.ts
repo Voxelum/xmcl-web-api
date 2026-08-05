@@ -35,7 +35,8 @@ import sharedModdedRuntime from "./routes/sharedModdedRuntime.ts";
 import sharedWorldSeeds from "./routes/sharedWorldSeeds.ts";
 import chatCompletions from "./routes/chatCompletions.ts";
 import type { AppEnv } from "./types.ts";
-import { requestId } from "./lib/accountHttp.ts";
+import { AccountError } from "./lib/account.ts";
+import { handleAccountError, requestId } from "./lib/accountHttp.ts";
 
 /**
  * Builds the shared Hono application. This is the single source of truth for all
@@ -158,6 +159,9 @@ export function createApp(
   });
 
   app.onError((err, c) => {
+    if (err instanceof AccountError) {
+      return handleAccountError(err, c);
+    }
     if (err instanceof HTTPException) {
       return err.getResponse();
     }
