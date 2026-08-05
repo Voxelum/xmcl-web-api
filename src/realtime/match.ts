@@ -1,3 +1,5 @@
+import { normalizeMultiplayerRoomId } from "../lib/multiplayerRoomId.ts";
+
 /**
  * Detects the public AI path retired by the v1 service URL.
  */
@@ -21,11 +23,7 @@ export function matchMultiplayerUpgrade(
   );
   if (!match) return undefined;
   try {
-    const roomId = decodeURIComponent(match[1]);
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-        .test(roomId)
-      ? roomId
-      : undefined;
+    return normalizeMultiplayerRoomId(decodeURIComponent(match[1]));
   } catch {
     return undefined;
   }

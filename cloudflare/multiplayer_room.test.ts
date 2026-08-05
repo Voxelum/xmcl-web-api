@@ -186,42 +186,30 @@ function assertOnlyCanonicalMessages(messages: Array<{ type: string }>) {
   }
 }
 
-Deno.test("MultiplayerRoomObject initializes by room identity and admissions include role and maxPeers", async () => {
+Deno.test("MultiplayerRoomObject creates a room on first admission and assigns its master", async () => {
   const f = fixture();
   const expiresAt = Date.now() + 60_000;
-  const initialization = {
+  const firstAdmission = {
     roomId: "room_1",
-    masterAccountId: "account_1",
+    accountId: "account_1",
     maxPeers: 8,
     expiresAt,
   };
-  assert.equal(
-    (await f.object.fetch(internal("/initialize", initialization))).status,
-    204,
+  assert.deepEqual(
+    await (await f.object.fetch(internal("/admission", firstAdmission))).json(),
+    { role: "master", maxPeers: 8, created: true },
   );
   assert.equal(f.alarm, expiresAt);
-  assert.equal(
-    (await f.object.fetch(internal("/initialize", {
-      ...initialization,
-      masterAccountId: "different-account",
-    }))).status,
-    204,
-  );
-  assert.equal(
-    (await f.object.fetch(internal("/initialize", {
-      ...initialization,
-      roomId: "different-room",
-    }))).status,
-    409,
-  );
   assert.deepEqual(
     await (await f.object.fetch(internal("/admission", {
+      ...firstAdmission,
       accountId: "account_1",
     }))).json(),
-    { role: "master", maxPeers: 8 },
+    { role: "master", maxPeers: 8, created: false },
   );
   assert.equal(
     (await f.object.fetch(internal("/admission", {
+      ...firstAdmission,
       accountId: "account_2",
     }))).status,
     409,
@@ -374,15 +362,17 @@ Deno.test("master transfer persists once and broadcasts only one topology snapsh
 
   assert.deepEqual(
     await (await f.object.fetch(internal("/admission", {
+      roomId: "room_1",
       accountId: "account_2",
     }))).json(),
-    { role: "master", maxPeers: 8 },
+    { role: "master", maxPeers: 8, created: false },
   );
   assert.deepEqual(
     await (await f.object.fetch(internal("/admission", {
+      roomId: "room_1",
       accountId: "account_1",
     }))).json(),
-    { role: "member", maxPeers: 8 },
+    { role: "member", maxPeers: 8, created: false },
   );
 
   master.clear();

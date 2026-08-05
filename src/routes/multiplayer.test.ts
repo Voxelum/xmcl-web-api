@@ -18,19 +18,19 @@ const namespace = {
       const path = new URL(request.url).pathname;
       calls.push(path);
       const input = request.body
-        ? await request.json() as Record<string, string>
+        ? await request.json() as Record<string, unknown>
         : {};
-      if (path === "/initialize") {
-        rooms.set(roomId, {
-          masterAccountId: input.masterAccountId,
-          maxPeers: Number(input.maxPeers),
-          closed: false,
-        });
-        return new Response(null, { status: 204 });
-      }
-      const room = rooms.get(roomId);
-      if (!room) return new Response(null, { status: 404 });
       if (path === "/admission") {
+        let room = rooms.get(roomId);
+        const created = !room;
+        if (!room) {
+          room = {
+            masterAccountId: String(input.accountId),
+            maxPeers: Number(input.maxPeers),
+            closed: false,
+          };
+          rooms.set(roomId, room);
+        }
         return room.closed
           ? new Response(null, { status: 410 })
           : Response.json({
@@ -38,8 +38,11 @@ const namespace = {
               ? "master"
               : "member",
             maxPeers: room.maxPeers,
+            created,
           });
       }
+      const room = rooms.get(roomId);
+      if (!room) return new Response(null, { status: 404 });
       if (path === "/close") {
         if (input.accountId !== room.masterAccountId) {
           return new Response(null, { status: 403 });
@@ -73,6 +76,7 @@ const headers = {
 };
 
 Deno.test("multiplayer routes create, join, and close a Durable Object room", async () => {
+  authenticatedAccountId = "account_1";
   const created = await app.request("/v1/multiplayer/rooms", {
     method: "POST",
     headers,
@@ -115,7 +119,7 @@ Deno.test("multiplayer routes create, join, and close a Durable Object room", as
     env,
   );
   assert.equal(closed.status, 204);
-  assert.deepEqual(calls, ["/initialize", "/admission", "/close"]);
+  assert.deepEqual(calls, ["/admission", "/admission", "/close"]);
 });
 
 Deno.test("multiplayer routes reject invalid room settings before creating a DO", async () => {
@@ -125,4 +129,28 @@ Deno.test("multiplayer routes reject invalid room settings before creating a DO"
     body: JSON.stringify({ displayName: "Steve", maxPeers: 100 }),
   }, env);
   assert.equal(response.status, 400);
+});
+
+Deno.test("first join creates a named room and assigns the master", async () => {
+  authenticatedAccountId = "account_named_master";
+  const created = await app.request("/v1/multiplayer/rooms/Test/join", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ displayName: "Steve" }),
+  }, env);
+  assert.equal(created.status, 201);
+  const creation = await created.json();
+  assert.equal(creation.roomId, "test");
+  assert.equal(creation.role, "master");
+
+  authenticatedAccountId = "account_named_member";
+  const joined = await app.request("/v1/multiplayer/rooms/test/join", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ displayName: "Alex" }),
+  }, env);
+  assert.equal(joined.status, 200);
+  const admission = await joined.json();
+  assert.equal(admission.roomId, "test");
+  assert.equal(admission.role, "member");
 });
