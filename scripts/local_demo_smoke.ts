@@ -4,8 +4,8 @@ import {
   DEMO_SERVER_ID,
   LOCAL_DEMO_CREDENTIALS,
   LOCAL_DEMO_PROFILE,
-} from "../src/localDemo.ts";
-import { signWorkerRequest } from "../src/lib/workerAuth.ts";
+} from "../packages/shared/localDemo.ts";
+import { signWorkerRequest } from "../packages/shared/lib/workerAuth.ts";
 
 const configuredBaseUrl = Deno.env.get("DEMO_BASE_URL");
 let server: Deno.HttpServer | undefined;

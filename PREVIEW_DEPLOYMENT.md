@@ -44,8 +44,9 @@ For Azure Functions, prepend `/api` to those paths.
 ## Azure Functions deployment slot
 
 This repository uses the Node.js v4 Functions worker and requires Node 20, Azure
-Functions Core Tools, Azure CLI, and the root `package.json`, `host.json`,
-`azure/index.js`, and runtime dependencies in the deployment package.
+Functions Core Tools, and Azure CLI. The deployable Function app is isolated in
+`apps/azure`; its package contains `host.json`, `package.json`, the generated
+`index.js`, and runtime dependencies.
 
 1. Create a `mot` deployment slot on a non-production Function App. The App
    Service plan must support deployment slots.
@@ -75,12 +76,12 @@ az functionapp config appsettings set --resource-group $rg --name $app --slot $s
 ```powershell
 npm ci
 npm run build:azure
-func azure functionapp publish $app --slot $slot
+func azure functionapp publish $app --slot $slot --script-root apps/azure
 ```
 
-If your release process requires ZIP deployment instead, build first and make
-the ZIP root contain `host.json`, `package.json`, `azure/index.js`, and its
-required `node_modules`, then deploy it:
+If your release process requires ZIP deployment instead, build first and package
+the contents of `apps/azure` so the ZIP root contains `host.json`,
+`package.json`, `index.js`, and its required `node_modules`, then deploy it:
 
 ```powershell
 az functionapp deployment source config-zip --resource-group $rg --name $app `
@@ -97,24 +98,23 @@ for each preview Worker. For an API preview, start from the dedicated API
 example config:
 
 ```powershell
-cd cloudflare
-Copy-Item wrangler.preview.toml.example wrangler.mot.toml
+Copy-Item apps/api/wrangler.preview.toml.example apps/api/wrangler.mot.toml
 ```
 
-1. Replace every `REPLACE_WITH_*` value in `wrangler.mot.toml`.
+1. Replace every `REPLACE_WITH_*` value in `apps/api/wrangler.mot.toml`.
 2. This API preview intentionally has no Durable Object. Create separate AI or
    signaling preview configs only when those surfaces are part of the preview.
    Translation misses use the preview Mongo request ledger and are processed by
    the external batch worker, so this Worker needs no translation KV namespace
    or Queue.
 
-3. Set preview-only secrets. Run each command from `cloudflare/`:
+3. Set preview-only secrets:
 
 ```powershell
-npx wrangler secret put MONGO_CONNECION_STRING --config wrangler.mot.toml
-npx wrangler secret put GITHUB_PAT --config wrangler.mot.toml
-npx wrangler secret put XMCL_SESSION_SECRET --config wrangler.mot.toml
-npx wrangler secret put AGNES_API_KEYS --config wrangler.mot.toml
+npx wrangler secret put MONGO_CONNECION_STRING --config apps/api/wrangler.mot.toml
+npx wrangler secret put GITHUB_PAT --config apps/api/wrangler.mot.toml
+npx wrangler secret put XMCL_SESSION_SECRET --config apps/api/wrangler.mot.toml
+npx wrangler secret put AGNES_API_KEYS --config apps/api/wrangler.mot.toml
 # Add only the remaining provider/OAuth secrets enabled for preview.
 ```
 
@@ -122,8 +122,8 @@ npx wrangler secret put AGNES_API_KEYS --config wrangler.mot.toml
 
 ```powershell
 npm ci
-npm run typecheck
-npx wrangler deploy --config wrangler.mot.toml
+npm run typecheck:workers
+npx wrangler deploy --config apps/api/wrangler.mot.toml
 ```
 
 Use the generated `workers.dev` URL first. Add a dedicated preview DNS route
@@ -133,7 +133,8 @@ only after the smoke checks pass.
 
 - Azure: redeploy the last known-good ZIP to the `mot` slot. Do not swap the
   slot into production as part of preview validation.
-- Cloudflare: `npx wrangler rollback --config wrangler.mot.toml`, or deploy the
+- Cloudflare:
+  `npx wrangler rollback --config apps/api/wrangler.mot.toml`, or deploy the
   previous commit with the same config.
 
 Delete the preview Mongo database/user, OAuth redirect URL, Worker, slot, and

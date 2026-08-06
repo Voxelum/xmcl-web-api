@@ -5,8 +5,10 @@ on:
     branches:
       - main
     paths:
-      - "cloudflare/**"
-      - "src/**"
+      - "apps/api/**"
+      - "apps/ai/**"
+      - "apps/signaling/**"
+      - "packages/shared/**"
       - "deno.json"
       - "deno.lock"
       - "package.json"
@@ -34,18 +36,12 @@ jobs:
       - name: Install application dependencies
         run: npm ci --omit=optional
 
-      - name: Install Cloudflare dependencies
-        working-directory: cloudflare
-        run: npm ci --omit=optional
-
       - name: Type-check Workers
-        working-directory: cloudflare
-        run: npm run typecheck
+        run: npm run typecheck:workers
 
       - name: Deploy Workers
         if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
-        working-directory: cloudflare
-        run: npm run deploy
+        run: npm run deploy:workers
 
       - name: Report manual deployment requirement
         if: ${{ env.CLOUDFLARE_API_TOKEN == '' }}
