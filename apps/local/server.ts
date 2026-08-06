@@ -1,12 +1,12 @@
-import { createProductionApp } from "../../packages/shared/lib/productionComposition.ts";
+import { createProductionApp } from "../../src/productionComposition.ts";
 import {
   runServerControlScheduledSweep,
   type ServerControlScheduledWork,
-} from "../../packages/shared/lib/serverControlScheduling.ts";
-import { createDbMiddleware } from "../../packages/shared/middleware/db.ts";
-import { geoipMiddleware } from "../../packages/shared/middleware/geoip.ts";
-import { getDb } from "../../packages/shared/platform/db_npm.ts";
-import { isRetiredServicePath } from "../../packages/shared/realtime/match.ts";
+} from "../../src/serverControlScheduling.ts";
+import { createDbMiddleware } from "../../src/middleware/db.ts";
+import { geoipMiddleware } from "../../src/middleware/geoip.ts";
+import { getDb } from "../../src/db_npm.ts";
+import { isRetiredServicePath } from "../../src/realtime.ts";
 
 // Local Deno entry point. It uses the same npm MongoDB adapter as production so
 // local behavior does not require a separate runtime-specific implementation.

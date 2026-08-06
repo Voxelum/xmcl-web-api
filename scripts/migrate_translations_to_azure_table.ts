@@ -1,5 +1,5 @@
 // Idempotently migrates legacy Mongo translation caches and request demand to
-// the Azure Table schema used by packages/shared/lib/translationStore.ts.
+// the Azure Table schema used by src/translationStore.ts.
 //
 // Dry-run is the default. Set TRANSLATION_MIGRATION_APPLY=1 to write.
 //

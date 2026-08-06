@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import type {
   CfWebSocket,
   DurableObjectState,
-} from "../../packages/shared/platform/cloudflare/types.ts";
+} from "../../src/cloudflare/types.ts";
 import { MultiplayerRoomObject } from "./room.ts";
 
 const secret = "multiplayer-test-secret-with-at-least-32-characters";

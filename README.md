@@ -16,11 +16,10 @@ The XMCL Web API serves multiple functions:
 
 ## Architecture
 
-The API is built from a **shared [Hono](https://hono.dev) package** consumed by
-explicit deployment apps. Shared HTTP routes live in
-[`packages/shared/`](packages/shared/) and are registered once in
-[`packages/shared/app.ts`](packages/shared/app.ts). Each app owns only its
-runtime adapter and deployment configuration.
+The API is built from a **shared [Hono](https://hono.dev) source tree** consumed
+by explicit deployment apps. Shared HTTP routes live in [`src/`](src/) and are
+registered once in [`src/app.ts`](src/app.ts). Each app owns only its runtime
+adapter and deployment configuration.
 
 ```
 apps/
@@ -29,9 +28,15 @@ apps/
   signaling/    RTC Worker, Durable Object, and Wrangler config
   azure/        cold-backup API Function app and host config
   local/        Deno development and in-memory demo servers
-packages/
-  shared/       Hono composition, routes, middleware, storage, and tests
-    platform/   runtime adapters shared by deployment apps
+src/
+  *.ts          shared domain services kept flat without a generic lib layer
+  routes/       HTTP route adapters
+  middleware/   request middleware
+  ai/           AI service composition
+  oauth/        OAuth providers and redirect policy
+  modpack/      modpack source adapters
+  worker/       worker runtime and protocol
+  cloudflare/   runtime adapter shared by the three Workers
 scripts/        maintenance and migration commands
 assets/         repository-hosted static assets
 ```
@@ -174,8 +179,8 @@ pending Mongo source version immediately due for retranslation.
 ## API Endpoints
 
 The default composition serves the following routes (all defined once in
-[`packages/shared/app.ts`](packages/shared/app.ts)); isolated Cloudflare
-domains mount only their surface listed above:
+[`src/app.ts`](src/app.ts)); isolated Cloudflare domains mount only their
+surface listed above:
 
 - `/latest` - Provides information about the latest launcher releases
 - `/releases/:filename` - Access to launcher release files with redirection to

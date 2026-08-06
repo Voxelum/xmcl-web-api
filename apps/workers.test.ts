@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type { ExecutionContext } from "../packages/shared/platform/cloudflare/types.ts";
+import type { ExecutionContext } from "../src/cloudflare/types.ts";
 import aiWorker from "./ai/worker.ts";
 import apiWorker from "./api/worker.ts";
 import signalingWorker from "./signaling/worker.ts";

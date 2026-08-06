@@ -1,26 +1,26 @@
 // deno-lint-ignore-file no-explicit-any
-import { createSharedHostingRuntime } from "../../packages/shared/lib/sharedHostingRuntime.ts";
-import { hasSharedNodeRuntimeSettings } from "../../packages/shared/lib/productionComposition.ts";
-import { createS3SigV4Presigner } from "../../packages/shared/lib/s3SigV4.ts";
-import { runServerControlScheduledSweep } from "../../packages/shared/lib/serverControlScheduling.ts";
-import { runSharedHostingBillingScheduledSweep } from "../../packages/shared/lib/sharedHostingScheduling.ts";
-import { runSharedNodeScheduledSweep } from "../../packages/shared/lib/sharedNodeScheduling.ts";
-import { getTranslationEdgeCache } from "../../packages/shared/lib/translationEdgeCache.ts";
-import { runTranslationScheduledSweep } from "../../packages/shared/lib/translationScheduling.ts";
-import { getTranslationStore } from "../../packages/shared/lib/translationStore.ts";
+import { createSharedHostingRuntime } from "../../src/sharedHostingRuntime.ts";
+import { hasSharedNodeRuntimeSettings } from "../../src/productionComposition.ts";
+import { createS3SigV4Presigner } from "../../src/s3SigV4.ts";
+import { runServerControlScheduledSweep } from "../../src/serverControlScheduling.ts";
+import { runSharedHostingBillingScheduledSweep } from "../../src/sharedHostingScheduling.ts";
+import { runSharedNodeScheduledSweep } from "../../src/sharedNodeScheduling.ts";
+import { getTranslationEdgeCache } from "../../src/translationEdgeCache.ts";
+import { runTranslationScheduledSweep } from "../../src/translationScheduling.ts";
+import { getTranslationStore } from "../../src/translationStore.ts";
 import {
   createCloudflareApp,
   getCloudflareDb,
-} from "../../packages/shared/platform/cloudflare/runtime.ts";
+} from "../../src/cloudflare/runtime.ts";
 import {
   observeWorkerRequest,
   workerErrorFields,
-} from "../../packages/shared/platform/cloudflare/observability.ts";
+} from "../../src/cloudflare/observability.ts";
 import type {
   ExecutionContext,
   ScheduledController,
-} from "../../packages/shared/platform/cloudflare/types.ts";
-import { isRetiredServicePath } from "../../packages/shared/realtime/match.ts";
+} from "../../src/cloudflare/types.ts";
+import { isRetiredServicePath } from "../../src/realtime.ts";
 
 async function dispatchApiRequest(
   request: Request,

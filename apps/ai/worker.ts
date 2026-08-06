@@ -1,7 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
-import { observeWorkerRequest } from "../../packages/shared/platform/cloudflare/observability.ts";
-import { createCloudflareApp } from "../../packages/shared/platform/cloudflare/runtime.ts";
-import type { ExecutionContext } from "../../packages/shared/platform/cloudflare/types.ts";
+import { observeWorkerRequest } from "../../src/cloudflare/observability.ts";
+import { createCloudflareApp } from "../../src/cloudflare/runtime.ts";
+import type { ExecutionContext } from "../../src/cloudflare/types.ts";
 
 export default {
   fetch(request: Request, env: any, ctx: ExecutionContext): Promise<Response> {

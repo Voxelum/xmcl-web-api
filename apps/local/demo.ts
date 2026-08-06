@@ -1,7 +1,7 @@
 import {
   createLocalDemoApp,
   LOCAL_DEMO_PROFILE,
-} from "../../packages/shared/localDemo.ts";
+} from "../../src/localDemo.ts";
 
 function portFromEnvironment() {
   const value = Deno.env.get("PORT") ?? "8787";
