@@ -16,7 +16,11 @@ import type {
   VerifiedIdentity,
 } from "./oauth/types.ts";
 import { createSessionRoutes } from "./routes/session.ts";
-import { ACCESS_TOKEN_TTL_MS, SessionService } from "./session.ts";
+import {
+  ACCESS_TOKEN_TTL_MS,
+  SessionService,
+  USER_SESSION_SCOPES,
+} from "./session.ts";
 
 const secret = "fixture-only-session-secret-at-least-32-bytes";
 
@@ -96,11 +100,7 @@ Deno.test("M1 sessions expire after 24 hours", async () => {
     Date.parse(session.expiresAt) - Date.parse(session.issuedAt),
     ACCESS_TOKEN_TTL_MS,
   );
-  assert.deepEqual(session.scopes, [
-    "account:read",
-    "account:write",
-    "session:manage",
-  ]);
+  assert.deepEqual(session.scopes, [...USER_SESSION_SCOPES]);
 
   timestamp += ACCESS_TOKEN_TTL_MS;
   await assert.rejects(
