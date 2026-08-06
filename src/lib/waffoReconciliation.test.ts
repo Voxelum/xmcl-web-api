@@ -3,11 +3,10 @@ import { BillingService } from "./billing.ts";
 import type { BillingState, BillingStore, Money } from "./ledger.ts";
 import { MemoryBillingStore } from "./ledger.ts";
 import {
-  FakePayPalWebhookVerifier,
-  PayPalHttpProvider,
-  type PayPalOrderProvider,
-  PayPalService,
-} from "./paypal.ts";
+  FakeWaffoWebhookVerifier,
+  type WaffoCheckoutProvider,
+  WaffoService,
+} from "./waffo.ts";
 
 class LeaseTrackingStore implements BillingStore {
   readonly inner = new MemoryBillingStore();
@@ -29,7 +28,7 @@ class LeaseTrackingStore implements BillingStore {
   }
 }
 
-class IdempotentProvider implements PayPalOrderProvider {
+class IdempotentProvider implements WaffoCheckoutProvider {
   readonly createCalls: Array<{ orderId: string; leased: boolean }> = [];
   readonly orders = new Map<
     string,
@@ -61,9 +60,8 @@ class IdempotentProvider implements PayPalOrderProvider {
     return this.blockedCallStarted;
   }
 
-  async createOrder(input: {
+  async createCheckout(input: {
     orderId: string;
-    accountId: string;
     amount: Money;
   }) {
     this.createCalls.push({
@@ -79,15 +77,11 @@ class IdempotentProvider implements PayPalOrderProvider {
     const existing = this.orders.get(input.orderId);
     if (existing) return existing;
     const order = {
-      providerOrderId: `paypal_${input.orderId}`,
-      approvalUrl: `https://paypal.invalid/${input.orderId}`,
+      providerOrderId: `cs_${input.orderId}`,
+      approvalUrl: `https://checkout.waffo.invalid/${input.orderId}`,
     };
     this.orders.set(input.orderId, order);
     return order;
-  }
-
-  async captureOrder(_input: { providerOrderId: string }) {
-    return { captureId: "capture", status: "pending" as const };
   }
 }
 
@@ -103,15 +97,16 @@ function fixture() {
     providerCreationRecoveryMs: 1_000,
   });
   const provider = new IdempotentProvider(store);
-  const paypal = new PayPalService(
+  const waffo = new WaffoService(
     billing,
     provider,
-    new FakePayPalWebhookVerifier(),
+    new FakeWaffoWebhookVerifier(),
+    { storeId: "STO_xmcl", environment: "test" },
   );
   return {
     billing,
     provider,
-    paypal,
+    waffo,
     advance(milliseconds: number) {
       now += milliseconds;
     },
@@ -124,7 +119,7 @@ async function createFailedIntent(
 ) {
   f.provider.fail = true;
   await assert.rejects(() =>
-    f.paypal.createOrder({
+    f.waffo.createOrder({
       accountId: "account_1",
       idempotencyKey,
       amountMinor: 100,
@@ -133,10 +128,10 @@ async function createFailedIntent(
   f.provider.fail = false;
 }
 
-Deno.test("stale PayPal recovery uses the original order identity outside the billing lease", async () => {
+Deno.test("stale Waffo recovery uses the original order identity outside the billing lease", async () => {
   const f = fixture();
   f.provider.blockInitialCall();
-  const initial = f.paypal.createOrder({
+  const initial = f.waffo.createOrder({
     accountId: "account_1",
     idempotencyKey: "abandoned",
     amountMinor: 100,
@@ -144,7 +139,7 @@ Deno.test("stale PayPal recovery uses the original order identity outside the bi
   await f.provider.waitForBlockedCall();
   f.advance(1_001);
 
-  const recovered = await f.paypal.reconcilePendingOrders(
+  const recovered = await f.waffo.reconcilePendingOrders(
     new Date("2026-07-24T00:00:01.001Z"),
   );
   f.provider.releaseInitialCall();
@@ -162,16 +157,16 @@ Deno.test("stale PayPal recovery uses the original order identity outside the bi
   assert.equal((await f.billing.orders("account_1")).length, 1);
 });
 
-Deno.test("concurrent client and scheduler PayPal recovery cannot create or credit twice", async () => {
+Deno.test("concurrent client and scheduler Waffo recovery cannot create or credit twice", async () => {
   const f = fixture();
   await createFailedIntent(f, "concurrent");
   f.advance(1_001);
   f.provider.blockInitialCall();
-  const scheduled = f.paypal.reconcilePendingOrders(
+  const scheduled = f.waffo.reconcilePendingOrders(
     new Date("2026-07-24T00:00:01.001Z"),
   );
   await f.provider.waitForBlockedCall();
-  const client = await f.paypal.createOrder({
+  const client = await f.waffo.createOrder({
     accountId: "account_1",
     idempotencyKey: "concurrent",
     amountMinor: 100,
@@ -185,13 +180,13 @@ Deno.test("concurrent client and scheduler PayPal recovery cannot create or cred
   assert.equal((await f.billing.balance("account_1")).available.amountMinor, 0);
 });
 
-Deno.test("unavailable scheduled PayPal recovery preserves a pending order and cash balance", async () => {
+Deno.test("unavailable scheduled Waffo recovery preserves a pending order and cash balance", async () => {
   const f = fixture();
   await createFailedIntent(f, "unavailable");
   f.advance(1_001);
   f.provider.fail = true;
 
-  const result = await f.paypal.reconcilePendingOrders(
+  const result = await f.waffo.reconcilePendingOrders(
     new Date("2026-07-24T00:00:01.001Z"),
   );
 
@@ -201,7 +196,7 @@ Deno.test("unavailable scheduled PayPal recovery preserves a pending order and c
   assert.equal((await f.billing.balance("account_1")).available.amountMinor, 0);
 });
 
-Deno.test("scheduled PayPal recovery applies its bound in stable stale-at and order-ID order", async () => {
+Deno.test("scheduled Waffo recovery applies its bound in stable stale-at and order-ID order", async () => {
   const f = fixture();
   await createFailedIntent(f, "first");
   f.advance(1);
@@ -210,7 +205,7 @@ Deno.test("scheduled PayPal recovery applies its bound in stable stale-at and or
   await createFailedIntent(f, "third");
   f.advance(1_000);
 
-  const result = await f.paypal.reconcilePendingOrders(
+  const result = await f.waffo.reconcilePendingOrders(
     new Date("2026-07-24T00:00:01.002Z"),
     2,
   );
@@ -221,37 +216,5 @@ Deno.test("scheduled PayPal recovery applies its bound in stable stale-at and or
     (await f.billing.orders("account_1")).filter((order) => order.approvalUrl)
       .length,
     2,
-  );
-});
-
-Deno.test("PayPal order creation sends the stable local ID as its request identity", async () => {
-  const requests: RequestInit[] = [];
-  const provider = new PayPalHttpProvider({
-    clientId: "client",
-    clientSecret: "secret",
-    returnUrl: "https://app.example/return",
-    cancelUrl: "https://app.example/cancel",
-    apiBaseUrl: "https://paypal.invalid",
-    fetchImpl: async (_url, init) => {
-      requests.push(init!);
-      if (requests.length === 1) {
-        return Response.json({ access_token: "access-token" });
-      }
-      return Response.json({
-        id: "provider_order_1",
-        links: [{ rel: "approve", href: "https://paypal.invalid/approve" }],
-      });
-    },
-  });
-
-  await provider.createOrder({
-    orderId: "order_stable_1",
-    accountId: "account_1",
-    amount: { currency: "USD", amountMinor: 100 },
-  });
-
-  assert.equal(
-    new Headers(requests[1].headers).get("paypal-request-id"),
-    "order_stable_1",
   );
 });

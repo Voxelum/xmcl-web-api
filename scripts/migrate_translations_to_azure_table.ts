@@ -17,7 +17,12 @@
 //   TRANSLATION_MIGRATION_STATE_FILE     default: .translation-azure-migration-state.json
 //   TRANSLATION_MIGRATION_RESET_STATE    discard the saved checkpoint
 
-import { MongoClient } from "mongo";
+import {
+  type Collection,
+  type Filter,
+  MongoClient,
+  type WithId,
+} from "mongodb";
 import {
   AzureTableMigrationClient,
   entityLookupKey,
@@ -65,7 +70,7 @@ const startedAt = new Date();
 const sourceFallbackDate = new Date("2000-01-01T00:00:00.000Z");
 const state = resetState ? emptyState() : await loadState(stateFile);
 const azure = new AzureTableMigrationClient(tableUrl);
-const mongo = new MongoClient();
+const mongo = new MongoClient(mongoUrl);
 
 console.log(
   `Translation migration mode=${apply ? "APPLY" : "DRY-RUN"} ` +
@@ -77,9 +82,9 @@ if (!apply) {
   );
 }
 
-await mongo.connect(mongoUrl);
+await mongo.connect();
 try {
-  const database = mongo.database(databaseName);
+  const database = mongo.db(databaseName);
   const requestCollection = database.collection<LegacyTranslationRequest>(
     "translation_requests",
   );
@@ -122,7 +127,9 @@ try {
   }
   console.log(`Loaded ${requestCount} valid request record(s).`);
 
-  const collectionNames = (await database.listCollectionNames())
+  const collectionNames = (
+    await database.listCollections({}, { nameOnly: true }).toArray()
+  ).map(({ name }) => name)
     .filter((name) => name.endsWith("_translation"))
     .sort();
   const counters = newCounters();
@@ -286,27 +293,18 @@ async function saveState(path: string, state: MigrationState) {
   await Deno.writeTextFile(path, JSON.stringify(state, null, 2) + "\n");
 }
 
-async function fetchPage<T extends { _id: unknown }>(
-  collection: {
-    find(
-      filter: Record<string, unknown>,
-      options?: unknown,
-    ): {
-      sort(value: Record<string, number>): unknown;
-    };
-  },
+async function fetchPage<T extends { _id: string }>(
+  collection: Collection<T>,
   lastId: string | undefined,
   limit: number,
-): Promise<T[]> {
-  const cursor = collection.find(
-    lastId ? { _id: { $gt: lastId } } : {},
+): Promise<Array<WithId<T>>> {
+  const filter = (
+    lastId ? { _id: { $gt: lastId } } : {}
+  ) as Filter<T>;
+  return await collection.find(
+    filter,
     { batchSize: limit },
-  ) as {
-    sort(value: Record<string, number>): {
-      limit(value: number): { toArray(): Promise<T[]> };
-    };
-  };
-  return await cursor.sort({ _id: 1 }).limit(limit).toArray();
+  ).sort({ _id: 1 }).limit(limit).toArray();
 }
 
 async function mapConcurrent<T, R>(

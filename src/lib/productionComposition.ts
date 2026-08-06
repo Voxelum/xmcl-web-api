@@ -8,6 +8,13 @@ import {
 } from "./sharedHostingRuntime.ts";
 import type { SharedNodeWorkspaceSigner } from "./sharedNodeTransport.ts";
 
+function hasWaffoSettings(config: AppConfig | undefined) {
+  return !!config?.WAFFO_MERCHANT_ID && !!config.WAFFO_PRIVATE_KEY &&
+    !!config.WAFFO_STORE_ID && !!config.WAFFO_PRODUCT_ID &&
+    (config.WAFFO_ENVIRONMENT === "test" ||
+      config.WAFFO_ENVIRONMENT === "prod");
+}
+
 interface SharedNodeProductionBindings {
   SHARED_NODE_WORKSPACE_SIGNER?: unknown;
 }
@@ -30,7 +37,7 @@ export function productionAppOptions(
   return {
     commercialRoutes: false,
     billingRoutes: true,
-    paymentRoutes: false,
+    paymentRoutes: hasWaffoSettings(config),
     sharedNodeTransportRoutes: config
       ? hasSharedNodeRuntimeSettings(config, bindings)
       : false,
@@ -40,8 +47,8 @@ export function productionAppOptions(
 /**
  * Builds production entry points without test doubles. Account/session routes
  * remain available through their Mongo-backed runtime. Public payment routes use
- * the durable Mongo ledger; PayPal, shared-hosting, and other commercial routes
- * stay unmounted until provider reconciliation and remaining adapters compose.
+ * the durable Mongo ledger. Waffo routes are mounted only with complete
+ * provider settings; other commercial routes remain separately gated.
  */
 export function createProductionApp(
   register?: (app: Hono<AppEnv>) => void,
@@ -58,13 +65,16 @@ export function createProductionApp(
         }
         const runtime = await getSharedHostingRuntime(
           c,
-          (bindings?.SHARED_NODE_WORKSPACE_SIGNER as SharedNodeWorkspaceSigner),
+          bindings?.SHARED_NODE_WORKSPACE_SIGNER as SharedNodeWorkspaceSigner,
         );
         c.set("sharedHostingService", runtime.sharedHosting);
         c.set("sharedHostingScheduler", runtime.scheduler);
         c.set("sharedNodeTransport", runtime.transport);
         c.set("sharedNodeProvisioner", runtime.provisioner);
-        c.set("sharedHostingBillingScheduledWork", runtime.billingScheduledWork);
+        c.set(
+          "sharedHostingBillingScheduledWork",
+          runtime.billingScheduledWork,
+        );
       }
       await next();
     });

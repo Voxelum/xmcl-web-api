@@ -10,7 +10,7 @@ Deno.test("production composition leaves commercial routes unmounted by default"
   const paths = app.routes.map((route) => route.path);
   assert.equal(paths.some((path) => path === "/v1/billing/balance"), true);
   assert.equal(
-    paths.some((path) => path === "/v1/billing/paypal/orders"),
+    paths.some((path) => path === "/v1/billing/waffo/orders"),
     false,
   );
   assert.equal(
@@ -21,6 +21,21 @@ Deno.test("production composition leaves commercial routes unmounted by default"
   assert.equal(paths.includes("/v1/chat/completions"), true);
   assert.equal(paths.some((path) => path.startsWith("/v1/modpack")), false);
   assert.equal(paths.some((path) => path.startsWith("/v1/sessions")), true);
+});
+
+Deno.test("production composition mounts Waffo checkout and webhook routes only with complete settings", () => {
+  const config = {
+    WAFFO_MERCHANT_ID: "merchant",
+    WAFFO_PRIVATE_KEY: "private-key",
+    WAFFO_STORE_ID: "store",
+    WAFFO_PRODUCT_ID: "product",
+    WAFFO_ENVIRONMENT: "test" as const,
+  };
+  const paths = createProductionApp(undefined, config).routes.map((route) =>
+    route.path
+  );
+  assert.equal(paths.includes("/v1/billing/waffo/orders"), true);
+  assert.equal(paths.includes("/v1/webhooks/waffo"), true);
 });
 
 Deno.test("production composition always disables routes without durable adapters", () => {

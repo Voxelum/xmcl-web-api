@@ -8,7 +8,7 @@ import {
 export type ReconciliationStatus = "matched" | "mismatch" | "unavailable";
 
 export interface ReconciliationCheck {
-  source: "paypal" | "ledger" | "usage" | "vultr";
+  source: "payment" | "ledger" | "usage" | "vultr";
   status: ReconciliationStatus;
   checkedAt: string;
   details?: Record<string, string | number | boolean>;

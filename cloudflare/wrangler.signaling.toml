@@ -1,0 +1,45 @@
+name = "xmcl-web-signaling"
+account_id = "7af57e4bbecec7133ccf33d2b530b4b5"
+main = "signaling.ts"
+compatibility_date = "2025-03-20"
+compatibility_flags = ["nodejs_compat_v2"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+invocation_logs = false
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 1
+
+[[routes]]
+pattern = "signaling.xmcl.app"
+custom_domain = true
+
+[[durable_objects.bindings]]
+name = "MULTIPLAYER_ROOMS"
+class_name = "MultiplayerRoomObject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GroupRoom"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["MultiplayerRoom"]
+
+[[migrations]]
+tag = "v3"
+deleted_classes = ["GroupRoom"]
+
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["SignalingRoom"]
+
+[[migrations]]
+tag = "v5"
+new_sqlite_classes = ["MultiplayerRoomObject"]
+deleted_classes = ["MultiplayerRoom", "SignalingRoom"]

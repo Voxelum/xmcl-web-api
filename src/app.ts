@@ -23,7 +23,7 @@ import account from "./routes/account.ts";
 import session from "./routes/session.ts";
 import servers from "./routes/servers.ts";
 import billing from "./routes/billing.ts";
-import paypal from "./routes/paypal.ts";
+import waffo from "./routes/waffo.ts";
 import usageSettlement from "./routes/usageSettlement.ts";
 import worker from "./routes/worker.ts";
 import ai from "./routes/ai.ts";
@@ -51,7 +51,7 @@ export interface CreateAppOptions {
    * default keeps the historical all-routes composition used by tests and
    * non-Cloudflare runtimes.
    */
-  routeSurface?: "all" | "common" | "ai" | "signaling";
+  routeSurface?: "all" | "api" | "ai" | "signaling";
   /**
    * Test composition can mount routes with injected fakes. Production only
    * enables these routes once its complete durable composition is available.
@@ -61,7 +61,7 @@ export interface CreateAppOptions {
   billingRoutes?: boolean;
   /** Mounts authenticated internal node transport after complete composition. */
   sharedNodeTransportRoutes?: boolean;
-  /** PayPal routes stay separately gated until provider reconciliation is deployed. */
+  /** Mounts the configured Waffo checkout and signed webhook routes. */
   paymentRoutes?: boolean;
   /**
    * Most deployments retain the historical permissive CORS middleware. Isolated
@@ -81,7 +81,7 @@ export function createApp(
   const app = new Hono<AppEnv>();
   const surface = options.routeSurface ?? "all";
   const allRoutes = surface === "all";
-  const commonRoutes = allRoutes || surface === "common";
+  const apiRoutes = allRoutes || surface === "api";
   const aiRoutes = allRoutes || surface === "ai";
   const signalingRoutes = allRoutes || surface === "signaling";
 
@@ -93,7 +93,7 @@ export function createApp(
   // upgrade) before the shared routes run.
   register?.(app);
 
-  if (commonRoutes) {
+  if (apiRoutes) {
     app.route("/", latest);
     app.route("/", releases);
     app.route("/", notifications);
@@ -112,20 +112,20 @@ export function createApp(
     app.route("/", multiplayer);
     app.route("/", rtc);
   }
-  if (options.accountSessionRoutes !== false && commonRoutes) {
+  if (options.accountSessionRoutes !== false && apiRoutes) {
     app.route("/", session);
     app.route("/", account);
   }
   if (options.chatCompletionsRoutes !== false && aiRoutes) {
     app.route("/", chatCompletions);
   }
-  if (commonRoutes) {
+  if (apiRoutes) {
     const enableCommercialRoutes = options.commercialRoutes !== false;
     if (enableCommercialRoutes || options.billingRoutes === true) {
       app.route("/", billing);
     }
     if (enableCommercialRoutes || options.paymentRoutes === true) {
-      app.route("/", paypal);
+      app.route("/", waffo);
     }
     if (enableCommercialRoutes) {
       app.route("/", worldBackups);

@@ -7,7 +7,7 @@ export interface SharedHostingBillingSweepResult {
   cancelled: string[];
   runtimeSettled?: string[];
   runtimePaymentDue?: string[];
-  paypalReconciliation?: {
+  paymentReconciliation?: {
     attempted: string[];
     finalized: string[];
     stillPending: string[];

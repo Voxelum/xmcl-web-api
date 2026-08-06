@@ -23,7 +23,12 @@
 //                           backfill docs inserted while a prior run was live.
 //   TRANSLATIONS_PAGE_TIMEOUT_MS  Per-page fetch timeout (default: 60000).
 
-import { MongoClient } from "mongo";
+import { MongoClient } from "mongodb";
+
+interface TranslationDocument {
+  _id: string;
+  [key: string]: unknown;
+}
 
 const connStr = Deno.env.get("MONGO_CONNECION_STRING");
 if (!connStr) {
@@ -58,7 +63,11 @@ const PAGE_TIMEOUT_MS = Number(Deno.env.get("TRANSLATIONS_PAGE_TIMEOUT_MS")) ||
 const SUFFIX = "_translation";
 
 /** Reject if a promise does not settle within `ms`. */
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(
@@ -75,14 +84,18 @@ function isSafeId(id: string): boolean {
     !id.includes("..") && !id.includes("\0");
 }
 
-const client = new MongoClient();
-await client.connect(connStr);
-const db = client.database(dbName);
+const client = new MongoClient(connStr);
+await client.connect();
+const db = client.db(dbName);
 
-const names = await db.listCollectionNames();
+const names = (await db.listCollections({}, { nameOnly: true }).toArray()).map(
+  ({ name }) => name,
+);
 const collections = names.filter((n) => n.endsWith(SUFFIX));
 
-console.log(`Found ${collections.length} translation collection(s) in "${dbName}".`);
+console.log(
+  `Found ${collections.length} translation collection(s) in "${dbName}".`,
+);
 
 let totalDocs = 0;
 let totalSkipped = 0;
@@ -121,7 +134,7 @@ async function maxExistingId(dir: string): Promise<string | undefined> {
 
 for (const name of collections) {
   const locale = name.slice(0, -SUFFIX.length);
-  const coll = db.collection<Record<string, unknown>>(name);
+  const coll = db.collection<TranslationDocument>(name);
 
   const localeDir = `${outDir}/${locale}`;
   await Deno.mkdir(localeDir, { recursive: true });
@@ -153,7 +166,9 @@ for (const name of collections) {
       coll
         .find(
           filter,
-          { batchSize: BATCH_SIZE } as unknown as Parameters<typeof coll.find>[1],
+          { batchSize: BATCH_SIZE } as unknown as Parameters<
+            typeof coll.find
+          >[1],
         )
         .sort({ _id: 1 })
         .limit(BATCH_SIZE)

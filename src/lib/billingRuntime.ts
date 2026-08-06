@@ -6,13 +6,9 @@ import type { AppConfig } from "../config.ts";
 import type { Db } from "../db.ts";
 import { BillingService } from "./billing.ts";
 import { type CashRate, MongoBillingStore } from "./ledger.ts";
-import {
-  PayPalHttpProvider,
-  PayPalHttpWebhookVerifier,
-  PayPalService,
-} from "./paypal.ts";
 import { UsageSettlementService } from "./usageSettlement.ts";
 import { SHARED_HOSTING_RATES, SharedHostingService } from "./sharedHosting.ts";
+import { WaffoSdkProvider, WaffoService } from "./waffo.ts";
 
 export interface BillingRuntime {
   billing: BillingService;
@@ -34,14 +30,14 @@ export interface SharedRuntimeSettlementResult {
   cancelled: string[];
   runtimeSettled: string[];
   runtimePaymentDue: string[];
-  paypalReconciliation: BillingReconciliationResult;
+  paymentReconciliation: BillingReconciliationResult;
 }
 
 export interface SharedRuntimeSettlementWork {
   renewDue(at: Date): Promise<SharedRuntimeSettlementResult>;
   runHourly(
     at: Date,
-    paypalLimit?: number,
+    paymentLimit?: number,
   ): Promise<SharedRuntimeSettlementResult>;
 }
 
@@ -53,7 +49,7 @@ export interface BillingReconciliationResult {
 }
 
 export interface BillingReconciliationWork {
-  reconcilePendingPayPalOrders(
+  reconcilePendingOrders(
     at: Date,
     limit?: number,
   ): Promise<BillingReconciliationResult>;
@@ -69,7 +65,7 @@ export function createSharedRuntimeSettlementWork(
   scheduler: SharedRuntimeSettlementScheduler,
   reconciliation?: BillingReconciliationWork,
 ): SharedRuntimeSettlementWork {
-  const runHourly = async (at: Date, paypalLimit?: number) => {
+  const runHourly = async (at: Date, paymentLimit?: number) => {
     const renewal = await runtime.sharedHosting.renewDue(at);
     const runtimeSettlement = await scheduler.settleRunningRuntime(at);
     await scheduler.enforcePaymentDue([
@@ -78,14 +74,14 @@ export function createSharedRuntimeSettlementWork(
         ...runtimeSettlement.paymentDue,
       ]),
     ]);
-    const paypalReconciliation = reconciliation
-      ? await reconciliation.reconcilePendingPayPalOrders(at, paypalLimit)
+    const paymentReconciliation = reconciliation
+      ? await reconciliation.reconcilePendingOrders(at, paymentLimit)
       : { attempted: [], finalized: [], stillPending: [], failed: [] };
     return {
       ...renewal,
       runtimeSettled: runtimeSettlement.settled,
       runtimePaymentDue: runtimeSettlement.paymentDue,
-      paypalReconciliation,
+      paymentReconciliation,
     };
   };
   return {
@@ -95,11 +91,11 @@ export function createSharedRuntimeSettlementWork(
 }
 
 export function createBillingReconciliationWork(
-  paypal: Pick<PayPalService, "reconcilePendingOrders">,
+  payment: Pick<WaffoService, "reconcilePendingOrders">,
 ): BillingReconciliationWork {
   return {
-    reconcilePendingPayPalOrders: (at, limit) =>
-      paypal.reconcilePendingOrders(at, limit),
+    reconcilePendingOrders: (at, limit) =>
+      payment.reconcilePendingOrders(at, limit),
   };
 }
 
@@ -164,33 +160,51 @@ export async function getBillingRuntime(
   return runtime;
 }
 
-export async function getPayPalService(
+export async function getWaffoService(
   c: Context<AppEnv>,
-): Promise<PayPalService> {
-  const existing = c.get("paypalService");
+): Promise<WaffoService> {
+  const existing = c.get("waffoService");
   if (existing) return existing;
   const config = getConfig(c);
   const runtime = await getBillingRuntime(c);
   if (
-    !config.PAYPAL_CLIENT_ID || !config.PAYPAL_CLIENT_SECRET ||
-    !config.PAYPAL_WEBHOOK_ID || !config.PAYPAL_RETURN_URL ||
-    !config.PAYPAL_CANCEL_URL
+    !config.WAFFO_MERCHANT_ID || !config.WAFFO_PRIVATE_KEY ||
+    !config.WAFFO_STORE_ID || !config.WAFFO_PRODUCT_ID ||
+    (config.WAFFO_ENVIRONMENT !== "test" &&
+      config.WAFFO_ENVIRONMENT !== "prod")
   ) {
-    throw new AccountError(503, "paypal_unavailable");
+    throw new AccountError(503, "waffo_unavailable");
+  }
+  const service = createWaffoPaymentService(runtime.billing, config);
+  c.set("waffoService", service);
+  return service;
+}
+
+export function createWaffoPaymentService(
+  billing: BillingService,
+  config: AppConfig,
+) {
+  if (
+    !config.WAFFO_MERCHANT_ID || !config.WAFFO_PRIVATE_KEY ||
+    !config.WAFFO_STORE_ID || !config.WAFFO_PRODUCT_ID ||
+    (config.WAFFO_ENVIRONMENT !== "test" &&
+      config.WAFFO_ENVIRONMENT !== "prod")
+  ) {
+    throw new AccountError(503, "waffo_unavailable");
   }
   const options = {
-    clientId: config.PAYPAL_CLIENT_ID,
-    clientSecret: config.PAYPAL_CLIENT_SECRET,
-    webhookId: config.PAYPAL_WEBHOOK_ID,
-    returnUrl: config.PAYPAL_RETURN_URL,
-    cancelUrl: config.PAYPAL_CANCEL_URL,
-    apiBaseUrl: config.PAYPAL_API_BASE_URL,
+    merchantId: config.WAFFO_MERCHANT_ID,
+    privateKey: config.WAFFO_PRIVATE_KEY,
+    storeId: config.WAFFO_STORE_ID,
+    productId: config.WAFFO_PRODUCT_ID,
+    environment: config.WAFFO_ENVIRONMENT,
+    successUrl: config.WAFFO_SUCCESS_URL,
+    apiBaseUrl: config.WAFFO_API_BASE_URL,
+    webhookPublicKey: config.WAFFO_WEBHOOK_PUBLIC_KEY,
   };
-  const service = new PayPalService(
-    runtime.billing,
-    new PayPalHttpProvider(options),
-    new PayPalHttpWebhookVerifier(options),
-  );
-  c.set("paypalService", service);
-  return service;
+  const provider = new WaffoSdkProvider(options);
+  return new WaffoService(billing, provider, provider, {
+    storeId: options.storeId,
+    environment: options.environment,
+  });
 }

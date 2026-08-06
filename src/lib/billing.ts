@@ -7,6 +7,7 @@ import type {
   CashBalance,
   CashRate,
   LedgerEntry,
+  LedgerKind,
   Money,
 } from "./ledger.ts";
 
@@ -27,17 +28,19 @@ export interface PublicOrder {
   updatedAt: string;
 }
 
-export interface PendingPayPalOrder {
+export interface PendingProviderOrder {
   orderId: string;
   accountId: string;
   amount: Money;
 }
 
-export interface PayPalReconciliationResult {
+export interface ProviderReconciliationResult {
   orderId: string;
   attempted: boolean;
   outcome: "finalized" | "still_pending" | "failed";
 }
+
+export type PaymentProvider = NonNullable<BillingOrder["provider"]>;
 
 export interface AdminOperation {
   operationId: string;
@@ -240,6 +243,7 @@ export class BillingService {
     accountId: string;
     idempotencyKey: string;
     amountMinor: number;
+    provider: PaymentProvider;
     createProviderOrder: (orderId: string, amount: Money) => Promise<{
       providerOrderId: string;
       approvalUrl: string;
@@ -251,10 +255,11 @@ export class BillingService {
       amountMinor: input.amountMinor,
       currency: this.currency,
     });
+    const providerName = input.provider;
     const claim = await this.store.transaction((state) => {
       const scope = idempotencyScope(
         input.accountId,
-        "paypal_order",
+        `${providerName}_order`,
         input.idempotencyKey,
       );
       const replay = state.idempotencies.get(scope);
@@ -277,6 +282,7 @@ export class BillingService {
           orderId,
           accountId: input.accountId,
           amount,
+          provider: providerName,
           status: "pending",
           createdAt: this.now().toISOString(),
           updatedAt: this.now().toISOString(),
@@ -296,7 +302,7 @@ export class BillingService {
       ) {
         return { kind: "pending" as const, order: structuredClone(order) };
       }
-      const attemptId = this.createId("paypal_attempt");
+      const attemptId = this.createId(`${providerName}_attempt`);
       order.providerCreation = {
         attemptId,
         startedAt: this.now().toISOString(),
@@ -369,22 +375,28 @@ export class BillingService {
    * Returns a bounded, stable projection of pending provider intents. This is a
    * read of the single billing aggregate, not a collection scan.
    */
-  async stalePendingPayPalOrders(
+  async stalePendingProviderOrders(
+    provider: PaymentProvider,
     at: Date,
     limit = 25,
-  ): Promise<PendingPayPalOrder[]> {
+  ): Promise<PendingProviderOrder[]> {
     if (!Number.isFinite(at.getTime())) {
       throw new Error("Invalid reconciliation time");
     }
     if (!Number.isSafeInteger(limit) || limit <= 0) {
-      throw new Error("PayPal reconciliation limit must be a positive integer");
+      throw new Error(
+        "Payment reconciliation limit must be a positive integer",
+      );
     }
     const boundedLimit = Math.min(limit, 100);
     const cutoff = at.getTime() - this.providerCreationRecoveryMs;
     return await this.store.read((state) =>
       [...state.orders.values()]
         .filter((order) => {
-          if (order.status !== "pending" || order.providerOrderId) return false;
+          if (
+            order.status !== "pending" || order.providerOrderId ||
+            (order.provider ?? "paypal") !== provider
+          ) return false;
           const staleAt = order.providerCreation?.startedAt ??
             order.providerCreationFailure?.failedAt;
           return staleAt !== undefined && Date.parse(staleAt) <= cutoff;
@@ -411,16 +423,20 @@ export class BillingService {
    * ID as the provider request identity. The provider call is deliberately
    * between two short aggregate transactions.
    */
-  async reconcilePendingPayPalOrder(
+  async reconcilePendingProviderOrder(
     orderId: string,
+    providerName: PaymentProvider,
     createProviderOrder: (orderId: string, amount: Money) => Promise<{
       providerOrderId: string;
       approvalUrl: string;
     }>,
-  ): Promise<PayPalReconciliationResult> {
+  ): Promise<ProviderReconciliationResult> {
     const claim = await this.store.transaction((state) => {
       const order = state.orders.get(orderId);
-      if (!order || order.status !== "pending" || order.providerOrderId) {
+      if (
+        !order || order.status !== "pending" || order.providerOrderId ||
+        (order.provider ?? "paypal") !== providerName
+      ) {
         return { kind: "complete" as const };
       }
       if (
@@ -429,7 +445,7 @@ export class BillingService {
       ) {
         return { kind: "pending" as const };
       }
-      const attemptId = this.createId("paypal_attempt");
+      const attemptId = this.createId(`${providerName}_attempt`);
       order.providerCreation = {
         attemptId,
         startedAt: this.now().toISOString(),
@@ -503,18 +519,55 @@ export class BillingService {
     });
   }
 
-  async recordPaypalCredit(
-    providerOrderId: string,
+  async recordWaffoCredit(
+    orderId: string,
     webhookEventId: string,
     rawBody: string,
+    paidAmount: Money,
   ): Promise<{ duplicate: boolean; order?: PublicOrder }> {
+    return await this.recordProviderCredit({
+      provider: "waffo",
+      orderId,
+      webhookEventId,
+      rawBody,
+      paidAmount,
+      ledgerKind: "waffo_credit",
+      orderNotFoundCode: "waffo_order_not_found",
+    });
+  }
+
+  private async recordProviderCredit(input: {
+    provider: PaymentProvider;
+    orderId?: string;
+    providerOrderId?: string;
+    webhookEventId: string;
+    rawBody: string;
+    paidAmount?: Money;
+    ledgerKind: LedgerKind;
+    orderNotFoundCode: string;
+  }): Promise<{ duplicate: boolean; order?: PublicOrder }> {
     return await this.store.transaction((state) => {
-      if (state.webhookEventIds.has(webhookEventId)) return { duplicate: true };
-      const orderId = state.ordersByProviderId.get(providerOrderId);
-      if (!orderId) fail(422, "paypal_order_not_found");
+      if (state.webhookEventIds.has(input.webhookEventId)) {
+        return { duplicate: true };
+      }
+      const orderId = input.orderId ??
+        (input.providerOrderId
+          ? state.ordersByProviderId.get(input.providerOrderId)
+          : undefined);
+      if (!orderId) fail(422, input.orderNotFoundCode);
       const order = state.orders.get(orderId)!;
+      if ((order.provider ?? "paypal") !== input.provider) {
+        fail(422, input.orderNotFoundCode);
+      }
+      if (
+        input.paidAmount &&
+        (input.paidAmount.currency !== order.amount.currency ||
+          input.paidAmount.amountMinor !== order.amount.amountMinor)
+      ) {
+        fail(422, "payment_amount_mismatch");
+      }
       if (order.status === "completed") {
-        state.webhookEventIds.add(webhookEventId);
+        state.webhookEventIds.add(input.webhookEventId);
         return { duplicate: true, order: publicOrder(order) };
       }
       const balance = state.balances.get(order.accountId) ?? {
@@ -533,13 +586,13 @@ export class BillingService {
       appendLedger(state, {
         ledgerEntryId: this.createId("ledger"),
         accountId: order.accountId,
-        kind: "paypal_credit",
+        kind: input.ledgerKind,
         amount: order.amount,
         occurredAt: this.now().toISOString(),
-        referenceId: webhookEventId,
+        referenceId: input.webhookEventId,
       });
-      state.webhookEventIds.add(webhookEventId);
-      state.webhookRawBodies.set(webhookEventId, rawBody);
+      state.webhookEventIds.add(input.webhookEventId);
+      state.webhookRawBodies.set(input.webhookEventId, input.rawBody);
       return { duplicate: false, order: publicOrder(order) };
     });
   }

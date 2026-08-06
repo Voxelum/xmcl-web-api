@@ -19,7 +19,7 @@ import type { WorkerRuntime } from "./lib/worker/runtime.ts";
 import type { XmclPrincipal } from "./lib/session.ts";
 import type { BillingService } from "./lib/billing.ts";
 import type { BillingRuntime } from "./lib/billingRuntime.ts";
-import type { PayPalService } from "./lib/paypal.ts";
+import type { WaffoService } from "./lib/waffo.ts";
 import type { UsageSettlementService } from "./lib/usageSettlement.ts";
 import type { SharedHostingService } from "./lib/sharedHosting.ts";
 import type { SharedHostingScheduler } from "./lib/sharedHostingScheduler.ts";
@@ -101,7 +101,7 @@ export interface AppVariables {
   /** Billing dependencies are injected by platform composition; never browser supplied. */
   billingService?: BillingService;
   billingRuntime?: BillingRuntime;
-  paypalService?: PayPalService;
+  waffoService?: WaffoService;
   usageSettlementService?: UsageSettlementService;
   /** Shared-hosting plan subscriptions and renewal billing. */
   sharedHostingService?: SharedHostingService;

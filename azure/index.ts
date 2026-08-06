@@ -4,19 +4,13 @@ import {
   HttpResponseInit,
   InvocationContext,
 } from "@azure/functions";
-import {
-  createAzureSharedHostingHourlyTimerHandler,
-  createAzureSharedHostingHourlyWorkFactory,
-  SHARED_HOSTING_HOURLY_TIMER_SCHEDULE,
-} from "./sharedHostingTimer.ts";
 import { createAzureHttpApp } from "./httpApp.ts";
 
-// Azure Functions entry point. Reuses the shared Hono app and injects the
-// Azure-specific platform behaviour:
+// Azure Functions cold-backup entry point for the API surface:
 //  - geo is resolved from the proxy-forwarded IP via geoip-country.
 //  - MongoDB is accessed through the npm MongoDB driver.
 //  - translation cache misses are recorded for the external batch worker.
-//  - there is no WebSocket multiplayer support.
+// AI, signaling, Durable Objects, and scheduled work remain Cloudflare-owned.
 const environment = process.env as Record<string, string | undefined>;
 const hono = createAzureHttpApp(environment);
 const maximumAzureRequestBytes = 4 * 1024 * 1024;
@@ -116,12 +110,4 @@ azureApp.http("api", {
       return { status: 500, jsonBody: { error: "Internal Server Error" } };
     }
   },
-});
-
-azureApp.timer("shared-hosting-hourly", {
-  schedule: SHARED_HOSTING_HOURLY_TIMER_SCHEDULE,
-  useMonitor: true,
-  handler: createAzureSharedHostingHourlyTimerHandler(
-    createAzureSharedHostingHourlyWorkFactory(),
-  ),
 });

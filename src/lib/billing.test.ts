@@ -5,10 +5,10 @@ import { createApp } from "../app.ts";
 import { BillingService } from "./billing.ts";
 import { type CashRate, MemoryBillingStore } from "./ledger.ts";
 import {
-  FakePayPalProvider,
-  FakePayPalWebhookVerifier,
-  PayPalService,
-} from "./paypal.ts";
+  FakeWaffoProvider,
+  FakeWaffoWebhookVerifier,
+  WaffoService,
+} from "./waffo.ts";
 import {
   type CanonicalUsageEvent,
   type UsageAuthorizationRequest,
@@ -16,7 +16,7 @@ import {
 } from "./usageSettlement.ts";
 import { handleAccountError } from "./accountHttp.ts";
 import { createBillingRoutes } from "../routes/billing.ts";
-import { createPayPalRoutes } from "../routes/paypal.ts";
+import { createWaffoRoutes } from "../routes/waffo.ts";
 import { createUsageSettlementRoutes } from "../routes/usageSettlement.ts";
 import type { AppEnv } from "../types.ts";
 
@@ -32,7 +32,7 @@ const rate: CashRate = {
 function fixture(options: {
   failCreate?: boolean;
   failCreateOnce?: boolean;
-  verifier?: FakePayPalWebhookVerifier;
+  verifier?: FakeWaffoWebhookVerifier;
 } = {}) {
   let ids = 0;
   const store = new MemoryBillingStore();
@@ -42,12 +42,15 @@ function fixture(options: {
     now: () => new Date(now),
     createId: (prefix) => `${prefix}_${++ids}`,
   });
-  const provider = new FakePayPalProvider({
+  const provider = new FakeWaffoProvider({
     failCreate: options.failCreate,
     failCreateOnce: options.failCreateOnce,
   });
-  const verifier = options.verifier ?? new FakePayPalWebhookVerifier();
-  const paypal = new PayPalService(billing, provider, verifier);
+  const verifier = options.verifier ?? new FakeWaffoWebhookVerifier();
+  const waffo = new WaffoService(billing, provider, verifier, {
+    storeId: "STO_xmcl",
+    environment: "test",
+  });
   const usage = new UsageSettlementService(store, billing, {
     now: () => new Date(now),
     createId: (prefix) => `${prefix}_${++ids}`,
@@ -83,25 +86,37 @@ function fixture(options: {
   const app = new Hono<AppEnv>();
   app.onError(handleAccountError);
   app.route("/", createBillingRoutes(billing, resolve));
-  app.route("/", createPayPalRoutes(paypal, resolve));
+  app.route("/", createWaffoRoutes(waffo, resolve));
   app.route("/", createUsageSettlementRoutes(usage, resolve));
-  return { app, billing, paypal, provider, usage, verifier, runtime };
+  return { app, billing, waffo, provider, usage, verifier, runtime };
 }
 
-async function credit(paypal: PayPalService, amountMinor: number) {
-  const order = await paypal.createOrder({
+async function credit(waffo: WaffoService, amountMinor: number) {
+  const order = await waffo.createOrder({
     accountId: "account_1",
     amountMinor,
     idempotencyKey: `credit_${amountMinor}`,
   });
-  await paypal.receiveWebhook(
+  await waffo.receiveWebhook(
     JSON.stringify({
       id: `webhook_${amountMinor}`,
-      event_type: "PAYMENT.CAPTURE.COMPLETED",
-      resource: {
-        supplementary_data: {
-          related_ids: { order_id: `paypal_${order.orderId}` },
-        },
+      timestamp: now,
+      eventType: "order.completed",
+      eventId: `payment_${amountMinor}`,
+      storeId: "STO_xmcl",
+      storeName: "XMCL",
+      mode: "test",
+      data: {
+        orderId: `ORD_${order.orderId}`,
+        buyerEmail: "buyer@example.com",
+        currency: "USD",
+        amount: `${Math.floor(amountMinor / 100)}.${
+          String(amountMinor % 100).padStart(2, "0")
+        }`,
+        taxAmount: "0.00",
+        productName: "XMCL balance",
+        paymentStatus: "succeeded",
+        orderMerchantExternalId: order.orderId,
       },
     }),
     {},
@@ -153,7 +168,7 @@ Deno.test("billing reads and orders require session auth; internal usage require
   const f = fixture();
   assert.equal((await f.app.request("/v1/billing/balance")).status, 401);
   assert.equal(
-    (await f.app.request("/v1/billing/paypal/orders", { method: "POST" }))
+    (await f.app.request("/v1/billing/waffo/orders", { method: "POST" }))
       .status,
     401,
   );
@@ -173,16 +188,16 @@ Deno.test("billing reads and orders require session auth; internal usage require
 Deno.test("the shared Hono app registers the Billing route families", () => {
   const paths = createApp().routes.map((route) => route.path);
   assert(paths.includes("/v1/billing/balance"));
-  assert(paths.includes("/v1/billing/paypal/orders"));
+  assert(paths.includes("/v1/billing/waffo/orders"));
   assert(paths.includes("/v1/internal/usage/authorize"));
-  assert(paths.includes("/v1/webhooks/paypal"));
+  assert(paths.includes("/v1/webhooks/waffo"));
   assert(paths.includes("/v1/shared-hosting/services"));
 });
 
-Deno.test("PayPal order replays deterministically, conflicts on a changed intent, and never credits a provider failure", async () => {
+Deno.test("Waffo order replays deterministically, conflicts on a changed intent, and never credits a provider failure", async () => {
   const f = fixture();
   const request = (amountMinor: number) =>
-    f.app.request("/v1/billing/paypal/orders", {
+    f.app.request("/v1/billing/waffo/orders", {
       method: "POST",
       headers: {
         authorization: "Bearer user",
@@ -207,7 +222,7 @@ Deno.test("PayPal order replays deterministically, conflicts on a changed intent
   assert.equal((await request(101)).status, 409);
 
   const failing = fixture({ failCreate: true });
-  const unavailable = await failing.app.request("/v1/billing/paypal/orders", {
+  const unavailable = await failing.app.request("/v1/billing/waffo/orders", {
     method: "POST",
     headers: {
       authorization: "Bearer user",
@@ -224,7 +239,7 @@ Deno.test("PayPal order replays deterministically, conflicts on a changed intent
 
   const retrying = fixture({ failCreateOnce: true });
   const retryRequest = () =>
-    retrying.app.request("/v1/billing/paypal/orders", {
+    retrying.app.request("/v1/billing/waffo/orders", {
       method: "POST",
       headers: {
         authorization: "Bearer user",
@@ -245,7 +260,7 @@ Deno.test("PayPal order replays deterministically, conflicts on a changed intent
   );
 });
 
-Deno.test("a duplicate PayPal intent does not invoke the provider while its durable attempt is active", async () => {
+Deno.test("a duplicate Waffo intent does not invoke the provider while its durable attempt is active", async () => {
   let ids = 0;
   const billing = new BillingService(new MemoryBillingStore(), {
     currency: "USD",
@@ -267,14 +282,15 @@ Deno.test("a duplicate PayPal intent does not invoke the provider while its dura
     began();
     await providerFinish;
     return {
-      providerOrderId: `paypal_${orderId}`,
-      approvalUrl: `https://paypal.invalid/checkout/${orderId}`,
+      providerOrderId: `cs_${orderId}`,
+      approvalUrl: `https://checkout.waffo.invalid/${orderId}`,
     };
   };
   const first = billing.createOrder({
     accountId: "account_1",
     idempotencyKey: "order_concurrent",
     amountMinor: 100,
+    provider: "waffo",
     createProviderOrder,
   });
   await providerBegan;
@@ -282,6 +298,7 @@ Deno.test("a duplicate PayPal intent does not invoke the provider while its dura
     accountId: "account_1",
     idempotencyKey: "order_concurrent",
     amountMinor: 100,
+    provider: "waffo",
     createProviderOrder,
   });
   assert.equal(providerCalls, 1);
@@ -292,13 +309,14 @@ Deno.test("a duplicate PayPal intent does not invoke the provider while its dura
     accountId: "account_1",
     idempotencyKey: "order_concurrent",
     amountMinor: 100,
+    provider: "waffo",
     createProviderOrder,
   });
   assert.deepEqual(replay, completed);
   assert.equal(providerCalls, 1);
 });
 
-Deno.test("a stale PayPal provider attempt is recoverable with its original provider request ID", async () => {
+Deno.test("a stale Waffo provider attempt is recoverable with its original provider request ID", async () => {
   let ids = 0;
   let currentTime = Date.parse(now);
   const billing = new BillingService(new MemoryBillingStore(), {
@@ -322,13 +340,14 @@ Deno.test("a stale PayPal provider attempt is recoverable with its original prov
     accountId: "account_1",
     idempotencyKey: "order_recovery",
     amountMinor: 100,
+    provider: "waffo",
     createProviderOrder: async (orderId) => {
       initialProviderRequestId = orderId;
       firstProviderStarted();
       await delayed;
       return {
         providerOrderId: `late_${orderId}`,
-        approvalUrl: `https://paypal.invalid/checkout/late/${orderId}`,
+        approvalUrl: `https://checkout.waffo.invalid/late/${orderId}`,
       };
     },
   });
@@ -338,11 +357,12 @@ Deno.test("a stale PayPal provider attempt is recoverable with its original prov
     accountId: "account_1",
     idempotencyKey: "order_recovery",
     amountMinor: 100,
+    provider: "waffo",
     createProviderOrder: async (orderId) => {
       recoveryProviderRequestId = orderId;
       return {
-        providerOrderId: `paypal_${orderId}`,
-        approvalUrl: `https://paypal.invalid/checkout/${orderId}`,
+        providerOrderId: `cs_${orderId}`,
+        approvalUrl: `https://checkout.waffo.invalid/${orderId}`,
       };
     },
   });
@@ -359,19 +379,32 @@ Deno.test("a stale PayPal provider attempt is recoverable with its original prov
   );
 });
 
-Deno.test("verified raw PayPal webhooks credit once; invalid and duplicate bodies cannot credit twice", async () => {
+Deno.test("verified raw Waffo webhooks credit once; invalid and duplicate bodies cannot credit twice", async () => {
   const validRaw = JSON.stringify({
     id: "webhook_valid",
-    event_type: "PAYMENT.CAPTURE.COMPLETED",
-    resource: {
-      supplementary_data: { related_ids: { order_id: "paypal_order_1" } },
+    timestamp: now,
+    eventType: "order.completed",
+    eventId: "payment_valid",
+    storeId: "STO_xmcl",
+    storeName: "XMCL",
+    mode: "test",
+    data: {
+      orderId: "ORD_waffo",
+      buyerEmail: "buyer@example.com",
+      currency: "USD",
+      amount: "1.00",
+      taxAmount: "0.00",
+      productName: "XMCL balance",
+      paymentStatus: "succeeded",
+      orderMerchantExternalId: "order_1",
     },
   });
-  const verifier = new FakePayPalWebhookVerifier(({ rawBody }) =>
-    rawBody === validRaw
-  );
+  const verifier = new FakeWaffoWebhookVerifier(({ rawBody }) => {
+    if (rawBody !== validRaw) throw new Error("invalid signature");
+    return JSON.parse(rawBody);
+  });
   const f = fixture({ verifier });
-  await f.app.request("/v1/billing/paypal/orders", {
+  await f.app.request("/v1/billing/waffo/orders", {
     method: "POST",
     headers: {
       authorization: "Bearer user",
@@ -380,21 +413,21 @@ Deno.test("verified raw PayPal webhooks credit once; invalid and duplicate bodie
     },
     body: JSON.stringify({ amountMinor: 100 }),
   });
-  const invalid = await f.app.request("/v1/webhooks/paypal", {
+  const invalid = await f.app.request("/v1/webhooks/waffo", {
     method: "POST",
     body: validRaw.replace('"webhook_valid"', '"webhook_invalid"'),
   });
   assert.equal(invalid.status, 401);
   assert.equal((await f.billing.balance("account_1")).available.amountMinor, 0);
-  const first = await f.app.request("/v1/webhooks/paypal", {
+  const first = await f.app.request("/v1/webhooks/waffo", {
     method: "POST",
     body: validRaw,
   });
-  const duplicate = await f.app.request("/v1/webhooks/paypal", {
+  const duplicate = await f.app.request("/v1/webhooks/waffo", {
     method: "POST",
     body: validRaw,
   });
-  assert.equal(first.status, 202);
+  assert.equal(first.status, 200);
   assert.equal(
     (await duplicate.json() as { duplicate: boolean }).duplicate,
     true,
@@ -403,16 +436,19 @@ Deno.test("verified raw PayPal webhooks credit once; invalid and duplicate bodie
     (await f.billing.balance("account_1")).available.amountMinor,
     100,
   );
-  assert.deepEqual(verifier.verifiedRawBodies, [
-    validRaw.replace('"webhook_valid"', '"webhook_invalid"'),
-    validRaw,
-    validRaw,
-  ]);
+  assert.deepEqual(
+    verifier.verifiedInputs.map(({ rawBody }) => rawBody),
+    [
+      validRaw.replace('"webhook_valid"', '"webhook_invalid"'),
+      validRaw,
+      validRaw,
+    ],
+  );
 });
 
 Deno.test("usage reserves cash, settles once, and rejects duplicate, out-of-order, and overlapping streams", async () => {
   const f = fixture();
-  await credit(f.paypal, 200);
+  await credit(f.waffo, 200);
   const authorization = await f.usage.authorize("producer_1", auth());
   assert.deepEqual(await f.billing.balance("account_1"), {
     accountId: "account_1",
@@ -486,7 +522,7 @@ Deno.test("usage reserves cash, settles once, and rejects duplicate, out-of-orde
 
 Deno.test("a usage event exceeding its reservation returns stop_required without a negative balance", async () => {
   const f = fixture();
-  await credit(f.paypal, 60);
+  await credit(f.waffo, 60);
   const authorization = await f.usage.authorize("producer_1", auth());
   const result = await f.usage.settle(
     "producer_1",

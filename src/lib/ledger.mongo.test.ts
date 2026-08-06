@@ -228,32 +228,39 @@ Deno.test("MongoBillingStore rejects a commit if its lease token no longer owns 
   assert.equal(snapshot, undefined);
 });
 
-Deno.test("PayPal provider creation runs after the Mongo billing lease is released", async () => {
+Deno.test("Waffo provider creation runs after the Mongo billing lease is released", async () => {
   const db = new FakeDb();
   const now = new Date("2026-07-24T00:00:00.000Z");
-  const billing = new BillingService(new MongoBillingStore(db, { now: () => now }), {
-    currency: "USD",
-    rates: [],
-    now: () => now,
-    createId: (prefix) => `${prefix}_1`,
-  });
+  const billing = new BillingService(
+    new MongoBillingStore(db, { now: () => now }),
+    {
+      currency: "USD",
+      rates: [],
+      now: () => now,
+      createId: (prefix) => `${prefix}_1`,
+    },
+  );
   let providerCalled = false;
 
   const order = await billing.createOrder({
     accountId: "account_1",
-    idempotencyKey: "paypal_order_1",
+    idempotencyKey: "waffo_order_1",
     amountMinor: 100,
+    provider: "waffo",
     createProviderOrder: async (orderId) => {
       providerCalled = true;
       const document = db.collectionValue.documents.get("billing-state-v1")!;
       assert.equal(valueAt(document, "lease"), undefined);
       return {
-        providerOrderId: `paypal_${orderId}`,
-        approvalUrl: `https://paypal.invalid/checkout/${orderId}`,
+        providerOrderId: `cs_${orderId}`,
+        approvalUrl: `https://checkout.waffo.invalid/${orderId}`,
       };
     },
   });
 
   assert.equal(providerCalled, true);
-  assert.equal(order.approvalUrl, "https://paypal.invalid/checkout/order_1");
+  assert.equal(
+    order.approvalUrl,
+    "https://checkout.waffo.invalid/order_1",
+  );
 });

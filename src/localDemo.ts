@@ -45,10 +45,10 @@ import type {
   VerifiedIdentity,
 } from "./lib/oauth/types.ts";
 import {
-  FakePayPalProvider,
-  FakePayPalWebhookVerifier,
-  PayPalService,
-} from "./lib/paypal.ts";
+  FakeWaffoProvider,
+  FakeWaffoWebhookVerifier,
+  WaffoService,
+} from "./lib/waffo.ts";
 import { MemoryServerRepository } from "./lib/serverRepository.ts";
 import { createServerControlRuntime } from "./lib/serverControlRuntime.ts";
 import { type PublicSession, USER_SESSION_SCOPES } from "./lib/session.ts";
@@ -712,10 +712,11 @@ export async function createLocalDemoApp(): Promise<LocalDemoApp> {
     totalSharedCpu: 8,
     totalWorkspaceGiB: 128,
   });
-  const paypal = new PayPalService(
+  const waffo = new WaffoService(
     billing,
-    new FakePayPalProvider(),
-    new FakePayPalWebhookVerifier(),
+    new FakeWaffoProvider(),
+    new FakeWaffoWebhookVerifier(),
+    { storeId: "STO_demo", environment: "test" },
   );
 
   const serverRepository = new MemoryServerRepository();
@@ -1063,7 +1064,7 @@ export async function createLocalDemoApp(): Promise<LocalDemoApp> {
       );
       context.set("accountRuntime", accountRuntime);
       context.set("billingService", billing);
-      context.set("paypalService", paypal);
+      context.set("waffoService", waffo);
       context.set("usageSettlementService", usage);
       context.set("sharedHostingService", sharedHosting);
       context.set("sharedHostingScheduler", sharedHostingScheduler);
@@ -1147,7 +1148,7 @@ export async function createLocalDemoApp(): Promise<LocalDemoApp> {
       server: { serverId: DEMO_SERVER_ID, leaseId: DEMO_LEASE_ID },
       modpackArchive: archive,
       mockBoundaries: [
-        "No real PayPal, Vultr, AI, object storage, MongoDB, or OAuth provider is used.",
+        "No real Waffo, Vultr, AI, object storage, MongoDB, or OAuth provider is used.",
         "Object-storage and modpack uploads are accepted in memory when their upload URL is issued.",
       ],
     });

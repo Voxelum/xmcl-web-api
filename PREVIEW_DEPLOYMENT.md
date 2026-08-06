@@ -1,8 +1,8 @@
 # `mot` preview deployment
 
 Deploy the `mot` branch only to isolated preview resources. Do not reuse the
-production MongoDB database, Cloudflare Worker resources, Function App slot settings,
-or custom hostname.
+production MongoDB database, Cloudflare Worker resources, Function App slot
+settings, or custom hostname.
 
 The current production composition intentionally does not include durable
 commercial adapters, so those routes are unmounted by code. Use
@@ -12,25 +12,25 @@ commercial adapters, so those routes are unmounted by code. Use
 
 The following values are needed only by the route families you enable. Store
 secrets in the platform secret store, never in a committed `.env`, deployment
-command, or `wrangler.toml`.
+command, or Wrangler config.
 
-| Setting | Preview value / notes |
-| --- | --- |
-| `MONGO_CONNECION_STRING` | Dedicated preview MongoDB user and database. The spelling is intentionally `CONNECION`. |
-| `MONGODB_NAME` | e.g. `xmcl-api-preview-mot`; do not use the production database. |
-| `GITHUB_PAT` | Fine-grained, read-only preview token for release/issue endpoints. |
-| `CURSEFORGE_KEY` | Preview-specific credential for CurseForge description fetches. |
-| `AGNES_API_KEY` | External translation batch worker secret; it is not a Cloudflare Worker secret. |
-| `AGNES_API_KEYS` | JSON array stored as one Worker secret for the authenticated `/v1/chat/completions` proxy. This is separate from the translation worker's singular key. |
-| `AGNES_DEFAULT_MODEL` | Optional server-owned model for the Launcher proxy; defaults to `agnes-2.5-flash`. Client model values are ignored. |
-| `RTC_SECRET`, `TURNS`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_APP_ID` | Preview-only RTC configuration, if RTC is required. |
-| `XMCL_SESSION_SECRET` | New random preview secret, never copied from production. |
-| `XMCL_MICROSOFT_*`, `XMCL_GOOGLE_*`, `XMCL_DISCORD_*` | Preview OAuth application credentials. |
-| `XMCL_OAUTH_REDIRECT_URIS` | Exact comma-separated HTTPS website callback URLs. Register every value with the corresponding provider application; the production website callback is `https://xmcl.app/oauth/callback`. Launcher OAuth uses its code-owned loopback callback and needs no setting. |
+| Setting                                                            | Preview value / notes                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MONGO_CONNECION_STRING`                                           | Dedicated preview MongoDB user and database. The spelling is intentionally `CONNECION`.                                                                                                                                                                               |
+| `MONGODB_NAME`                                                     | e.g. `xmcl-api-preview-mot`; do not use the production database.                                                                                                                                                                                                      |
+| `GITHUB_PAT`                                                       | Fine-grained, read-only preview token for release/issue endpoints.                                                                                                                                                                                                    |
+| `CURSEFORGE_KEY`                                                   | Preview-specific credential for CurseForge description fetches.                                                                                                                                                                                                       |
+| `AGNES_API_KEY`                                                    | External translation batch worker secret; it is not a Cloudflare Worker secret.                                                                                                                                                                                       |
+| `AGNES_API_KEYS`                                                   | JSON array stored as one Worker secret for the authenticated `/v1/chat/completions` proxy. This is separate from the translation worker's singular key.                                                                                                               |
+| `AGNES_DEFAULT_MODEL`                                              | Optional server-owned model for the Launcher proxy; defaults to `agnes-2.5-flash`. Client model values are ignored.                                                                                                                                                   |
+| `RTC_SECRET`, `TURNS`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_APP_ID` | Preview-only RTC configuration, if RTC is required.                                                                                                                                                                                                                   |
+| `XMCL_SESSION_SECRET`                                              | New random preview secret, never copied from production.                                                                                                                                                                                                              |
+| `XMCL_MICROSOFT_*`, `XMCL_GOOGLE_*`, `XMCL_DISCORD_*`              | Preview OAuth application credentials.                                                                                                                                                                                                                                |
+| `XMCL_OAUTH_REDIRECT_URIS`                                         | Exact comma-separated HTTPS website callback URLs. Register every value with the corresponding provider application; the production website callback is `https://xmcl.app/oauth/callback`. Launcher OAuth uses its code-owned loopback callback and needs no setting. |
 
 Set `XMCL_MODRINTH_CLIENT_SECRET` to the raw client secret. Set
-`XMCL_MODRINTH_CLIENT_ID` only when overriding the existing registered client
-ID for a separate preview OAuth application.
+`XMCL_MODRINTH_CLIENT_ID` only when overriding the existing registered client ID
+for a separate preview OAuth application.
 
 After each deployment, verify:
 
@@ -43,10 +43,9 @@ For Azure Functions, prepend `/api` to those paths.
 
 ## Azure Functions deployment slot
 
-This repository uses the Node.js v4 Functions worker and requires Node 20,
-Azure Functions Core Tools, Azure CLI, and the root `package.json`,
-`host.json`, `azure/index.js`, and runtime dependencies in the deployment
-package.
+This repository uses the Node.js v4 Functions worker and requires Node 20, Azure
+Functions Core Tools, Azure CLI, and the root `package.json`, `host.json`,
+`azure/index.js`, and runtime dependencies in the deployment package.
 
 1. Create a `mot` deployment slot on a non-production Function App. The App
    Service plan must support deployment slots.
@@ -58,9 +57,9 @@ $slot = "mot"
 az functionapp deployment slot create --resource-group $rg --name $app --slot $slot
 ```
 
-2. Configure the slot's runtime and slot-sticky non-secret settings. Add
-   secrets through Key Vault references or the Azure portal's **Deployment
-   slot setting** UI.
+2. Configure the slot's runtime and slot-sticky non-secret settings. Add secrets
+   through Key Vault references or the Azure portal's **Deployment slot
+   setting** UI.
 
 ```powershell
 az functionapp config set --resource-group $rg --name $app --slot $slot `
@@ -93,10 +92,9 @@ The preview URL is normally
 
 ## Cloudflare Workers
 
-Use a distinct Worker name, Mongo database, and route.
-Bindings are not inherited by Wrangler environments, so do not add a partial
-`[env.mot]` block to the production `wrangler.toml`. Instead create a separate
-preview config:
+Use a distinct Worker name, Mongo database, and route. Use one explicit surface
+for each preview Worker. For an API preview, start from the dedicated API
+example config:
 
 ```powershell
 cd cloudflare
@@ -104,10 +102,11 @@ Copy-Item wrangler.preview.toml.example wrangler.mot.toml
 ```
 
 1. Replace every `REPLACE_WITH_*` value in `wrangler.mot.toml`.
-2. The Durable Object is isolated by the separate Worker name; retain the
-included `mot-v1` migration. Translation misses use the preview Mongo request
-ledger and are processed by the external batch worker, so this Worker needs no
-translation KV namespace or Queue.
+2. This API preview intentionally has no Durable Object. Create separate AI or
+   signaling preview configs only when those surfaces are part of the preview.
+   Translation misses use the preview Mongo request ledger and are processed by
+   the external batch worker, so this Worker needs no translation KV namespace
+   or Queue.
 
 3. Set preview-only secrets. Run each command from `cloudflare/`:
 
@@ -134,8 +133,8 @@ only after the smoke checks pass.
 
 - Azure: redeploy the last known-good ZIP to the `mot` slot. Do not swap the
   slot into production as part of preview validation.
-- Cloudflare: `npx wrangler rollback --config wrangler.mot.toml`, or deploy
-  the previous commit with the same config.
+- Cloudflare: `npx wrangler rollback --config wrangler.mot.toml`, or deploy the
+  previous commit with the same config.
 
 Delete the preview Mongo database/user, OAuth redirect URL, Worker, slot, and
 preview project when `mot` is no longer needed.

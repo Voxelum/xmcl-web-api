@@ -34,6 +34,13 @@ Deno.test("application errors are correlated and sanitized", async () => {
 });
 
 Deno.test("isolated route surfaces expose only their owned APIs", () => {
+  const apiPaths = createApp(undefined, { routeSurface: "api" }).routes.map(
+    (route) => route.path,
+  );
+  assert.equal(apiPaths.includes("/translation"), true);
+  assert.equal(apiPaths.includes("/v1/chat/completions"), false);
+  assert.equal(apiPaths.includes("/v1/rtc/official"), false);
+
   const aiPaths = createApp(undefined, { routeSurface: "ai" }).routes.map(
     (route) => route.path,
   );

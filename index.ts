@@ -1,6 +1,6 @@
 import { createDbMiddleware } from "./src/middleware/db.ts";
 import { geoipMiddleware } from "./src/middleware/geoip.ts";
-import { getDb } from "./src/platform/db_deno.ts";
+import { getDb } from "./src/platform/db_npm.ts";
 import { isRetiredServicePath } from "./src/realtime/match.ts";
 import {
   runServerControlScheduledSweep,
@@ -8,9 +8,8 @@ import {
 } from "./src/lib/serverControlScheduling.ts";
 import { createProductionApp } from "./src/lib/productionComposition.ts";
 
-// Deno entry point. It injects geoip and the Deno-native MongoDB driver into
-// the shared app. Translation cache misses only write the Mongo request ledger;
-// the external batch worker performs translation.
+// Local Deno entry point. It uses the same npm MongoDB adapter as production so
+// local behavior does not require a separate runtime-specific implementation.
 const app = createProductionApp((a) => {
   a.use("*", geoipMiddleware);
   a.use("*", createDbMiddleware(getDb));

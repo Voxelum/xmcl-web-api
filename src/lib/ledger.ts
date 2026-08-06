@@ -26,6 +26,7 @@ export interface CashBalance {
 
 export type LedgerKind =
   | "paypal_credit"
+  | "waffo_credit"
   | "reservation"
   | "reservation_release"
   | "usage_charge"
@@ -61,6 +62,8 @@ export interface BillingOrder {
   orderId: string;
   accountId: string;
   amount: Money;
+  /** Missing on legacy records and therefore treated as PayPal. */
+  provider?: "paypal" | "waffo";
   providerOrderId?: string;
   approvalUrl?: string;
   providerCreation?: {
