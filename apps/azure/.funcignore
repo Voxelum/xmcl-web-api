@@ -2,4 +2,3 @@
 local.settings.json
 **/*.ts
 *.js.map
-node_modules

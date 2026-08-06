@@ -1,0 +1,52 @@
+name: Deploy XMCL API cold mirror to Azure
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/azure/**"
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/main_xmcl-core-api-azure.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install application dependencies
+        run: npm ci --omit=optional
+
+      - name: Build Azure Function
+        run: npm run build:azure
+
+      - name: Install Azure production dependencies
+        run: npm ci --omit=dev --omit=optional --prefix apps/azure
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_6AE2A68C882B404899639A55D62EF4DD }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_FBBD2041BFF8473FAB1AE3C92DF1CD54 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_C61BBBA102A04788B37A30925845D84F }}
+
+      - name: Deploy Azure Function
+        uses: Azure/functions-action@v1
+        with:
+          app-name: xmcl-core-api
+          slot-name: Production
+          package: apps/azure
