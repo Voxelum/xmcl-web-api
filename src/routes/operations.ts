@@ -6,8 +6,8 @@ import {
   AdminOperationError,
   AdminOperationService,
   assertAdminPermission,
-} from "../lib/operations.ts";
-import type { BillingService } from "../lib/billing.ts";
+} from "../operations.ts";
+import type { BillingService } from "../billing.ts";
 import type { AppEnv } from "../types.ts";
 
 const accountAction = (path: string): AdminOperationAction =>

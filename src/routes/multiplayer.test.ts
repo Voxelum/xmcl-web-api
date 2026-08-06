@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Hono } from "hono";
-import type { AccountRuntime } from "../lib/accountRuntime.ts";
-import { verifyMultiplayerTicket } from "../lib/multiplayerTicket.ts";
+import type { AccountRuntime } from "../accountRuntime.ts";
+import { verifyMultiplayerTicket } from "../multiplayerTicket.ts";
 import type { AppEnv } from "../types.ts";
 import { createMultiplayerRoutes } from "./multiplayer.ts";
 

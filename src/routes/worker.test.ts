@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import {
   signWorkerRequest,
   WorkerRequestAuthenticator,
-} from "../lib/workerAuth.ts";
-import { MemoryWorkerRepository } from "../lib/workerRepository.ts";
+} from "../workerAuth.ts";
+import { MemoryWorkerRepository } from "../workerRepository.ts";
 import {
   type LeaseBinding,
   WorkerRuntimeService,
-} from "../lib/worker/service.ts";
-import { workerFixtures } from "../lib/worker/fixtures.ts";
+} from "../worker/service.ts";
+import { workerFixtures } from "../worker/fixtures.ts";
 import { createWorkerRoutes } from "./worker.ts";
 
 const now = "2026-07-22T10:02:00.000Z";

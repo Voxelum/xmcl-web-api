@@ -1,9 +1,9 @@
 import { type Context, Hono } from "hono";
-import { AccountError } from "../lib/account.ts";
-import { handleAccountError } from "../lib/accountHttp.ts";
-import { getBillingRuntime } from "../lib/billingRuntime.ts";
-import type { BillingService } from "../lib/billing.ts";
-import { getAccountRuntime } from "../lib/accountRuntime.ts";
+import { AccountError } from "../account.ts";
+import { handleAccountError } from "../accountHttp.ts";
+import { getBillingRuntime } from "../billingRuntime.ts";
+import type { BillingService } from "../billing.ts";
+import { getAccountRuntime } from "../accountRuntime.ts";
 import type { AccountRuntimeResolver } from "../middleware/xmclAuth.ts";
 import { xmclAuth } from "../middleware/xmclAuth.ts";
 import type { AppEnv } from "../types.ts";

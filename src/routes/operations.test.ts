@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createApp } from "../app.ts";
-import type { AuditEvent, AuditLog } from "../lib/audit.ts";
+import type { AuditEvent, AuditLog } from "../audit.ts";
 import type {
   AdminOperation,
   AdminOperationCompletedEvent,
@@ -9,7 +9,7 @@ import type {
   AdminPrincipalAuthenticator,
   BillingAdminOperationCommandAdapter,
   ServerControlAdminOperationCommandAdapter,
-} from "../lib/operations.ts";
+} from "../operations.ts";
 
 class MemoryOperations implements AdminOperationRepository {
   readonly values = new Map<string, AdminOperation>();

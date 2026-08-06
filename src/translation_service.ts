@@ -1,5 +1,5 @@
 import type { Db } from "./db.ts";
-import { translate } from "./lib/translation.ts";
+import { translate } from "./translation.ts";
 
 export interface TranslationJob {
   lang: string;

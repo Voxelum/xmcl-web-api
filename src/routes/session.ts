@@ -1,14 +1,14 @@
 import type { Context } from "hono";
 import { Hono } from "hono";
 import type { AppEnv } from "../types.ts";
-import { AccountError } from "../lib/account.ts";
+import { AccountError } from "../account.ts";
 import {
   type AccountRuntime,
   getAccountRuntime,
-} from "../lib/accountRuntime.ts";
-import { handleAccountError, jsonBody } from "../lib/accountHttp.ts";
-import { createOAuthRedirectPolicy } from "../lib/oauth/redirectPolicy.ts";
-import { isOAuthProvider, type OAuthProvider } from "../lib/oauth/types.ts";
+} from "../accountRuntime.ts";
+import { handleAccountError, jsonBody } from "../accountHttp.ts";
+import { createOAuthRedirectPolicy } from "../oauth/redirectPolicy.ts";
+import { isOAuthProvider, type OAuthProvider } from "../oauth/types.ts";
 import type { AccountRuntimeResolver } from "../middleware/xmclAuth.ts";
 import { xmclAuth } from "../middleware/xmclAuth.ts";
 

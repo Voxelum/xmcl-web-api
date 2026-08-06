@@ -3,17 +3,17 @@ import { createApp } from "../app.ts";
 import {
   signWorkerRequest,
   WorkerRequestAuthenticator,
-} from "../lib/workerAuth.ts";
-import { MemoryWorkerRepository } from "../lib/workerRepository.ts";
+} from "../workerAuth.ts";
+import { MemoryWorkerRepository } from "../workerRepository.ts";
 import {
   createWorkerRuntime,
   type WorkerRuntime,
-} from "../lib/worker/runtime.ts";
-import { type LeaseBinding } from "../lib/worker/service.ts";
+} from "../worker/runtime.ts";
+import { type LeaseBinding } from "../worker/service.ts";
 import {
   DeterministicM3SettlementAdapter,
   DeterministicM4LeaseAdapter,
-} from "../lib/worker/testing.ts";
+} from "../worker/testing.ts";
 
 const now = "2026-07-22T10:02:00.000Z";
 const lease: LeaseBinding = {

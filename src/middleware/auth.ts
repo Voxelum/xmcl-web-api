@@ -1,6 +1,6 @@
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
-import { checkMicrosoftAuthenticate } from "../utils/checkMicrosoftAuthenticate.ts";
+import { checkMicrosoftAuthenticate } from "../checkMicrosoftAuthenticate.ts";
 import type { AppEnv, MicrosoftMinecraftProfile } from "../types.ts";
 
 /**

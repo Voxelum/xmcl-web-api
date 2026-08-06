@@ -1,0 +1,10 @@
+{
+  "name": "@xmcl/azure",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "dependencies": {
+    "@azure/functions": "^4.0.0",
+    "geoip-country": "4.2.262"
+  }
+}

@@ -2,22 +2,37 @@
   "name": "xmcl-core-api",
   "version": "1.0.0",
   "private": true,
-  "main": "azure/{index.js,functions/*.js}",
+  "workspaces": [
+    "apps/azure"
+  ],
   "scripts": {
-    "build:azure": "node azure/build.mjs"
+    "build:azure": "node apps/azure/build.mjs",
+    "dev:api": "wrangler dev --config apps/api/wrangler.toml --env-file apps/.dev.vars",
+    "dev:ai": "wrangler dev --config apps/ai/wrangler.toml --env-file apps/.dev.vars",
+    "dev:signaling": "wrangler dev --config apps/signaling/wrangler.toml --env-file apps/.dev.vars",
+    "deploy:api": "wrangler deploy --config apps/api/wrangler.toml",
+    "deploy:ai": "wrangler deploy --config apps/ai/wrangler.toml",
+    "deploy:signaling": "wrangler deploy --config apps/signaling/wrangler.toml",
+    "deploy:workers": "npm run deploy:api && npm run deploy:ai && npm run deploy:signaling",
+    "typecheck:workers": "tsc --noEmit -p tsconfig.workers.json && npm run check:workers",
+    "check:workers": "npm run check:api && npm run check:ai && npm run check:signaling",
+    "check:api": "wrangler deploy --dry-run --config apps/api/wrangler.toml",
+    "check:ai": "wrangler deploy --dry-run --config apps/ai/wrangler.toml",
+    "check:signaling": "wrangler deploy --dry-run --config apps/signaling/wrangler.toml"
   },
   "dependencies": {
-    "@azure/functions": "^4.0.0",
-    "@mikro-orm/core": "^7.1.4",
-    "@mikro-orm/mongodb": "^7.1.4",
-    "geoip-country": "^5.0.0",
-    "hono": "^4.6.0",
+    "@waffo/pancake-ts": "^0.16.0",
+    "geoip-country": "4.2.262",
+    "hono": "4.12.27",
     "mongodb": "6.15.0",
     "node-html-parser": "^6.1.13",
     "semver": "^7.0.0",
     "xxhash-wasm": "^1.1.0"
   },
   "devDependencies": {
-    "esbuild": "^0.20.0"
+    "@types/node": "^20.19.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.5.0",
+    "wrangler": "^4.115.0"
   }
 }

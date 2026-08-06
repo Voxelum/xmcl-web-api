@@ -1,7 +1,7 @@
 export type LegacyTranslationType = "modrinth" | "curseforge";
 
 export interface LegacyTranslationDocument {
-  _id: unknown;
+  _id: string;
   bodyHash?: unknown;
   content?: unknown;
   contentType?: unknown;
@@ -9,7 +9,7 @@ export interface LegacyTranslationDocument {
 }
 
 export interface LegacyTranslationRequest {
-  _id: unknown;
+  _id: string;
   lang?: unknown;
   type?: unknown;
   projectId?: unknown;

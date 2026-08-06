@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { Hono } from "hono";
-import type { AccountRuntime } from "../lib/accountRuntime.ts";
+import type { AccountRuntime } from "../accountRuntime.ts";
 import {
   MemorySharedHostingSchedulerRepository,
   SharedHostingScheduler,
-} from "../lib/sharedHostingScheduler.ts";
+} from "../sharedHostingScheduler.ts";
 import {
   MemorySharedWorldSeedRepository,
   SharedWorldSeedService,
-} from "../lib/sharedWorldSeed.ts";
+} from "../sharedWorldSeed.ts";
 import type { AppEnv } from "../types.ts";
 import { createSharedWorldSeedRoutes } from "./sharedWorldSeeds.ts";
 

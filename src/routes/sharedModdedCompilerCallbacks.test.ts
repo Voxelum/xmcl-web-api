@@ -3,8 +3,8 @@ import { Hono } from "hono";
 import {
   HmacCompilerServiceIdentity,
   type CompilerNonceStore,
-} from "../lib/compilerServiceIdentity.ts";
-import type { SharedModdedRuntimeService } from "../lib/sharedModdedRuntime.ts";
+} from "../compilerServiceIdentity.ts";
+import type { SharedModdedRuntimeService } from "../sharedModdedRuntime.ts";
 import type { AppEnv } from "../types.ts";
 import { createSharedModdedCompilerRoutes } from "./sharedModdedRuntime.ts";
 

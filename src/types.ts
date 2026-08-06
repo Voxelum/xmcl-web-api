@@ -1,6 +1,6 @@
 import type { Db } from "./db.ts";
-import type { AuditEvent, AuditLog } from "./lib/audit.ts";
-import type { MetricsReader } from "./lib/observability.ts";
+import type { AuditEvent, AuditLog } from "./audit.ts";
+import type { MetricsReader } from "./observability.ts";
 import type {
   AdminOperationRepository,
   AdminOperationService,
@@ -8,36 +8,36 @@ import type {
   AdminPrincipalAuthenticator,
   BillingAdminOperationCommandAdapter,
   ServerControlAdminOperationCommandAdapter,
-} from "./lib/operations.ts";
-import type { ReconciliationRepository } from "./lib/reconciliation.ts";
+} from "./operations.ts";
+import type { ReconciliationRepository } from "./reconciliation.ts";
 import type {
   WorldBackupRestoreWorkerPrincipal,
   WorldBackupService,
-} from "./lib/worldBackupService.ts";
-import type { AccountRuntime } from "./lib/accountRuntime.ts";
-import type { WorkerRuntime } from "./lib/worker/runtime.ts";
-import type { XmclPrincipal } from "./lib/session.ts";
-import type { BillingService } from "./lib/billing.ts";
-import type { BillingRuntime } from "./lib/billingRuntime.ts";
-import type { PayPalService } from "./lib/paypal.ts";
-import type { UsageSettlementService } from "./lib/usageSettlement.ts";
-import type { SharedHostingService } from "./lib/sharedHosting.ts";
-import type { SharedHostingScheduler } from "./lib/sharedHostingScheduler.ts";
-import type { SharedHostingBillingScheduledWork } from "./lib/sharedHostingScheduling.ts";
-import type { SharedNodeTransportService } from "./lib/sharedNodeTransport.ts";
-import type { VultrSharedNodeProvisioner } from "./lib/sharedNodeProvisioner.ts";
-import type { AiServiceDependencies } from "./lib/ai/service.ts";
-import type { ServerControlRuntime } from "./lib/serverControlRuntime.ts";
+} from "./worldBackupService.ts";
+import type { AccountRuntime } from "./accountRuntime.ts";
+import type { WorkerRuntime } from "./worker/runtime.ts";
+import type { XmclPrincipal } from "./session.ts";
+import type { BillingService } from "./billing.ts";
+import type { BillingRuntime } from "./billingRuntime.ts";
+import type { WaffoService } from "./waffo.ts";
+import type { UsageSettlementService } from "./usageSettlement.ts";
+import type { SharedHostingService } from "./sharedHosting.ts";
+import type { SharedHostingScheduler } from "./sharedHostingScheduler.ts";
+import type { SharedHostingBillingScheduledWork } from "./sharedHostingScheduling.ts";
+import type { SharedNodeTransportService } from "./sharedNodeTransport.ts";
+import type { VultrSharedNodeProvisioner } from "./sharedNodeProvisioner.ts";
+import type { AiServiceDependencies } from "./ai/service.ts";
+import type { ServerControlRuntime } from "./serverControlRuntime.ts";
 import type {
   ServerCompatibilityGateway,
   WorkerDeploymentGateway,
-} from "./lib/deploymentTasks.ts";
-import type { ModpackDeploymentRuntime } from "./lib/modpackDeploymentRuntime.ts";
+} from "./deploymentTasks.ts";
+import type { ModpackDeploymentRuntime } from "./modpackDeploymentRuntime.ts";
 import type {
   CompilerGrantAuthority,
   SharedModdedRuntimeService,
-} from "./lib/sharedModdedRuntime.ts";
-import type { SharedWorldSeedService } from "./lib/sharedWorldSeed.ts";
+} from "./sharedModdedRuntime.ts";
+import type { SharedWorldSeedService } from "./sharedWorldSeed.ts";
 
 export interface MicrosoftMinecraftProfile {
   id: string;
@@ -101,7 +101,7 @@ export interface AppVariables {
   /** Billing dependencies are injected by platform composition; never browser supplied. */
   billingService?: BillingService;
   billingRuntime?: BillingRuntime;
-  paypalService?: PayPalService;
+  waffoService?: WaffoService;
   usageSettlementService?: UsageSettlementService;
   /** Shared-hosting plan subscriptions and renewal billing. */
   sharedHostingService?: SharedHostingService;

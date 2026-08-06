@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { Range } from "semver";
-import { getNofications } from "../shared/notifications.ts";
+import { getNofications } from "../notifications.ts";
 import { getConfig } from "../config.ts";
 import type { AppEnv } from "../types.ts";
 

@@ -9,13 +9,13 @@ import {
   AgnesUpstreamError,
   DEFAULT_AGNES_MODEL,
   parseAgnesApiKeys,
-} from "../lib/agnes.ts";
-import { handleAccountError, requestId } from "../lib/accountHttp.ts";
-import { getAccountRuntime } from "../lib/accountRuntime.ts";
+} from "../agnes.ts";
+import { handleAccountError, requestId } from "../accountHttp.ts";
+import { getAccountRuntime } from "../accountRuntime.ts";
 import {
   buildLauncherAgentSystemPrompt,
   parseLauncherAgentRequestContext,
-} from "../lib/launcherAgentPrompt.ts";
+} from "../launcherAgentPrompt.ts";
 import type { AccountRuntimeResolver } from "../middleware/xmclAuth.ts";
 import { xmclAuth } from "../middleware/xmclAuth.ts";
 import { proxyResponse } from "../proxy.ts";

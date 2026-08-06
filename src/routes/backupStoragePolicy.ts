@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../types.ts";
-import { handleAccountError } from "../lib/accountHttp.ts";
-import { getAccountRuntime } from "../lib/accountRuntime.ts";
+import { handleAccountError } from "../accountHttp.ts";
+import { getAccountRuntime } from "../accountRuntime.ts";
 import type { AccountRuntimeResolver } from "../middleware/xmclAuth.ts";
 import { xmclAuth } from "../middleware/xmclAuth.ts";
 

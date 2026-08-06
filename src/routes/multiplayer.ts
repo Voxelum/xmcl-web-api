@@ -4,8 +4,8 @@ import { getConfig } from "../config.ts";
 import {
   type MultiplayerRole,
   signMultiplayerTicket,
-} from "../lib/multiplayerTicket.ts";
-import { normalizeMultiplayerRoomId } from "../lib/multiplayerRoomId.ts";
+} from "../multiplayerTicket.ts";
+import { normalizeMultiplayerRoomId } from "../multiplayerRoomId.ts";
 import { xmclAuth } from "../middleware/xmclAuth.ts";
 import type { AccountRuntimeResolver } from "../middleware/xmclAuth.ts";
 import type { AppEnv } from "../types.ts";

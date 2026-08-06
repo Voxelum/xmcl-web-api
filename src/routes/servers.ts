@@ -1,19 +1,19 @@
 import type { Context } from "hono";
 import { Hono } from "hono";
-import { getAccountRuntime } from "../lib/accountRuntime.ts";
+import { getAccountRuntime } from "../accountRuntime.ts";
 import {
   getServerControlRuntime,
   ServerControlRuntimeConfigurationError,
-} from "../lib/serverControlRuntime.ts";
+} from "../serverControlRuntime.ts";
 import type {
   AccountSessionGateway,
   ServerControlPrincipal,
-} from "../lib/serverControlProposals.ts";
+} from "../serverControlProposals.ts";
 import {
   ServerControlError,
   type ServerControlService,
-} from "../lib/serverControl.ts";
-import type { ServerRecord, ServerTask } from "../lib/serverRepository.ts";
+} from "../serverControl.ts";
+import type { ServerRecord, ServerTask } from "../serverRepository.ts";
 import type { AppEnv } from "../types.ts";
 
 export interface ServerRouteDependencies {

@@ -12,7 +12,7 @@ interface KookResponse {
 // which isn't portable to workerd/Azure. Fetch it from the repo raw URL once
 // per isolate and cache it instead.
 const SVG_URL =
-  "https://raw.githubusercontent.com/Voxelum/xmcl-web-api/main/favicon-kook.svg";
+  "https://raw.githubusercontent.com/Voxelum/xmcl-web-api/main/assets/favicon-kook.svg";
 let cachedSvg: string | undefined;
 
 async function getSvg(): Promise<string> {

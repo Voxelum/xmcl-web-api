@@ -1,14 +1,14 @@
 import { Hono } from "hono";
-import { AccountError } from "../lib/account.ts";
-import { handleAccountError, jsonBody } from "../lib/accountHttp.ts";
+import { AccountError } from "../account.ts";
+import { handleAccountError, jsonBody } from "../accountHttp.ts";
 import {
   type CompilerGrantAuthority,
   type RuntimeDescriptor,
   SharedModdedRuntimeError,
   type SharedModdedRuntimeService,
   type SharedRuntimeContentDescriptor,
-} from "../lib/sharedModdedRuntime.ts";
-import { getAccountRuntime } from "../lib/accountRuntime.ts";
+} from "../sharedModdedRuntime.ts";
+import { getAccountRuntime } from "../accountRuntime.ts";
 import type { AccountRuntimeResolver } from "../middleware/xmclAuth.ts";
 import { xmclAuth } from "../middleware/xmclAuth.ts";
 import type { AppEnv } from "../types.ts";

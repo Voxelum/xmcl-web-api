@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { Hono } from "hono";
 import type { AppConfig } from "../config.ts";
-import type { AccountRuntime } from "../lib/accountRuntime.ts";
-import type { AgnesFetch } from "../lib/agnes.ts";
+import type { AccountRuntime } from "../accountRuntime.ts";
+import type { AgnesFetch } from "../agnes.ts";
 import type { AppEnv } from "../types.ts";
 import {
   CHAT_COMPLETIONS_MAX_BODY_BYTES,

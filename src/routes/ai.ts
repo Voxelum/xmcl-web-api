@@ -1,14 +1,14 @@
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { Context } from "hono";
-import { requestId } from "../lib/accountHttp.ts";
-import { handleAccountError } from "../lib/accountHttp.ts";
+import { requestId } from "../accountHttp.ts";
+import { handleAccountError } from "../accountHttp.ts";
 import {
   AiRequestError,
   AiRequestService,
   type AiServiceDependencies,
-} from "../lib/ai/service.ts";
-import { getAccountRuntime } from "../lib/accountRuntime.ts";
+} from "../ai/service.ts";
+import { getAccountRuntime } from "../accountRuntime.ts";
 import type { AccountRuntimeResolver } from "../middleware/xmclAuth.ts";
 import { xmclAuth } from "../middleware/xmclAuth.ts";
 import type { AppEnv } from "../types.ts";

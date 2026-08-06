@@ -3,10 +3,10 @@ import { createApp } from "../app.ts";
 import {
   createServerControlRuntime,
   type ServerControlRuntime,
-} from "../lib/serverControlRuntime.ts";
-import type { AccountRuntime } from "../lib/accountRuntime.ts";
-import { MemoryServerRepository } from "../lib/serverRepository.ts";
-import type { VultrAdapter } from "../lib/vultr.ts";
+} from "../serverControlRuntime.ts";
+import type { AccountRuntime } from "../accountRuntime.ts";
+import { MemoryServerRepository } from "../serverRepository.ts";
+import type { VultrAdapter } from "../vultr.ts";
 
 const accountId = "account_m4_mounted";
 

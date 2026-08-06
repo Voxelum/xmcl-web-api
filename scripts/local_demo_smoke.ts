@@ -5,7 +5,7 @@ import {
   LOCAL_DEMO_CREDENTIALS,
   LOCAL_DEMO_PROFILE,
 } from "../src/localDemo.ts";
-import { signWorkerRequest } from "../src/lib/workerAuth.ts";
+import { signWorkerRequest } from "../src/workerAuth.ts";
 
 const configuredBaseUrl = Deno.env.get("DEMO_BASE_URL");
 let server: Deno.HttpServer | undefined;
@@ -127,36 +127,40 @@ try {
     },
   );
   const order = await expect(
-    "PayPal mock order",
+    "Waffo mock order",
     201,
-    "/v1/billing/paypal/orders",
+    "/v1/billing/waffo/orders",
     {
       method: "POST",
-      headers: { ...headers(), "idempotency-key": "smoke-paypal-order" },
+      headers: { ...headers(), "idempotency-key": "smoke-waffo-order" },
       body: JSON.stringify({ amountMinor: 100 }),
     },
   );
-  await expect("PayPal idempotent retry", 201, "/v1/billing/paypal/orders", {
+  await expect("Waffo idempotent retry", 201, "/v1/billing/waffo/orders", {
     method: "POST",
-    headers: { ...headers(), "idempotency-key": "smoke-paypal-order" },
+    headers: { ...headers(), "idempotency-key": "smoke-waffo-order" },
     body: JSON.stringify({ amountMinor: 100 }),
   });
-  await expect(
-    "PayPal mock capture",
-    200,
-    `/v1/billing/paypal/orders/${order.orderId}/capture`,
-    { method: "POST", headers: headers(), body: "{}" },
-  );
-  await expect("PayPal mock webhook", 202, "/v1/webhooks/paypal", {
+  await expect("Waffo mock webhook", 200, "/v1/webhooks/waffo", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      id: "smoke-paypal-webhook",
-      event_type: "PAYMENT.CAPTURE.COMPLETED",
-      resource: {
-        supplementary_data: {
-          related_ids: { order_id: `paypal_${order.orderId}` },
-        },
+      id: "smoke-waffo-webhook",
+      timestamp: new Date().toISOString(),
+      eventType: "order.completed",
+      eventId: "PAY_demo",
+      storeId: "STO_demo",
+      storeName: "XMCL local demo",
+      mode: "test",
+      data: {
+        orderId: "ORD_demo",
+        buyerEmail: "demo@example.com",
+        currency: "USD",
+        amount: "1.00",
+        taxAmount: "0.00",
+        productName: "XMCL balance",
+        paymentStatus: "succeeded",
+        orderMerchantExternalId: order.orderId,
       },
     }),
   });

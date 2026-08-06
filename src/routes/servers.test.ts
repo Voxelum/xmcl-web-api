@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import type { AccountSessionGateway } from "../lib/serverControlProposals.ts";
+import type { AccountSessionGateway } from "../serverControlProposals.ts";
 import {
   ServerControlError,
   type ServerControlService,
-} from "../lib/serverControl.ts";
-import type { ServerRecord, ServerTask } from "../lib/serverRepository.ts";
+} from "../serverControl.ts";
+import type { ServerRecord, ServerTask } from "../serverRepository.ts";
 import { createServerRoutes } from "./servers.ts";
 
 const server: ServerRecord = {

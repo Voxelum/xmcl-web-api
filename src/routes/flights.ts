@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getFlights } from "../shared/flights.ts";
+import { getFlights } from "../flights.ts";
 import type { AppEnv } from "../types.ts";
 
 export default new Hono<AppEnv>().get("/flights", (c) => {

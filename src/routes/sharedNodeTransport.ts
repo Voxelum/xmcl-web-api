@@ -5,8 +5,8 @@ import {
   SHARED_NODE_TRANSPORT_CONTRACT_VERSION,
   SharedNodeTransportError,
   type SharedNodeTransportService,
-} from "../lib/sharedNodeTransport.ts";
-import { isSharedNodeRegion } from "../lib/sharedHostingScheduler.ts";
+} from "../sharedNodeTransport.ts";
+import { isSharedNodeRegion } from "../sharedHostingScheduler.ts";
 
 const maxWorkspaceGrantRequestBytes = 1 << 20;
 

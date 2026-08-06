@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import { createApp } from "../app.ts";
-import { AccountError } from "../lib/account.ts";
+import { AccountError } from "../account.ts";
 import {
   InMemoryM9Repository,
   type ServerCompatibilityGateway,
   type WorkerDeploymentGateway,
-} from "../lib/deploymentTasks.ts";
-import type { DeploymentManifest } from "../lib/deploymentManifest.ts";
-import { createModpackDeploymentRuntime } from "../lib/modpackDeploymentRuntime.ts";
-import type { AccountRuntime } from "../lib/accountRuntime.ts";
-import { validCompatibility } from "../lib/modpackTestFixtures.ts";
+} from "../deploymentTasks.ts";
+import type { DeploymentManifest } from "../deploymentManifest.ts";
+import { createModpackDeploymentRuntime } from "../modpackDeploymentRuntime.ts";
+import type { AccountRuntime } from "../accountRuntime.ts";
+import { validCompatibility } from "../modpackTestFixtures.ts";
 
 const importBody = {
   sourceFormat: "mrpack",

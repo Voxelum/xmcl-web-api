@@ -7,11 +7,11 @@ import {
   type TranslationKey,
   type TranslationStore,
   type TranslationType,
-} from "../lib/translationStore.ts";
+} from "../translationStore.ts";
 import {
   getTranslationEdgeCache,
   type TranslationEdgeCache,
-} from "../lib/translationEdgeCache.ts";
+} from "../translationEdgeCache.ts";
 import type { AppEnv } from "../types.ts";
 
 interface StaticTranslation {

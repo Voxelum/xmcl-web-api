@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { gte, lt } from "semver";
-import { getLatest } from "../shared/latest.ts";
+import { getLatest } from "../latest.ts";
 import { getConfig } from "../config.ts";
 import type { AppEnv } from "../types.ts";
 

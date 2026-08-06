@@ -1,8 +1,8 @@
 import { Hono } from "hono";
-import { AccountError } from "../lib/account.ts";
-import { handleAccountError, jsonBody } from "../lib/accountHttp.ts";
-import { getAccountRuntime } from "../lib/accountRuntime.ts";
-import type { SharedHostingService } from "../lib/sharedHosting.ts";
+import { AccountError } from "../account.ts";
+import { handleAccountError, jsonBody } from "../accountHttp.ts";
+import { getAccountRuntime } from "../accountRuntime.ts";
+import type { SharedHostingService } from "../sharedHosting.ts";
 import type { AccountRuntimeResolver } from "../middleware/xmclAuth.ts";
 import { xmclAuth } from "../middleware/xmclAuth.ts";
 import type { AppEnv } from "../types.ts";

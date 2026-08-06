@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import type { AccountRuntime } from "../lib/accountRuntime.ts";
-import { AccountError } from "../lib/account.ts";
+import type { AccountRuntime } from "../accountRuntime.ts";
+import { AccountError } from "../account.ts";
 import {
   createSharedModdedCompilerRoutes,
   createSharedModdedRuntimeRoutes,

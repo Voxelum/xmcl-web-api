@@ -1,77 +1,77 @@
-import { AccountMergeService } from "./lib/accountMerge.ts";
+import { AccountMergeService } from "./accountMerge.ts";
 import {
   AccountError,
   AccountService,
   MemoryAccountRepository,
-} from "./lib/account.ts";
-import type { AccountRuntime } from "./lib/accountRuntime.ts";
-import type { AiServiceDependencies } from "./lib/ai/service.ts";
+} from "./account.ts";
+import type { AccountRuntime } from "./accountRuntime.ts";
+import type { AiServiceDependencies } from "./ai/service.ts";
 import type {
   AiRequestClaim,
   AiRequestRecord,
   AiRequestRepository,
-} from "./lib/ai/service.ts";
-import type { AuditEvent, AuditLog } from "./lib/audit.ts";
-import { BillingService } from "./lib/billing.ts";
-import { InMemoryModpackDeploymentRepository } from "./lib/deploymentTasks.ts";
+} from "./ai/service.ts";
+import type { AuditEvent, AuditLog } from "./audit.ts";
+import { BillingService } from "./billing.ts";
+import { InMemoryModpackDeploymentRepository } from "./deploymentTasks.ts";
 import type {
   ModpackArchiveStore,
   ModpackDeploymentTaskDispatcher,
   ServerCompatibilityGateway,
   WorkerDeploymentGateway,
-} from "./lib/deploymentTasks.ts";
-import { MemoryBillingStore } from "./lib/ledger.ts";
+} from "./deploymentTasks.ts";
+import { MemoryBillingStore } from "./ledger.ts";
 import {
   MemorySharedHostingSchedulerRepository,
   SharedHostingScheduler,
-} from "./lib/sharedHostingScheduler.ts";
+} from "./sharedHostingScheduler.ts";
 import {
   SHARED_HOSTING_RATES,
   SharedHostingService,
-} from "./lib/sharedHosting.ts";
-import { createModpackDeploymentRuntime } from "./lib/modpackDeploymentRuntime.ts";
-import { createStoredZip, jsonBytes } from "./lib/modpackTestFixtures.ts";
+} from "./sharedHosting.ts";
+import { createModpackDeploymentRuntime } from "./modpackDeploymentRuntime.ts";
+import { createStoredZip, jsonBytes } from "./modpackTestFixtures.ts";
 import type {
   AdminOperation,
   AdminOperationCompletedEvent,
   AdminOperationRepository,
   AdminPrincipal,
-} from "./lib/operations.ts";
-import { AdminOperationService } from "./lib/operations.ts";
+} from "./operations.ts";
+import { AdminOperationService } from "./operations.ts";
 import type {
   OAuthProvider,
   OAuthProviderAdapter,
   OAuthRegistry,
   VerifiedIdentity,
-} from "./lib/oauth/types.ts";
+} from "./oauth/types.ts";
 import {
-  FakePayPalProvider,
-  FakePayPalWebhookVerifier,
-  PayPalService,
-} from "./lib/paypal.ts";
-import { MemoryServerRepository } from "./lib/serverRepository.ts";
-import { createServerControlRuntime } from "./lib/serverControlRuntime.ts";
-import { type PublicSession, USER_SESSION_SCOPES } from "./lib/session.ts";
-import { UsageSettlementService } from "./lib/usageSettlement.ts";
-import type { VultrAdapter, VultrInstance } from "./lib/vultr.ts";
+  FakeWaffoProvider,
+  FakeWaffoWebhookVerifier,
+  WaffoService,
+} from "./waffo.ts";
+import { MemoryServerRepository } from "./serverRepository.ts";
+import { createServerControlRuntime } from "./serverControlRuntime.ts";
+import { type PublicSession, USER_SESSION_SCOPES } from "./session.ts";
+import { UsageSettlementService } from "./usageSettlement.ts";
+import type { VultrAdapter, VultrInstance } from "./vultr.ts";
 import {
   WORLD_BACKUP_RESTORE_WORKER_SCOPE,
   WorldBackupService,
   type WorldBackupStore,
-} from "./lib/worldBackupService.ts";
+} from "./worldBackupService.ts";
 import type {
   WorldBackupObjectMetadata,
   WorldBackupObjectStorage,
-} from "./lib/worldBackupObjectStorage.ts";
+} from "./worldBackupObjectStorage.ts";
 import type {
   WorldBackupResource,
   WorldBackupStorageBillingCursor,
   WorldBackupStorageUsageEvent,
   WorldBackupUploadGrant,
-} from "./lib/worldBackupContracts.ts";
-import { createWorkerRuntime } from "./lib/worker/runtime.ts";
-import type { LeaseBinding } from "./lib/worker/service.ts";
-import { MemoryWorkerRepository } from "./lib/workerRepository.ts";
+} from "./worldBackupContracts.ts";
+import { createWorkerRuntime } from "./worker/runtime.ts";
+import type { LeaseBinding } from "./worker/service.ts";
+import { MemoryWorkerRepository } from "./workerRepository.ts";
 import { createApp } from "./app.ts";
 import type { AppEnv } from "./types.ts";
 
@@ -712,10 +712,11 @@ export async function createLocalDemoApp(): Promise<LocalDemoApp> {
     totalSharedCpu: 8,
     totalWorkspaceGiB: 128,
   });
-  const paypal = new PayPalService(
+  const waffo = new WaffoService(
     billing,
-    new FakePayPalProvider(),
-    new FakePayPalWebhookVerifier(),
+    new FakeWaffoProvider(),
+    new FakeWaffoWebhookVerifier(),
+    { storeId: "STO_demo", environment: "test" },
   );
 
   const serverRepository = new MemoryServerRepository();
@@ -1063,7 +1064,7 @@ export async function createLocalDemoApp(): Promise<LocalDemoApp> {
       );
       context.set("accountRuntime", accountRuntime);
       context.set("billingService", billing);
-      context.set("paypalService", paypal);
+      context.set("waffoService", waffo);
       context.set("usageSettlementService", usage);
       context.set("sharedHostingService", sharedHosting);
       context.set("sharedHostingScheduler", sharedHostingScheduler);
@@ -1147,7 +1148,7 @@ export async function createLocalDemoApp(): Promise<LocalDemoApp> {
       server: { serverId: DEMO_SERVER_ID, leaseId: DEMO_LEASE_ID },
       modpackArchive: archive,
       mockBoundaries: [
-        "No real PayPal, Vultr, AI, object storage, MongoDB, or OAuth provider is used.",
+        "No real Waffo, Vultr, AI, object storage, MongoDB, or OAuth provider is used.",
         "Object-storage and modpack uploads are accepted in memory when their upload URL is issued.",
       ],
     });

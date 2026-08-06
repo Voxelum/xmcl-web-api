@@ -16,70 +16,64 @@ The XMCL Web API serves multiple functions:
 
 ## Architecture
 
-The API is built as a **single shared [Hono](https://hono.dev) application**
-that runs unchanged on three runtimes via thin per-platform entry points. All
-HTTP routes live in [`src/`](src/) and are registered once in
-[`src/app.ts`](src/app.ts). Each platform entry only wires up runtime-specific
-behaviour (geo lookup and realtime transport) through Hono context variables.
+The API is built from a **shared [Hono](https://hono.dev) source tree** consumed
+by explicit deployment apps. Shared HTTP routes live in [`src/`](src/) and are
+registered once in [`src/app.ts`](src/app.ts). Each app owns only its runtime
+adapter and deployment configuration.
 
 ```
+apps/
+  api/          primary API Worker, cron/queue handlers, Wrangler config
+  ai/           LLM gateway Worker and Wrangler config
+  signaling/    RTC Worker, Durable Object, and Wrangler config
+  azure/        cold-backup API Function app and host config
+  local/        Deno development and in-memory demo servers
 src/
-  app.ts            createApp(): the shared Hono app (all routes)
-  config.ts         getConfig(c): env vars via hono/adapter (Deno/Node/CF)
-  db.ts             MikroORM MongoDB connector (native collection access)
-  types.ts          AppEnv (bindings + context variables)
-  geo.ts            isChineseRequest(): CF country or geoip country var
-  proxy.ts          header forwarding helpers
-  routes/           one Hono sub-app per endpoint
-  middleware/       db, auth (minecraft/microsoft), geoip (Deno/Azure only)
-  lib/              translation scheduling/store, Agnes, xxhash hasher
-  realtime/         Cloudflare WebSocket path matching
-  translation_requests.ts legacy Mongo translation ledger
-  translation_service.ts  legacy Mongo translation worker
-
-index.ts            Deno entry      → Deno.serve
-cloudflare/worker.ts  Cloudflare entry → fetch/scheduled + MultiplayerRoomObject DO
-azure/index.ts      Azure entry     → @azure/functions HTTP trigger
+  *.ts          shared domain services kept flat without a generic lib layer
+  routes/       HTTP route adapters
+  middleware/   request middleware
+  ai/           AI service composition
+  oauth/        OAuth providers and redirect policy
+  modpack/      modpack source adapters
+  worker/       worker runtime and protocol
+  cloudflare/   runtime adapter shared by the three Workers
+scripts/        maintenance and migration commands
+assets/         repository-hosted static assets
 ```
 
-Storage uses [`@mikro-orm/mongodb`](https://jsr.io/@mikro-orm/mongodb) purely as
-a **cross-runtime MongoDB connector** (Node, Deno, Cloudflare Workers). No
-entities are registered — the code accesses raw collections via
-`orm.em.getConnection().getCollection(name)` so the existing document shapes are
-untouched and `new Function`/JIT (forbidden on `workerd`) is avoided.
+Storage uses the native MongoDB driver across Node, local Deno, and Cloudflare
+Workers. The application accesses raw collections so existing document shapes
+remain unchanged.
 
 ### Platform-specific behaviour
 
-| Concern | Local/compatibility Deno | Cloudflare Workers (production realtime) | Azure Functions |
-| --- | --- | --- | --- |
-| HTTP server | `Deno.serve(app.fetch)` | `export default { fetch }` | HTTP trigger → `app.fetch` |
-| Geo | `geoip-country` (forwarded IP) | `request.cf.country` (native) | `geoip-country` |
-| `/v1/multiplayer/*` WebSocket | not supported | `MultiplayerRoomObject` Durable Object | not supported |
-| `/translation` | Azure/static cache | Azure/static cache + scheduled refresh | Azure/static cache |
+| Concern                       | Local Deno                     | Cloudflare Workers                         | Azure Functions            |
+| ----------------------------- | ------------------------------ | ------------------------------------------ | -------------------------- |
+| HTTP server                   | `Deno.serve(app.fetch)`        | `export default { fetch }`                 | HTTP trigger → `app.fetch` |
+| Geo                           | `geoip-country` (forwarded IP) | `request.cf.country` (native)              | `geoip-country`            |
+| `/v1/multiplayer/*` WebSocket | not supported                  | Signaling Worker + `MultiplayerRoomObject` | not supported              |
+| `/translation`                | Azure/static cache             | Azure/static cache + scheduled refresh     | Azure/static cache         |
 
-Cloudflare intercepts `/v1/multiplayer/rooms/:roomId/socket` upgrades before
-the Hono app runs, so CORS middleware never touches the immutable `101`
-response.
+Cloudflare intercepts `/v1/multiplayer/rooms/:roomId/socket` upgrades before the
+Hono app runs, so CORS middleware never touches the immutable `101` response.
 
 ### Production API domains
 
-The Cloudflare Worker is bound to three custom domains, with host-based route
-surfaces:
+Production uses three independent Workers. Each entrypoint owns one static route
+surface; no Worker dispatches by hostname at runtime:
 
-| Domain | Mounted surface |
-| --- | --- |
-| `api.xmcl.app` | Common APIs, including `/translation` |
-| `ai.xmcl.app` | `POST /v1/chat/completions` only |
-| `signaling.xmcl.app` | `/v1/multiplayer/*` and `/v1/rtc/official` |
+| Domain               | Mounted surface                                     |
+| -------------------- | --------------------------------------------------- |
+| `api.xmcl.app`       | API Worker: all core APIs, including `/translation` |
+| `ai.xmcl.app`        | `POST /v1/chat/completions` only                    |
+| `signaling.xmcl.app` | `/v1/multiplayer/*` and `/v1/rtc/official`          |
 
-The shared application also supports these surfaces when deployed as separate
-Workers or on another runtime. Requests to an unmapped preview hostname use the
-common surface unless `XMCL_API_SURFACE` is set to `ai`, `signaling`, or
-`common`.
+The Azure Function mounts the same API surface as `api.xmcl.app` and serves only
+as a backup mirror. It does not host AI, signaling, Durable Objects, or cron.
 
-Multiplayer clients use only `/v1/multiplayer/*` on `signaling.xmcl.app`.
-Rooms use `master`/`member` roles and revisioned room-state snapshots; no
-legacy signaling paths or incremental room events are retained.
+Multiplayer clients use only `/v1/multiplayer/*` on `signaling.xmcl.app`. Rooms
+use `master`/`member` roles and revisioned room-state snapshots; no legacy
+signaling paths or incremental room events are retained.
 
 ### Translation cache pipeline
 
@@ -116,8 +110,8 @@ The checked-in Worker Cron runs every five minutes. The historical Mongo
 translation ledger remains only for compatibility with the retired external
 workflow and is not used by the request path.
 
-Cloudflare can additionally bind a Workers KV namespace as
-`TRANSLATION_CACHE`. KV is only an edge copy of completed content:
+Cloudflare can additionally bind a Workers KV namespace as `TRANSLATION_CACHE`.
+KV is only an edge copy of completed content:
 
 1. A request checks KV before Azure Table.
 2. A scheduled translation commits Azure Table first, then writes KV.
@@ -125,18 +119,19 @@ Cloudflare can additionally bind a Workers KV namespace as
 4. A failed KV write advances the Table refresh time so Cron retries in about
    five minutes.
 
-Each KV entry expires ten minutes after its next scheduled Table source
-refresh. If propagation fails, the old edge value therefore becomes a miss
-shortly after refresh and requests fall back to the newer Table content.
-Access counts, leases, failures, and scheduling remain only in Azure Table.
-Request handling never writes KV, which prevents an older Table snapshot from
-racing with and overwriting a newer scheduled result.
+Each KV entry expires ten minutes after its next scheduled Table source refresh.
+If propagation fails, the old edge value therefore becomes a miss shortly after
+refresh and requests fall back to the newer Table content. Access counts,
+leases, failures, and scheduling remain only in Azure Table. Request handling
+never writes KV, which prevents an older Table snapshot from racing with and
+overwriting a newer scheduled result.
 
-Provision the namespace, then add the returned ID to `cloudflare/wrangler.toml`:
+Provision the namespace, then add the returned ID to
+`apps/signaling/wrangler.toml`:
 
 ```powershell
-cd cloudflare
-npx wrangler kv namespace create TRANSLATION_CACHE
+npx wrangler kv namespace create TRANSLATION_CACHE `
+  --config apps/api/wrangler.toml
 ```
 
 ```toml
@@ -147,8 +142,8 @@ id = "<namespace id>"
 
 #### MongoDB to Azure Table migration
 
-The migration is idempotent, resumable, and dry-run by default. It migrates
-both `<locale>_translation` documents and request-only demand from
+The migration is idempotent, resumable, and dry-run by default. It migrates both
+`<locale>_translation` documents and request-only demand from
 `translation_requests`. Existing Azure content wins unless overwrite is
 explicitly enabled; access counters and timestamps are merged.
 
@@ -171,26 +166,15 @@ deno run --allow-net --allow-env --env `
 ```
 
 Use `TRANSLATION_MIGRATION_LOCALES=ja,zh-CN` for a canary migration. After the
-canary, set `TRANSLATION_MIGRATION_RESET_STATE=1` for the final full/delta
-pass. Legacy translations without a provider type are inferred only when the
-request ledger identifies exactly one provider; ambiguous records are reported
-and skipped rather than assigned to the wrong key.
+canary, set `TRANSLATION_MIGRATION_RESET_STATE=1` for the final full/delta pass.
+Legacy translations without a provider type are inferred only when the request
+ledger identifies exactly one provider; ambiguous records are reported and
+skipped rather than assigned to the wrong key.
 
 For cutover, stop the legacy translation worker/request writes, reset and run
 one final apply pass, run the verifier, then deploy the Azure-backed request
 path. The migration preserves stale content for serving while marking a newer
 pending Mongo source version immediately due for retranslation.
-
-### Other deployments
-
-- **Alibaba Cloud Function (Deno)** — runs the same `index.ts` via a compiled
-  Deno binary (`aliyun/bootstrap`) for better access in mainland China.
-
-> **Cloudflare + MikroORM caveat:** if entities are ever added, run
-> `mikro-orm compile` and load metadata with `GeneratedCacheAdapter`, because
-> `workerd` forbids the runtime metadata discovery (`new Function`) MikroORM
-> uses by default. With the current entity-less native-collection approach this
-> is not needed.
 
 ## API Endpoints
 
@@ -231,7 +215,7 @@ surface listed above:
 
 Configure `AGNES_API_KEYS` as a server-only JSON array of one or more keys, for
 example `["first-key","second-key"]`. Store it as one secret value; never put
-keys in `wrangler.toml`, source code, logs, or client settings.
+keys in Wrangler configs, source code, logs, or client settings.
 `AGNES_DEFAULT_MODEL` selects the server-owned upstream model and defaults to
 `agnes-2.5-flash`. The client model (the Launcher sends `xmcl-agent`) is never
 forwarded to Agnes.
@@ -319,8 +303,6 @@ The same variables are used across every runtime (read via `hono/adapter`:
   `POST /v1/chat/completions`.
 - `AGNES_DEFAULT_MODEL` - optional default chat model; defaults to
   `agnes-2.5-flash`.
-- `XMCL_API_SURFACE` - optional `common`, `ai`, or `signaling` surface for an
-  unmapped Cloudflare preview hostname.
 - `XMCL_MODRINTH_CLIENT_ID` - Modrinth OAuth client ID (defaults to the existing
   registered XMCL client ID)
 - `XMCL_MODRINTH_CLIENT_SECRET` - Modrinth OAuth client secret
@@ -338,10 +320,15 @@ The same variables are used across every runtime (read via `hono/adapter`:
   8, 64GiB) at `$8/month + $0.12/h`. The scheduler must settle running shared
   containers against rate versions `101`, `102`, and `103`; it is intentionally
   not enabled in production yet.
-- `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`,
-  `PAYPAL_RETURN_URL`, and `PAYPAL_CANCEL_URL` - required together for the
-  production PayPal Orders API and signed webhook verifier.
-  `PAYPAL_API_BASE_URL` is optional and defaults to `https://api-m.paypal.com`.
+- `WAFFO_MERCHANT_ID` and `WAFFO_PRIVATE_KEY` - server-side Waffo API key.
+  `WAFFO_STORE_ID`, `WAFFO_PRODUCT_ID`, and `WAFFO_ENVIRONMENT` (`test` or
+  `prod`) pin the one-time top-up product and accepted webhook source. The
+  product is checked out with a server-owned dynamic price snapshot.
+  `WAFFO_SUCCESS_URL`, `WAFFO_API_BASE_URL`, and `WAFFO_WEBHOOK_PUBLIC_KEY` are
+  optional. Configure an HTTP webhook for `order.completed` at
+  `/v1/webhooks/waffo`; the handler verifies the raw-body signature, store,
+  environment, external order ID, currency, and amount before crediting the
+  durable ledger.
 - Shared-hosting workspaces have one canonical S3-compatible object prefix per
   service. A global scheduler packs only `starting`, `running`, and `stopping`
   containers into a node's hard memory, shared CPU, and local-NVMe workspace
@@ -427,14 +414,15 @@ The same variables are used across every runtime (read via `hono/adapter`:
 - `CLOUDFLARE_APP_ID` - Cloudflare TURN app id (optional)
 - Shared-hosting and other commercial routes remain unmounted in the production
   entry points until their complete durable adapter composition is implemented
-  in code. The public balance/rate ledger routes are independently enabled;
-  PayPal routes remain code-gated until pending-order reconciliation is
-  deployed. This is a code-owned safety boundary, not an environment toggle.
+  in code. The public balance/rate ledger routes are independently enabled.
+  Waffo checkout and webhook routes are mounted only when every required Waffo
+  setting above is present. This is a code-owned safety boundary, not a
+  standalone environment toggle.
 
-### Cloudflare-only bindings (wrangler.toml)
+### Cloudflare-only bindings
 
-- `MULTIPLAYER_ROOMS` - Durable Object namespace (class `MultiplayerRoomObject`) for
-  `/v1/multiplayer/*`
+- `MULTIPLAYER_ROOMS` - Durable Object namespace (class `MultiplayerRoomObject`)
+  for `/v1/multiplayer/*`
 - `api.xmcl.app`, `ai.xmcl.app`, and `signaling.xmcl.app` are custom domains on
   the Worker. The Free Zone edge rate-limiting rule matches the `/translation`
   path (Free does not support a host field); only the common `api.xmcl.app`
@@ -471,16 +459,18 @@ staged flows complete successfully.
 ### Local Development
 
 ```bash
+npm install
+
 # Deno (primary). Serves the shared app on http://localhost:8080
 deno task start
 
-# Cloudflare Workers. Copy cloudflare/.dev.vars.example -> cloudflare/.dev.vars first
-cd cloudflare && npm install && npm run dev
+# Cloudflare Workers. Copy apps/.dev.vars.example -> apps/.dev.vars first
+npm run dev:api
+# Or: npm run dev:ai / npm run dev:signaling
 
-# Azure Functions. Builds the shared app into azure/index.js, then runs the host
-npm install
+# Azure Functions. Builds apps/azure/index.js, then runs that app's host
 npm run build:azure
-func start
+func start --script-root apps/azure
 ```
 
 ### Local demo (in-memory only)
@@ -494,11 +484,11 @@ provider credentials, see [LOCAL_DEMO.md](LOCAL_DEMO.md). Start it with
 ### Type checking
 
 ```bash
-deno check index.ts              # Deno entry + all shared src
-deno check cloudflare/worker.ts  # Cloudflare entry + all shared src
+deno check apps/local/server.ts
+npm run typecheck:workers
 ```
 
-> `azure/index.ts` is a Node-only entry and is validated by its esbuild build
+> `apps/azure/index.ts` is a Node-only entry and is validated by its esbuild build
 > (`npm run build:azure`), not by `deno check`.
 
 ## Deployment
@@ -506,14 +496,16 @@ deno check cloudflare/worker.ts  # Cloudflare entry + all shared src
 For an isolated deployment of the `mot` branch to an Azure Function deployment
 slot or Cloudflare Workers, see [PREVIEW_DEPLOYMENT.md](PREVIEW_DEPLOYMENT.md).
 
-### Deno compatibility
+### Local Deno development
 
-The Deno entry is for local development and compatible self-hosted/Alibaba
-deployments. Deno Deploy is not a deployment target.
+The Deno entry exists only for local development. It uses the same npm MongoDB
+adapter as Azure and Cloudflare; there is no Deno Deploy or compiled-Deno
+production target.
 
 ### Azure Functions
 
-For Azure Functions deployment, use the Azure CLI or Azure Portal:
+Azure is a cold-backup mirror of the API Worker. For deployment, use the Azure
+CLI or Azure Portal:
 
 ```bash
 az functionapp deployment source config-zip -g myResourceGroup -n myFunctionApp --src ./azure.zip
@@ -521,44 +513,42 @@ az functionapp deployment source config-zip -g myResourceGroup -n myFunctionApp 
 
 ### Cloudflare Workers
 
-Cloudflare Workers is the production realtime target. From the
-[`cloudflare/`](cloudflare/) folder:
+Cloudflare Workers is the primary production target. Dependencies and Worker
+commands are managed by the root npm workspace:
 
 ```bash
-cd cloudflare
 npm install
 
-# Set secrets (see .dev.vars.example for the full list)
-wrangler secret put MONGO_CONNECION_STRING
-wrangler secret put GITHUB_PAT
+# Set secrets per Worker (see .dev.vars.example for the full list)
+npx wrangler secret put MONGO_CONNECION_STRING --config apps/api/wrangler.toml
+npx wrangler secret put GITHUB_PAT --config apps/api/wrangler.toml
 # ...RTC_SECRET, CURSEFORGE_KEY, AGNES_API_KEYS,
 #    AZURE_TRANSLATION_TABLE_URL,
 #    XMCL_MODRINTH_CLIENT_ID, XMCL_MODRINTH_CLIENT_SECRET,
 #    CLOUDFLARE_API_TOKEN, CLOUDFLARE_APP_ID
 
-wrangler deploy
+npm run deploy:workers
 ```
 
-The `MultiplayerRoomObject` Durable Object backs `/v1/multiplayer/*`, while
-`/translation` records Azure Table demand and the Worker Cron refreshes due
-translations.
-Geo is resolved natively from
-`request.cf.country`. `nodejs_compat` is enabled so the MongoDB driver works on
-`workerd`; a MongoDB Atlas connection string is required.
+The signaling Worker owns `MultiplayerRoomObject`; the API Worker owns
+`/translation` and scheduled refreshes. The AI Worker has neither cron nor a
+Durable Object binding. Geo is resolved natively from `request.cf.country`.
+`nodejs_compat` is enabled so the MongoDB driver works on `workerd`; a MongoDB
+Atlas connection string is required.
 
-Workers Logs are enabled in `wrangler.toml`. Cloudflare invocation logs are
-deliberately disabled because they retain complete URLs, including OAuth query
-parameters. Runtime failures emit structured custom records named
+Workers Logs are enabled in each app's `wrangler.toml`. Cloudflare invocation logs
+are deliberately disabled because they retain complete URLs, including OAuth
+query parameters. Runtime failures emit structured custom records named
 `app.exception`, `worker.exception`, `worker.response`, or
 `worker.scheduled.exception`, with request ID, method, path, status, duration,
 Ray ID and colo where available. Request/response bodies, query strings,
 authorization values and token material are never logged.
 
-Use **Workers & Pages → xmcl-web-api → Observability** or stream live logs:
+Use the corresponding Worker observability page (`xmcl-web-api`, `xmcl-web-ai`,
+or `xmcl-web-signaling`) or stream live logs:
 
 ```bash
-cd cloudflare
-npx wrangler tail
+npx wrangler tail --config apps/api/wrangler.toml
 ```
 
 Filter by `event` or `requestId`. Cloudflare platform rejections that happen
@@ -575,37 +565,6 @@ GitHub `403`/`429` responses emit only `github.upstream.rate_limited` metadata
 `GITHUB_PAT` is optional for public data but strongly recommended:
 unauthenticated GitHub REST traffic is limited to 60 requests/hour per source
 IP, while authenticated user tokens normally receive 5,000 requests/hour.
-
-### Alibaba Cloud Function
-
-The Deno service can be deployed to Alibaba Cloud Function using Serverless Devs
-with a compiled binary:
-
-```bash
-# Install Serverless Devs CLI
-npm install -g @serverless-devs/s
-
-# Configure your Alibaba Cloud credentials
-s config add
-
-# Compile the Deno application
-deno compile --allow-net --allow-read --allow-env \
-  --output aliyun/xmcl-api \
-  index.ts
-
-# Deploy the function
-s deploy --use-local -y
-```
-
-The deployment uses a compiled Deno binary and automatically deploys from the
-main branch via GitHub Actions.
-
-**Required Secrets for GitHub Actions:**
-
-- `ALIYUN_ACCOUNT_ID` - Alibaba Cloud Account ID
-- `ALIYUN_ACCESS_KEY_ID` - Alibaba Cloud Access Key ID
-- `ALIYUN_ACCESS_KEY_SECRET` - Alibaba Cloud Access Key Secret
-- Environment variables (same as Primary Service)
 
 ### Custom Server (China)
 

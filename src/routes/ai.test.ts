@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Hono } from "hono";
-import type { AccountRuntime } from "../lib/accountRuntime.ts";
+import type { AccountRuntime } from "../accountRuntime.ts";
 import type {
   AiModel,
   AiRequestClaim,
@@ -11,7 +11,7 @@ import type {
   UsageAuthorization,
   UsageAuthorizationRequest,
   UsageSettlementGateway,
-} from "../lib/ai/service.ts";
+} from "../ai/service.ts";
 import { createAiRoutes } from "./ai.ts";
 import type { AppEnv } from "../types.ts";
 

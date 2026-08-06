@@ -4,7 +4,7 @@ import { getConfig } from "../config.ts";
 import type { AppEnv } from "../types.ts";
 import {
   DEFAULT_MODRINTH_CLIENT_ID,
-} from "../lib/oauth/modrinth.ts";
+} from "../oauth/modrinth.ts";
 
 export default new Hono<AppEnv>().get("/modrinth/auth", async (c) => {
   const config = getConfig(c);

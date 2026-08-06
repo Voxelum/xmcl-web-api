@@ -1,11 +1,11 @@
-import { MongoClient } from "mongo";
-const client = new MongoClient();
-await client.connect(Deno.env.get("MONGO_CONNECION_STRING")!);
-const db = client.database(Deno.env.get("MONGODB_NAME") || "coturn");
+import { MongoClient } from "mongodb";
+const client = new MongoClient(Deno.env.get("MONGO_CONNECION_STRING")!);
+await client.connect();
+const db = client.db(Deno.env.get("MONGODB_NAME") || "coturn");
 for (
-  const name of (await db.listCollectionNames()).filter((n) =>
-    n.endsWith("_translation")
-  )
+  const name of (await db.listCollections({}, { nameOnly: true }).toArray())
+    .map(({ name }) => name)
+    .filter((name) => name.endsWith("_translation"))
 ) {
   const locale = name.slice(0, -"_translation".length);
   const count = await db.collection(name).countDocuments();

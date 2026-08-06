@@ -4,12 +4,12 @@ import type { Db, MongoCollection } from "../db.ts";
 import type {
   TranslationEdgeCache,
   TranslationEdgeValue,
-} from "../lib/translationEdgeCache.ts";
+} from "../translationEdgeCache.ts";
 import type {
   TranslationKey,
   TranslationRecord,
   TranslationStore,
-} from "../lib/translationStore.ts";
+} from "../translationStore.ts";
 import {
   claimNextTranslationRequest,
   completeTranslationRequest,

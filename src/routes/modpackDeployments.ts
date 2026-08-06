@@ -1,13 +1,13 @@
 import type { Context } from "hono";
 import { Hono } from "hono";
-import { AccountError } from "../lib/account.ts";
-import { handleAccountError } from "../lib/accountHttp.ts";
-import { getAccountRuntime } from "../lib/accountRuntime.ts";
+import { AccountError } from "../account.ts";
+import { handleAccountError } from "../accountHttp.ts";
+import { getAccountRuntime } from "../accountRuntime.ts";
 import {
   type ApiError,
   ModpackDeploymentCoordinator,
   ModpackDeploymentError,
-} from "../lib/deploymentTasks.ts";
+} from "../deploymentTasks.ts";
 import {
   type AccountRuntimeResolver,
   xmclAuth,

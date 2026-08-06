@@ -4,17 +4,17 @@ import {
   WorkerAuthError,
   type WorkerPrincipal,
   WorkerRequestAuthenticator,
-} from "../lib/workerAuth.ts";
+} from "../workerAuth.ts";
 import {
   type WorkerOperationKind,
   WorkerRuntimeError,
   WorkerRuntimeService,
-} from "../lib/worker/service.ts";
+} from "../worker/service.ts";
 import {
   getWorkerRuntime,
   WorkerRuntimeConfigurationError,
   type WorkerRuntimeResolver,
-} from "../lib/worker/runtime.ts";
+} from "../worker/runtime.ts";
 
 export interface WorkerRouteDependencies {
   authenticator: WorkerRequestAuthenticator;

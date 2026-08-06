@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { Hono } from "hono";
-import type { AccountRuntime } from "../lib/accountRuntime.ts";
-import { BillingService } from "../lib/billing.ts";
-import { MemoryBillingStore } from "../lib/ledger.ts";
-import { SharedHostingService } from "../lib/sharedHosting.ts";
+import type { AccountRuntime } from "../accountRuntime.ts";
+import { BillingService } from "../billing.ts";
+import { MemoryBillingStore } from "../ledger.ts";
+import { SharedHostingService } from "../sharedHosting.ts";
 import type { AppEnv } from "../types.ts";
 import { createSharedHostingRoutes } from "./sharedHosting.ts";
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type { AccountRuntime } from "../lib/accountRuntime.ts";
+import type { AccountRuntime } from "../accountRuntime.ts";
 import { createApp } from "../app.ts";
 
 const principal = {

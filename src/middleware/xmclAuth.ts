@@ -1,11 +1,11 @@
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { AppEnv } from "../types.ts";
-import { AccountError } from "../lib/account.ts";
+import { AccountError } from "../account.ts";
 import {
   type AccountRuntime,
   getAccountRuntime,
-} from "../lib/accountRuntime.ts";
+} from "../accountRuntime.ts";
 
 export type AccountRuntimeResolver = (
   c: Context<AppEnv>,
