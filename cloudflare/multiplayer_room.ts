@@ -121,17 +121,20 @@ export class MultiplayerRoomObject {
       return;
     }
 
-    if (input.type === "rtc-ready") {
-      if (!this.hasOnlyKeys(input, ["type"])) {
+    if (input.type === "rtc-state") {
+      if (
+        !this.hasOnlyKeys(input, ["type", "state"]) ||
+        (input.state !== "connected" && input.state !== "negotiating")
+      ) {
         this.send(socket, { type: "error", code: "invalid_message" });
         return;
       }
       if (isMaster) {
-        this.send(socket, { type: "error", code: "rtc_ready_forbidden" });
+        this.send(socket, { type: "error", code: "rtc_state_forbidden" });
         return;
       }
-      if (member.status === "connected") return;
-      member.status = "connected";
+      if (member.status === input.state) return;
+      member.status = input.state;
       room.revision++;
       await this.persist(room);
       this.broadcastRoomState(room);
@@ -229,7 +232,8 @@ export class MultiplayerRoomObject {
     if (
       !input ||
       typeof input.roomId !== "string" ||
-      typeof input.accountId !== "string"
+      typeof input.accountId !== "string" ||
+      typeof input.createIfMissing !== "boolean"
     ) {
       return new Response("Invalid admission", { status: 400 });
     }
@@ -240,6 +244,9 @@ export class MultiplayerRoomObject {
     }
     let created = false;
     if (!room) {
+      if (!input.createIfMissing) {
+        return new Response("Not found", { status: 404 });
+      }
       if (
         !Number.isSafeInteger(input.maxPeers) || Number(input.maxPeers) < 2 ||
         Number(input.maxPeers) > 16 ||

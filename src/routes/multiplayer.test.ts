@@ -24,6 +24,9 @@ const namespace = {
         let room = rooms.get(roomId);
         const created = !room;
         if (!room) {
+          if (input.createIfMissing !== true) {
+            return new Response(null, { status: 404 });
+          }
           room = {
             masterAccountId: String(input.accountId),
             maxPeers: Number(input.maxPeers),
@@ -97,7 +100,7 @@ Deno.test("multiplayer routes create, join, and close a Durable Object room", as
     {
       method: "POST",
       headers,
-      body: JSON.stringify({ displayName: "Alex" }),
+      body: JSON.stringify({ displayName: "Alex", createIfMissing: false }),
     },
     env,
   );
@@ -136,7 +139,7 @@ Deno.test("first join creates a named room and assigns the master", async () => 
   const created = await app.request("/v1/multiplayer/rooms/Test/join", {
     method: "POST",
     headers,
-    body: JSON.stringify({ displayName: "Steve" }),
+    body: JSON.stringify({ displayName: "Steve", createIfMissing: true }),
   }, env);
   assert.equal(created.status, 201);
   const creation = await created.json();
@@ -147,10 +150,24 @@ Deno.test("first join creates a named room and assigns the master", async () => 
   const joined = await app.request("/v1/multiplayer/rooms/test/join", {
     method: "POST",
     headers,
-    body: JSON.stringify({ displayName: "Alex" }),
+    body: JSON.stringify({ displayName: "Alex", createIfMissing: true }),
   }, env);
   assert.equal(joined.status, 200);
   const admission = await joined.json();
   assert.equal(admission.roomId, "test");
   assert.equal(admission.role, "member");
+});
+
+Deno.test("named join requires explicit permission to create a missing room", async () => {
+  authenticatedAccountId = "account_missing";
+  const response = await app.request("/v1/multiplayer/rooms/missing/join", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      displayName: "Steve",
+      createIfMissing: false,
+    }),
+  }, env);
+  assert.equal(response.status, 404);
+  assert.equal(rooms.has("missing"), false);
 });
