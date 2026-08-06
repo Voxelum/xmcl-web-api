@@ -18,7 +18,7 @@
     "apps/api/**/*.ts",
     "apps/ai/**/*.ts",
     "apps/signaling/**/*.ts",
-    "packages/shared/**/*.ts"
+    "src/**/*.ts"
   ],
   "exclude": ["**/*.test.ts"]
 }

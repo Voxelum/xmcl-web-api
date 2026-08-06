@@ -3,8 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "workspaces": [
-    "apps/azure",
-    "packages/shared"
+    "apps/azure"
   ],
   "scripts": {
     "build:azure": "node apps/azure/build.mjs",
@@ -20,6 +19,15 @@
     "check:api": "wrangler deploy --dry-run --config apps/api/wrangler.toml",
     "check:ai": "wrangler deploy --dry-run --config apps/ai/wrangler.toml",
     "check:signaling": "wrangler deploy --dry-run --config apps/signaling/wrangler.toml"
+  },
+  "dependencies": {
+    "@waffo/pancake-ts": "^0.16.0",
+    "geoip-country": "4.2.262",
+    "hono": "4.12.27",
+    "mongodb": "6.15.0",
+    "node-html-parser": "^6.1.13",
+    "semver": "^7.0.0",
+    "xxhash-wasm": "^1.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.19.0",

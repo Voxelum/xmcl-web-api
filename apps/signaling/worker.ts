@@ -1,8 +1,8 @@
 // deno-lint-ignore-file no-explicit-any
-import { observeWorkerRequest } from "../../packages/shared/platform/cloudflare/observability.ts";
-import { createCloudflareApp } from "../../packages/shared/platform/cloudflare/runtime.ts";
-import type { ExecutionContext } from "../../packages/shared/platform/cloudflare/types.ts";
-import { matchMultiplayerUpgrade } from "../../packages/shared/realtime/match.ts";
+import { observeWorkerRequest } from "../../src/cloudflare/observability.ts";
+import { createCloudflareApp } from "../../src/cloudflare/runtime.ts";
+import type { ExecutionContext } from "../../src/cloudflare/types.ts";
+import { matchMultiplayerUpgrade } from "../../src/realtime.ts";
 
 export { MultiplayerRoomObject } from "./room.ts";
 

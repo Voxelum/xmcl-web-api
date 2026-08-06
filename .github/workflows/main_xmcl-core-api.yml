@@ -8,7 +8,7 @@ on:
       - "apps/api/**"
       - "apps/ai/**"
       - "apps/signaling/**"
-      - "packages/shared/**"
+      - "src/**"
       - "deno.json"
       - "deno.lock"
       - "package.json"

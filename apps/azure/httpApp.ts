@@ -1,8 +1,8 @@
-import { createProductionApp } from "../../packages/shared/lib/productionComposition.ts";
-import { createS3SigV4Presigner } from "../../packages/shared/lib/s3SigV4.ts";
-import { createDbMiddleware } from "../../packages/shared/middleware/db.ts";
-import { geoipMiddleware } from "../../packages/shared/middleware/geoip.ts";
-import { getDb } from "../../packages/shared/platform/db_npm.ts";
+import { createProductionApp } from "../../src/productionComposition.ts";
+import { createS3SigV4Presigner } from "../../src/s3SigV4.ts";
+import { createDbMiddleware } from "../../src/middleware/db.ts";
+import { geoipMiddleware } from "../../src/middleware/geoip.ts";
+import { getDb } from "../../src/db_npm.ts";
 
 /**
  * Azure is a cold API mirror. It intentionally mounts the same static `api`

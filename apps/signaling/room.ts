@@ -2,11 +2,11 @@ import type {
   CfWebSocket,
   DurableObjectState,
   ResponseInitWithWebSocket,
-} from "../../packages/shared/platform/cloudflare/types.ts";
+} from "../../src/cloudflare/types.ts";
 import {
   type MultiplayerRole,
   verifyMultiplayerTicket,
-} from "../../packages/shared/lib/multiplayerTicket.ts";
+} from "../../src/multiplayerTicket.ts";
 
 type MemberStatus = "negotiating" | "connected";
 
