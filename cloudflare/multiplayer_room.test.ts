@@ -193,6 +193,7 @@ Deno.test("MultiplayerRoomObject creates a room on first admission and assigns i
     roomId: "room_1",
     accountId: "account_1",
     maxPeers: 8,
+    createIfMissing: true,
     expiresAt,
   };
   assert.deepEqual(
@@ -216,13 +217,13 @@ Deno.test("MultiplayerRoomObject creates a room on first admission and assigns i
   );
 });
 
-Deno.test("member rtc-ready broadcasts one snapshot without roles or acknowledgements", async () => {
+Deno.test("member rtc-state transitions broadcast authoritative snapshots", async () => {
   const f = fixture();
   const { master, member } = masterAndMember(f);
 
   await f.object.webSocketMessage(
     member.socket,
-    JSON.stringify({ type: "rtc-ready" }),
+    JSON.stringify({ type: "rtc-state", state: "connected" }),
   );
 
   const room = f.values.get("room") as ReturnType<typeof roomState>;
@@ -247,6 +248,24 @@ Deno.test("member rtc-ready broadcasts one snapshot without roles or acknowledge
     false,
   );
   assertOnlyCanonicalMessages([...master.messages(), ...member.messages()]);
+
+  master.clear();
+  member.clear();
+  await f.object.webSocketMessage(
+    member.socket,
+    JSON.stringify({ type: "rtc-state", state: "negotiating" }),
+  );
+  assert.equal(
+    (f.values.get("room") as ReturnType<typeof roomState>).members.member_peer
+      .status,
+    "negotiating",
+  );
+  assert.deepEqual(master.messages().map((message) => message.type), [
+    "room-state",
+  ]);
+  assert.deepEqual(member.messages().map((message) => message.type), [
+    "room-state",
+  ]);
 });
 
 Deno.test("member join broadcasts one negotiating snapshot", async () => {
@@ -364,6 +383,7 @@ Deno.test("master transfer persists once and broadcasts only one topology snapsh
     await (await f.object.fetch(internal("/admission", {
       roomId: "room_1",
       accountId: "account_2",
+      createIfMissing: false,
     }))).json(),
     { role: "master", maxPeers: 8, created: false },
   );
@@ -371,6 +391,7 @@ Deno.test("master transfer persists once and broadcasts only one topology snapsh
     await (await f.object.fetch(internal("/admission", {
       roomId: "room_1",
       accountId: "account_1",
+      createIfMissing: false,
     }))).json(),
     { role: "member", maxPeers: 8, created: false },
   );

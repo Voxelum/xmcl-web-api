@@ -131,6 +131,7 @@ async function admitRoom(
     roomId: string;
     accountId: string;
     maxPeers: number;
+    createIfMissing: boolean;
     secret: string;
   },
 ): Promise<{ role: MultiplayerRole; maxPeers: number; created: boolean }> {
@@ -146,10 +147,14 @@ async function admitRoom(
         roomId: input.roomId,
         accountId: input.accountId,
         maxPeers: input.maxPeers,
+        createIfMissing: input.createIfMissing,
         expiresAt: Date.now() + ROOM_TTL_MS,
       }),
     }),
   );
+  if (response.status === 404) {
+    throw new HTTPException(404, { message: "Room not found" });
+  }
   if (response.status === 409) {
     throw new HTTPException(409, {
       message: (await response.text()) || "Room unavailable",
@@ -198,6 +203,7 @@ export function createMultiplayerRoutes(resolve?: AccountRuntimeResolver) {
       roomId,
       accountId: principal.accountId,
       maxPeers: roomMaxPeers,
+      createIfMissing: true,
       secret,
     });
     if (admissionState.role !== "master" || !admissionState.created) {
@@ -233,10 +239,16 @@ export function createMultiplayerRoutes(resolve?: AccountRuntimeResolver) {
     const principal = c.get("xmclPrincipal")!;
     const secret = ticketSecret(c);
     const memberDisplayName = displayName(input.displayName);
+    if (typeof input.createIfMissing !== "boolean") {
+      throw new HTTPException(400, {
+        message: "createIfMissing must be a boolean",
+      });
+    }
     const admissionState = await admitRoom(c, {
       roomId,
       accountId: principal.accountId,
       maxPeers: maxPeers(input.maxPeers),
+      createIfMissing: input.createIfMissing,
       secret,
     });
     const admission = await issueTicket({
