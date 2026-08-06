@@ -16,32 +16,24 @@ The XMCL Web API serves multiple functions:
 
 ## Architecture
 
-The API is built as a **single shared [Hono](https://hono.dev) application**
-that runs unchanged on three runtimes via thin per-platform entry points. All
-HTTP routes live in [`src/`](src/) and are registered once in
-[`src/app.ts`](src/app.ts). Each platform entry only wires up runtime-specific
-behaviour (geo lookup and realtime transport) through Hono context variables.
+The API is built from a **shared [Hono](https://hono.dev) package** consumed by
+explicit deployment apps. Shared HTTP routes live in
+[`packages/shared/`](packages/shared/) and are registered once in
+[`packages/shared/app.ts`](packages/shared/app.ts). Each app owns only its
+runtime adapter and deployment configuration.
 
 ```
-src/
-  app.ts            createApp(): the shared Hono app (all routes)
-  config.ts         getConfig(c): env vars via hono/adapter
-  db.ts             MikroORM MongoDB connector (native collection access)
-  types.ts          AppEnv (bindings + context variables)
-  geo.ts            isChineseRequest(): CF country or geoip country var
-  proxy.ts          header forwarding helpers
-  routes/           one Hono sub-app per endpoint
-  middleware/       db, auth (minecraft/microsoft), geoip (Deno/Azure only)
-  lib/              translation scheduling/store, Agnes, xxhash hasher
-  realtime/         Cloudflare WebSocket path matching
-  translation_requests.ts legacy Mongo translation ledger
-  translation_service.ts  legacy Mongo translation worker
-
-index.ts               local Deno development → Deno.serve
-cloudflare/api.ts      primary API Worker + scheduled work
-cloudflare/ai.ts       LLM gateway Worker
-cloudflare/signaling.ts RTC/multiplayer Worker + Durable Object
-azure/index.ts         cold-backup API mirror
+apps/
+  api/          primary API Worker, cron/queue handlers, Wrangler config
+  ai/           LLM gateway Worker and Wrangler config
+  signaling/    RTC Worker, Durable Object, and Wrangler config
+  azure/        cold-backup API Function app and host config
+  local/        Deno development and in-memory demo servers
+packages/
+  shared/       Hono composition, routes, middleware, storage, and tests
+    platform/   runtime adapters shared by deployment apps
+scripts/        maintenance and migration commands
+assets/         repository-hosted static assets
 ```
 
 Storage uses the native MongoDB driver across Node, local Deno, and Cloudflare
@@ -130,11 +122,11 @@ never writes KV, which prevents an older Table snapshot from racing with and
 overwriting a newer scheduled result.
 
 Provision the namespace, then add the returned ID to
-`cloudflare/wrangler.signaling.toml`:
+`apps/signaling/wrangler.toml`:
 
 ```powershell
-cd cloudflare
-npx wrangler kv namespace create TRANSLATION_CACHE
+npx wrangler kv namespace create TRANSLATION_CACHE `
+  --config apps/api/wrangler.toml
 ```
 
 ```toml
@@ -179,17 +171,11 @@ one final apply pass, run the verifier, then deploy the Azure-backed request
 path. The migration preserves stale content for serving while marking a newer
 pending Mongo source version immediately due for retranslation.
 
-> **Cloudflare + MikroORM caveat:** if entities are ever added, run
-> `mikro-orm compile` and load metadata with `GeneratedCacheAdapter`, because
-> `workerd` forbids the runtime metadata discovery (`new Function`) MikroORM
-> uses by default. With the current entity-less native-collection approach this
-> is not needed.
-
 ## API Endpoints
 
 The default composition serves the following routes (all defined once in
-[`src/app.ts`](src/app.ts)); isolated Cloudflare domains mount only their
-surface listed above:
+[`packages/shared/app.ts`](packages/shared/app.ts)); isolated Cloudflare
+domains mount only their surface listed above:
 
 - `/latest` - Provides information about the latest launcher releases
 - `/releases/:filename` - Access to launcher release files with redirection to
@@ -468,16 +454,18 @@ staged flows complete successfully.
 ### Local Development
 
 ```bash
+npm install
+
 # Deno (primary). Serves the shared app on http://localhost:8080
 deno task start
 
-# Cloudflare Workers. Copy cloudflare/.dev.vars.example -> cloudflare/.dev.vars first
-cd cloudflare && npm install && npm run dev
+# Cloudflare Workers. Copy apps/.dev.vars.example -> apps/.dev.vars first
+npm run dev:api
+# Or: npm run dev:ai / npm run dev:signaling
 
-# Azure Functions. Builds the shared app into azure/index.js, then runs the host
-npm install
+# Azure Functions. Builds apps/azure/index.js, then runs that app's host
 npm run build:azure
-func start
+func start --script-root apps/azure
 ```
 
 ### Local demo (in-memory only)
@@ -491,11 +479,11 @@ provider credentials, see [LOCAL_DEMO.md](LOCAL_DEMO.md). Start it with
 ### Type checking
 
 ```bash
-deno check index.ts              # Deno entry + all shared src
-deno check cloudflare/api.ts cloudflare/ai.ts cloudflare/signaling.ts
+deno check apps/local/server.ts
+npm run typecheck:workers
 ```
 
-> `azure/index.ts` is a Node-only entry and is validated by its esbuild build
+> `apps/azure/index.ts` is a Node-only entry and is validated by its esbuild build
 > (`npm run build:azure`), not by `deno check`.
 
 ## Deployment
@@ -520,24 +508,21 @@ az functionapp deployment source config-zip -g myResourceGroup -n myFunctionApp 
 
 ### Cloudflare Workers
 
-Cloudflare Workers is the primary production target. Install application
-dependencies at the repository root, then install deployment tooling in
-[`cloudflare/`](cloudflare/):
+Cloudflare Workers is the primary production target. Dependencies and Worker
+commands are managed by the root npm workspace:
 
 ```bash
 npm install
-cd cloudflare
-npm install
 
 # Set secrets per Worker (see .dev.vars.example for the full list)
-wrangler secret put MONGO_CONNECION_STRING --config wrangler.api.toml
-wrangler secret put GITHUB_PAT --config wrangler.api.toml
+npx wrangler secret put MONGO_CONNECION_STRING --config apps/api/wrangler.toml
+npx wrangler secret put GITHUB_PAT --config apps/api/wrangler.toml
 # ...RTC_SECRET, CURSEFORGE_KEY, AGNES_API_KEYS,
 #    AZURE_TRANSLATION_TABLE_URL,
 #    XMCL_MODRINTH_CLIENT_ID, XMCL_MODRINTH_CLIENT_SECRET,
 #    CLOUDFLARE_API_TOKEN, CLOUDFLARE_APP_ID
 
-npm run deploy
+npm run deploy:workers
 ```
 
 The signaling Worker owns `MultiplayerRoomObject`; the API Worker owns
@@ -546,7 +531,7 @@ Durable Object binding. Geo is resolved natively from `request.cf.country`.
 `nodejs_compat` is enabled so the MongoDB driver works on `workerd`; a MongoDB
 Atlas connection string is required.
 
-Workers Logs are enabled in each `wrangler.*.toml`. Cloudflare invocation logs
+Workers Logs are enabled in each app's `wrangler.toml`. Cloudflare invocation logs
 are deliberately disabled because they retain complete URLs, including OAuth
 query parameters. Runtime failures emit structured custom records named
 `app.exception`, `worker.exception`, `worker.response`, or
@@ -558,8 +543,7 @@ Use the corresponding Worker observability page (`xmcl-web-api`, `xmcl-web-ai`,
 or `xmcl-web-signaling`) or stream live logs:
 
 ```bash
-cd cloudflare
-npx wrangler tail --config wrangler.api.toml
+npx wrangler tail --config apps/api/wrangler.toml
 ```
 
 Filter by `event` or `requestId`. Cloudflare platform rejections that happen

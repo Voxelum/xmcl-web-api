@@ -9,14 +9,14 @@
     "xxhash-wasm": "npm:xxhash-wasm@^1.1.0",
     "node-html-parser": "npm:node-html-parser@^6.1.13"
   },
-  "nodeModulesDir": "auto",
+  "nodeModulesDir": "manual",
   "compilerOptions": {
     "lib": ["deno.window", "dom", "dom.iterable"]
   },
   "tasks": {
-    "start": "deno run --allow-net --allow-read --allow-env --allow-sys --env index.ts",
-    "local-demo": "deno run --allow-net --allow-env local_demo.ts",
+    "start": "deno run --allow-net --allow-read --allow-env --allow-sys --env apps/local/server.ts",
+    "local-demo": "deno run --allow-net --allow-env apps/local/demo.ts",
     "local-demo:smoke": "deno run --allow-net --allow-env scripts/local_demo_smoke.ts",
-    "check:local-demo": "deno check local_demo.ts scripts/local_demo_smoke.ts"
+    "check:local-demo": "deno check apps/local/demo.ts scripts/local_demo_smoke.ts"
   }
 }
