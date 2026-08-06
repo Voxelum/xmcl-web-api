@@ -22,6 +22,10 @@ crons = ["*/5 * * * *"]
 pattern = "api.xmcl.app"
 custom_domain = true
 
+[[migrations]]
+tag = "v6"
+deleted_classes = ["MultiplayerRoomObject"]
+
 # Secrets and optional bindings are configured per Worker. The API Worker owns
 # Mongo-backed routes, payment webhooks, and scheduled work.
 
