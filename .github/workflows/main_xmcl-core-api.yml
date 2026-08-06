@@ -5,11 +5,13 @@ on:
     branches:
       - main
     paths:
-      - 'cloudflare/**'
-      - 'src/**'
-      - 'deno.json'
-      - 'deno.lock'
-      - '.github/workflows/main_xmcl-core-api.yml'
+      - "cloudflare/**"
+      - "src/**"
+      - "deno.json"
+      - "deno.lock"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/main_xmcl-core-api.yml"
   workflow_dispatch:
 
 jobs:
@@ -34,17 +36,17 @@ jobs:
 
       - name: Install Cloudflare dependencies
         working-directory: cloudflare
-        run: npm install
+        run: npm ci --omit=optional
 
-      - name: Type-check Worker
+      - name: Type-check Workers
         working-directory: cloudflare
-        run: npx wrangler deploy --dry-run
+        run: npm run typecheck
 
-      - name: Deploy Worker
+      - name: Deploy Workers
         if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
         working-directory: cloudflare
         run: npm run deploy
 
       - name: Report manual deployment requirement
         if: ${{ env.CLOUDFLARE_API_TOKEN == '' }}
-        run: echo "::notice::CLOUDFLARE_API_TOKEN is not configured; Worker deployment was skipped."
+        run: echo "::notice::CLOUDFLARE_API_TOKEN is not configured; Worker deployments were skipped."

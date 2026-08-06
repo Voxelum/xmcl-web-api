@@ -13,7 +13,7 @@
 //   TRANSLATION_MIGRATION_BATCH_SIZE  default: 500
 //   TRANSLATION_MIGRATION_LOCALES     comma-separated locale allowlist
 
-import { MongoClient } from "mongo";
+import { MongoClient } from "mongodb";
 import {
   AzureTableMigrationClient,
   entityLookupKey,
@@ -50,12 +50,12 @@ const localeAllowlist = parseLocaleAllowlist(
 );
 const sourceFallbackDate = new Date("2000-01-01T00:00:00.000Z");
 const verificationStartedAt = new Date();
-const mongo = new MongoClient();
+const mongo = new MongoClient(mongoUrl);
 const azure = new AzureTableMigrationClient(tableUrl);
 
-await mongo.connect(mongoUrl);
+await mongo.connect();
 try {
-  const database = mongo.database(databaseName);
+  const database = mongo.db(databaseName);
   const requests = new Map<
     string,
     NonNullable<ReturnType<typeof requestMetadata>>
@@ -87,7 +87,9 @@ try {
   );
 
   const expected = new Map<string, ExpectedRecord>();
-  const names = (await database.listCollectionNames())
+  const names = (
+    await database.listCollections({}, { nameOnly: true }).toArray()
+  ).map(({ name }) => name)
     .filter((name) => name.endsWith("_translation"))
     .sort();
   let skippedLegacy = 0;

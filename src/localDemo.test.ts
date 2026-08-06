@@ -64,11 +64,11 @@ Deno.test("local demo has in-memory idempotency for server and payment APIs", as
     body: JSON.stringify({ amountMinor: 100 }),
   };
   assert.equal(
-    (await app.request("/v1/billing/paypal/orders", order)).status,
+    (await app.request("/v1/billing/waffo/orders", order)).status,
     201,
   );
   assert.equal(
-    (await app.request("/v1/billing/paypal/orders", order)).status,
+    (await app.request("/v1/billing/waffo/orders", order)).status,
     201,
   );
 

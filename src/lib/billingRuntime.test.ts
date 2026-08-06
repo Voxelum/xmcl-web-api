@@ -26,7 +26,7 @@ Deno.test("billing runtime defaults its settlement currency to USD", () => {
   assert.equal(runtime.billing.settlementCurrency, "USD");
 });
 
-Deno.test("hourly billing work includes bounded PayPal reconciliation", async () => {
+Deno.test("hourly billing work includes bounded payment reconciliation", async () => {
   const calls: string[] = [];
   const work = createSharedRuntimeSettlementWork(
     {
@@ -61,7 +61,7 @@ Deno.test("hourly billing work includes bounded PayPal reconciliation", async ()
   );
 
   assert.deepEqual(calls, ["2026-08-24T01:00:00.000Z:10"]);
-  assert.deepEqual(result.paypalReconciliation.finalized, ["order_1"]);
+  assert.deepEqual(result.paymentReconciliation.finalized, ["order_1"]);
 });
 
 Deno.test("billing runtime accepts hour-priced server capacity", () => {
@@ -142,7 +142,7 @@ Deno.test("billing runtime composes periodic renewal, payment-due stops, and run
   ]);
   assert.deepEqual(result.runtimeSettled, ["service_1"]);
   assert.deepEqual(result.runtimePaymentDue, ["service_2"]);
-  assert.deepEqual(result.paypalReconciliation, {
+  assert.deepEqual(result.paymentReconciliation, {
     attempted: [],
     finalized: [],
     stillPending: [],

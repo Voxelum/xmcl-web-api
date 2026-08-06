@@ -8,10 +8,9 @@
   },
   "dependencies": {
     "@azure/functions": "^4.0.0",
-    "@mikro-orm/core": "^7.1.4",
-    "@mikro-orm/mongodb": "^7.1.4",
-    "geoip-country": "^5.0.0",
-    "hono": "^4.6.0",
+    "@waffo/pancake-ts": "^0.16.0",
+    "geoip-country": "4.2.262",
+    "hono": "4.12.27",
     "mongodb": "6.15.0",
     "node-html-parser": "^6.1.13",
     "semver": "^7.0.0",

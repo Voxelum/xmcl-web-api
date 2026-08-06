@@ -1,12 +1,12 @@
 # Local demo
 
-> **Local demo only — never deploy this profile.** It starts a loopback-only HTTP
-> server with process-local state and public mock credentials. Stopping the
+> **Local demo only — never deploy this profile.** It starts a loopback-only
+> HTTP server with process-local state and public mock credentials. Stopping the
 > process discards all data.
 
-This profile is intentionally separate from the normal `start` command and
-does not use production composition. It never constructs or reads credentials
-for PayPal, Vultr, an AI provider, object storage, MongoDB, or OAuth providers.
+This profile is intentionally separate from the normal `start` command and does
+not use production composition. It never constructs or reads credentials for
+Waffo, Vultr, an AI provider, object storage, MongoDB, or OAuth providers.
 
 ## Prerequisites and start commands (Windows PowerShell)
 
@@ -25,26 +25,26 @@ deno task local-demo
 
 The only local-demo environment variable is:
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `PORT` | `8787` | Integer TCP port from `1` through `65535`. |
+| Variable | Default | Meaning                                    |
+| -------- | ------- | ------------------------------------------ |
+| `PORT`   | `8787`  | Integer TCP port from `1` through `65535`. |
 
-Do **not** set service credentials for this command; they are neither needed
-nor consumed. `GET /__local-demo` returns `profile: "xmcl-local-demo"` and is
-an intentional, unmistakable confirmation that this is the demo process.
+Do **not** set service credentials for this command; they are neither needed nor
+consumed. `GET /__local-demo` returns `profile: "xmcl-local-demo"` and is an
+intentional, unmistakable confirmation that this is the demo process.
 
 ## Demo credentials
 
 These values are deliberately public and accepted **only** by the local demo:
 
-| Role | Credential | Use |
-| --- | --- | --- |
-| User | `Bearer demo-user-token` | User, billing, server, backup, AI, and modpack routes. |
-| User refresh | session `demo-user-session`, refresh token `demo-user-refresh-token` | `POST /v1/sessions/refresh`. |
-| Internal service | `Bearer demo-service-token` | Internal usage authorization, release, and settlement routes. |
-| Administrator | `Bearer demo-admin-token` | `/v1/admin/*`; it has the local administrator permission and fresh MFA. |
-| Worker bootstrap | `demo-worker-bootstrap` | Signed `Worker-Bootstrap` registration for `demo-server` / `demo-lease`. |
-| Restore worker | `Bearer demo-restore-worker-token` | World-backup restore events for the demo server. |
+| Role             | Credential                                                           | Use                                                                      |
+| ---------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| User             | `Bearer demo-user-token`                                             | User, billing, server, backup, AI, and modpack routes.                   |
+| User refresh     | session `demo-user-session`, refresh token `demo-user-refresh-token` | `POST /v1/sessions/refresh`.                                             |
+| Internal service | `Bearer demo-service-token`                                          | Internal usage authorization, release, and settlement routes.            |
+| Administrator    | `Bearer demo-admin-token`                                            | `/v1/admin/*`; it has the local administrator permission and fresh MFA.  |
+| Worker bootstrap | `demo-worker-bootstrap`                                              | Signed `Worker-Bootstrap` registration for `demo-server` / `demo-lease`. |
+| Restore worker   | `Bearer demo-restore-worker-token`                                   | World-backup restore events for the demo server.                         |
 
 The pre-created user account is `demo-user`. The running demo server is
 `demo-server`; its active lease is `demo-lease`. Tokens are deterministic so
@@ -55,24 +55,24 @@ this process**.
 
 All domain routes below are mounted in local demo. Standard user routes require
 the user token and enforce their normal scopes. The demo user has
-`account:read`, `account:write`, `session:manage`, `ai:invoke`,
-`modpack:read`, and `modpack:write`. Server reads/controls are authorized by
-the existing account read/write compatibility rules.
+`account:read`, `account:write`, `session:manage`, `ai:invoke`, `modpack:read`,
+and `modpack:write`. Server reads/controls are authorized by the existing
+account read/write compatibility rules.
 
-| Family | Routes | Auth / expected behavior |
-| --- | --- | --- |
-| Profile | `GET /__local-demo` | Public. Returns warning, credentials, static server data, and current mock modpack archive hash/size. `Cache-Control: no-store`. |
-| Account and sessions | `/v1/account`, `/v1/account/identities`, `/v1/auth/*`, `/v1/sessions/*` | User token except the OAuth initiate/exchange endpoints. OAuth is a deterministic local mock; no identity provider is contacted. |
-| Backup storage policy | `GET /v1/backup-storage-policy` | User token. Returns the current 1 GiB free policy. |
-| World backups | `/v1/backup-sources/*/backups`, `/v1/world-backups/*`, `/v1/internal/world-backups/*/events` | User token for customer operations; restore-worker token for callback events. Create/write routes require `Idempotency-Key`. |
-| Billing and payments | `/v1/billing/*`, `/v1/billing/paypal/*`, `/v1/webhooks/paypal` | User token for customer routes. PayPal webhook is intentionally unauthenticated but its mock verifier accepts the supplied payload. Payment creation requires `Idempotency-Key`. |
-| Internal usage | `/v1/internal/usage/{authorize,release,settle}` | Internal service token with `billing:internal`. Authorization and settlement validate body/header idempotency keys. |
-| Servers and tasks | `/v1/servers`, `/v1/tasks/*` | User token. Mutations require `Idempotency-Key`; `stop` closes Minecraft while retaining the instance, `archive` snapshots a stopped instance and releases it, and `restore` provisions a new instance from that snapshot. Repeated equal requests return the stored task and changed payloads return `409 idempotency_conflict`. |
-| Shared hosting | `/v1/shared-hosting/plans`, `/v1/shared-hosting/subscriptions`, `/v1/shared-hosting/services` | User token. A subscription immediately charges its monthly base fee. Service start selects the local demo node and issues a mock restore-and-start command; no Docker or S3 request is made. |
-| Worker callbacks | `/v1/internal/servers/:serverId/worker/*` | Register with the bootstrap credential plus HMAC headers; subsequent requests use the issued `Worker` token and fresh signed nonce. |
-| AI | `/v1/ai/models`, `/v1/ai/:capability` | User token with `ai:invoke`. The `troubleshoot` capability uses the `local-demo-small` deterministic provider and requires `Idempotency-Key`. `GET /v1/ai/usage` is intentionally excluded because that route has no usage-projection adapter; it returns `503 ai_usage_not_configured`. |
-| Modpack deployment | `/v1/servers/*/modpack-imports`, `/v1/modpack-imports/*`, `/v1/modpack-deployments/*`, `/v1/modpack-tasks/*` | User token with `modpack:read` or `modpack:write`. The profile response supplies the required archive metadata. |
-| Administration | `/v1/admin/*` | Admin token only. Audit, metrics, reconciliation, account reads, and command requests use in-memory adapters. |
+| Family                | Routes                                                                                                       | Auth / expected behavior                                                                                                                                                                                                                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Profile               | `GET /__local-demo`                                                                                          | Public. Returns warning, credentials, static server data, and current mock modpack archive hash/size. `Cache-Control: no-store`.                                                                                                                                                                                                  |
+| Account and sessions  | `/v1/account`, `/v1/account/identities`, `/v1/auth/*`, `/v1/sessions/*`                                      | User token except the OAuth initiate/exchange endpoints. OAuth is a deterministic local mock; no identity provider is contacted.                                                                                                                                                                                                  |
+| Backup storage policy | `GET /v1/backup-storage-policy`                                                                              | User token. Returns the current 1 GiB free policy.                                                                                                                                                                                                                                                                                |
+| World backups         | `/v1/backup-sources/*/backups`, `/v1/world-backups/*`, `/v1/internal/world-backups/*/events`                 | User token for customer operations; restore-worker token for callback events. Create/write routes require `Idempotency-Key`.                                                                                                                                                                                                      |
+| Billing and payments  | `/v1/billing/*`, `/v1/billing/waffo/*`, `/v1/webhooks/waffo`                                                 | User token for customer routes. The Waffo webhook is intentionally unauthenticated but its demo verifier accepts the supplied payload. Payment creation requires `Idempotency-Key`.                                                                                                                                               |
+| Internal usage        | `/v1/internal/usage/{authorize,release,settle}`                                                              | Internal service token with `billing:internal`. Authorization and settlement validate body/header idempotency keys.                                                                                                                                                                                                               |
+| Servers and tasks     | `/v1/servers`, `/v1/tasks/*`                                                                                 | User token. Mutations require `Idempotency-Key`; `stop` closes Minecraft while retaining the instance, `archive` snapshots a stopped instance and releases it, and `restore` provisions a new instance from that snapshot. Repeated equal requests return the stored task and changed payloads return `409 idempotency_conflict`. |
+| Shared hosting        | `/v1/shared-hosting/plans`, `/v1/shared-hosting/subscriptions`, `/v1/shared-hosting/services`                | User token. A subscription immediately charges its monthly base fee. Service start selects the local demo node and issues a mock restore-and-start command; no Docker or S3 request is made.                                                                                                                                      |
+| Worker callbacks      | `/v1/internal/servers/:serverId/worker/*`                                                                    | Register with the bootstrap credential plus HMAC headers; subsequent requests use the issued `Worker` token and fresh signed nonce.                                                                                                                                                                                               |
+| AI                    | `/v1/ai/models`, `/v1/ai/:capability`                                                                        | User token with `ai:invoke`. The `troubleshoot` capability uses the `local-demo-small` deterministic provider and requires `Idempotency-Key`. `GET /v1/ai/usage` is intentionally excluded because that route has no usage-projection adapter; it returns `503 ai_usage_not_configured`.                                          |
+| Modpack deployment    | `/v1/servers/*/modpack-imports`, `/v1/modpack-imports/*`, `/v1/modpack-deployments/*`, `/v1/modpack-tasks/*` | User token with `modpack:read` or `modpack:write`. The profile response supplies the required archive metadata.                                                                                                                                                                                                                   |
+| Administration        | `/v1/admin/*`                                                                                                | Admin token only. Audit, metrics, reconciliation, account reads, and command requests use in-memory adapters.                                                                                                                                                                                                                     |
 
 `GET /` and `GET /flights` are also safe, dependency-free smoke targets.
 
@@ -138,9 +138,9 @@ Invoke-RestMethod "$base/v1/ai/troubleshoot" -Method Post -Headers $aiHeaders `
   -Body (@{ input = "The launcher stopped." } | ConvertTo-Json)
 ```
 
-It returns `200` and an output beginning `Local demo response:`. An empty
-input returns `400 invalid_ai_request`; a changed retry using the same
-idempotency key returns `409`.
+It returns `200` and an output beginning `Local demo response:`. An empty input
+returns `400 invalid_ai_request`; a changed retry using the same idempotency key
+returns `409`.
 
 For modpack imports, first read `modpackArchive.sha256` and
 `modpackArchive.sizeBytes` from `/__local-demo` and use those exact values in
@@ -149,20 +149,21 @@ upload URL is created; completing the import runs validation synchronously.
 
 ## Mock boundaries and excluded APIs
 
-- Payment order, capture, and webhook behavior use an in-memory provider and
-  verifier. No PayPal endpoint or credential is reachable.
+- Payment checkout and webhook behavior use an in-memory provider and verifier.
+  No Waffo endpoint or credential is reachable.
 - Server operations use an in-memory provider adapter; no Vultr API call or
   token is possible.
 - Shared hosting uses an in-memory global slot scheduler. Production node agents
   own Docker and S3-compatible object-storage credentials; the API sends only
   idempotent workspace restore/start and stop/sync commands.
-- AI returns a deterministic string and settles against an in-memory ledger;
-  no model/provider request is made.
+- AI returns a deterministic string and settles against an in-memory ledger; no
+  model/provider request is made.
 - Backup and modpack upload URLs use the `mock://` scheme. The corresponding
-  object/archive is accepted in memory when the URL is issued; no object
-  storage request occurs.
+  object/archive is accepted in memory when the URL is issued; no object storage
+  request occurs.
 - OAuth URLs and exchanges are local deterministic mocks.
-- `GET /v1/ai/usage` is intentionally unavailable (`503
+- `GET /v1/ai/usage` is intentionally unavailable
+  (`503
   ai_usage_not_configured`) because the route does not yet define a
   usage-projection adapter.
 - The following legacy routes are intentionally outside local-demo coverage and
@@ -197,6 +198,6 @@ deno task local-demo:smoke
 ```
 
 The smoke test covers public-safe routes, account/session, backup policy,
-billing/payment/webhook, internal usage, server idempotency, world backups,
-AI idempotency plus the intentional usage-projection `503`, worker
+billing/payment/webhook, internal usage, server idempotency, world backups, AI
+idempotency plus the intentional usage-projection `503`, worker
 registration/heartbeat, modpack validation/deployment, and admin routes.

@@ -43,14 +43,14 @@ export interface ChatOptions {
 }
 
 export const chat = ({ messages, api, model, key, ...rest }: ChatOptions) => {
-  // console.log('APIKey:' + key?.substring(0, 5) + '...' + key?.substring(key.length - 5))
+  if (!key) throw new Error("Agnes API key is required");
   return fetch(
     api ?? "https://apihub.agnes-ai.com/v1/chat/completions",
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${key ?? Deno.env.get("AGNES_API_KEY")!}`,
+        "Authorization": `Bearer ${key}`,
       },
       body: JSON.stringify(Object.assign({
         model: model ?? "agnes-2.0-flash",

@@ -41,7 +41,7 @@ Deno.test("queues unavailable reconciliation providers for manual handling", asy
   const service = new ReconciliationService(
     [
       {
-        source: "paypal",
+        source: "payment",
         async check() {
           throw new Error("provider timeout");
         },
@@ -65,11 +65,11 @@ Deno.test("queues unavailable reconciliation providers for manual handling", asy
   const report = await service.run();
 
   assert.deepEqual(report.checks.map((check) => [check.source, check.status]), [
-    ["paypal", "unavailable"],
+    ["payment", "unavailable"],
     ["ledger", "matched"],
   ]);
   assert.deepEqual(reports.manual, [
-    "reconciliation_unavailable:paypal:unavailable",
+    "reconciliation_unavailable:payment:unavailable",
   ]);
   assert.equal(audit.events.length, 1);
 });
