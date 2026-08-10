@@ -2,6 +2,11 @@ const LAUNCHER_CALLBACK_PORT_START = 25_555;
 const LAUNCHER_CALLBACK_PORT_INCREMENT = 7;
 const LAUNCHER_CALLBACK_PATH = "/commercial-auth";
 
+export const PRODUCTION_WEB_OAUTH_REDIRECT_URIS = [
+  "https://xmcl.app/oauth/callback",
+  "https://www.xmcl.app/oauth/callback",
+] as const;
+
 export interface OAuthRedirectPolicy {
   readonly declaredRedirectUris: readonly string[];
   allows(redirectUri: string): boolean;
@@ -10,9 +15,12 @@ export interface OAuthRedirectPolicy {
 export function createOAuthRedirectPolicy(
   configuredRedirectUris: readonly string[],
 ): OAuthRedirectPolicy {
-  const declaredRedirectUris = configuredRedirectUris.filter(
-    isExactHttpsCallback,
-  );
+  const declaredRedirectUris = [
+    ...new Set([
+      ...PRODUCTION_WEB_OAUTH_REDIRECT_URIS,
+      ...configuredRedirectUris,
+    ].filter(isExactHttpsCallback)),
+  ];
   const declared = new Set(declaredRedirectUris);
 
   return {

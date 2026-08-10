@@ -26,6 +26,14 @@ custom_domain = true
 tag = "v6"
 deleted_classes = ["MultiplayerRoomObject"]
 
+[[durable_objects.bindings]]
+name = "DPOP_REPLAY"
+class_name = "DpopReplayObject"
+
+[[migrations]]
+tag = "v7"
+new_sqlite_classes = ["DpopReplayObject"]
+
 # Secrets and optional bindings are configured per Worker. The API Worker owns
 # Mongo-backed routes, payment webhooks, and scheduled work.
 

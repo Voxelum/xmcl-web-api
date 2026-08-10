@@ -2,15 +2,18 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import type { AppEnv } from "../types.ts";
 import { AccountError } from "../account.ts";
-import {
-  type AccountRuntime,
-  getAccountRuntime,
-} from "../accountRuntime.ts";
+import { type AccountRuntime, getAccountRuntime } from "../accountRuntime.ts";
 import { handleAccountError, jsonBody } from "../accountHttp.ts";
+import {
+  dpopJwkThumbprint,
+  parseDpopPublicJwk,
+  verifyDpopProof,
+} from "../dpop.ts";
+import { resolveDpopReplayStore } from "../dpopReplayRuntime.ts";
 import { createOAuthRedirectPolicy } from "../oauth/redirectPolicy.ts";
 import { isOAuthProvider, type OAuthProvider } from "../oauth/types.ts";
 import type { AccountRuntimeResolver } from "../middleware/xmclAuth.ts";
-import { xmclAuth } from "../middleware/xmclAuth.ts";
+import { authenticateXmclRequest, xmclAuth } from "../middleware/xmclAuth.ts";
 
 function publicAccount(account: {
   accountId: string;
@@ -25,21 +28,27 @@ function publicAccount(account: {
 }
 
 async function optionalAccountId(c: Context<AppEnv>, runtime: AccountRuntime) {
-  const authorization = c.req.header("authorization");
-  if (!authorization) return undefined;
-  if (!authorization.startsWith("Bearer ")) {
-    throw new AccountError(401, "invalid_access_token");
-  }
   try {
-    return (await runtime.sessions.verify(authorization.slice(7))).accountId;
+    return (await authenticateXmclRequest(
+      c,
+      () => Promise.resolve(runtime),
+      true,
+    ))?.accountId;
   } catch (error) {
     // Launcher-exchange can restore an account from a newly verified provider
     // credential. An expired optional XMCL bearer must not block that recovery.
-    if (error instanceof AccountError && error.code === "access_token_expired") {
+    if (
+      error instanceof AccountError && error.code === "access_token_expired"
+    ) {
       return undefined;
     }
     throw error;
   }
+}
+
+async function requestedDpopJkt(value: unknown) {
+  const jwk = parseDpopPublicJwk(value);
+  return jwk ? await dpopJwkThumbprint(jwk) : undefined;
 }
 
 function providerFrom(c: Context<AppEnv>): OAuthProvider {
@@ -70,6 +79,7 @@ export function createSessionRoutes(
       redirectUri: c.req.query("redirectUri") ?? "",
       state: c.req.query("state") ?? "",
       codeChallenge: c.req.query("codeChallenge") ?? "",
+      dpopJkt: await requestedDpopJkt(c.req.query("dpopJwk")),
       redirectPolicy: createOAuthRedirectPolicy(
         adapter.declaration.redirectUris,
       ),
@@ -85,11 +95,13 @@ export function createSessionRoutes(
     const provider = providerFrom(c);
     const runtime = await resolve(c);
     const body = await jsonBody(c);
+    const dpopJkt = await requestedDpopJkt(body.dpopJwk);
     const transaction = await runtime.accounts.consumeAuthorization({
       transactionId: String(body.transactionId ?? ""),
       provider,
       state: String(body.state ?? ""),
       codeVerifier: String(body.codeVerifier ?? ""),
+      dpopJkt,
     });
     if (transaction.intent !== "sign_in") {
       throw new AccountError(409, "oauth_intent_mismatch");
@@ -103,7 +115,11 @@ export function createSessionRoutes(
       identity,
       linkedBy: "web_link",
     });
-    const session = await runtime.sessions.issue(binding.account.accountId);
+    const session = await runtime.sessions.issue(
+      binding.account.accountId,
+      undefined,
+      dpopJkt,
+    );
     return c.json({
       account: publicAccount(binding.account),
       session,
@@ -116,6 +132,7 @@ export function createSessionRoutes(
       const provider = providerFrom(c);
       const runtime = await resolve(c);
       const body = await jsonBody(c);
+      const dpopJkt = await requestedDpopJkt(body.dpopJwk);
       const completedAt = String(body.completedAt ?? "");
       await runtime.accounts.consumeLauncherTransaction({
         transactionId: String(body.loginTransactionId ?? ""),
@@ -132,7 +149,11 @@ export function createSessionRoutes(
         currentAccountId,
         linkedBy: currentAccountId ? "launcher_link" : "launcher_bootstrap",
       });
-      const session = await runtime.sessions.issue(binding.account.accountId);
+      const session = await runtime.sessions.issue(
+        binding.account.accountId,
+        undefined,
+        dpopJkt,
+      );
       return c.json({
         account: publicAccount(binding.account),
         session,
@@ -143,9 +164,24 @@ export function createSessionRoutes(
 
   app.post("/v1/sessions/refresh", async (c) => {
     const body = await jsonBody(c);
+    const proof = c.req.header("dpop");
     const session = await (await resolve(c)).sessions.refresh(
       String(body.sessionId ?? ""),
       String(body.refreshToken ?? ""),
+      async (expectedJkt) => {
+        if (!expectedJkt) {
+          if (proof) throw new AccountError(401, "invalid_dpop_proof");
+          return undefined;
+        }
+        if (!proof) throw new AccountError(401, "invalid_dpop_proof");
+        return (await verifyDpopProof({
+          proof,
+          method: c.req.method,
+          url: c.req.url,
+          expectedJkt,
+          replayStore: await resolveDpopReplayStore(c),
+        })).jkt;
+      },
     );
     return c.json({ session });
   });

@@ -38,6 +38,7 @@ import type {
   SharedModdedRuntimeService,
 } from "./sharedModdedRuntime.ts";
 import type { SharedWorldSeedService } from "./sharedWorldSeed.ts";
+import type { DurableObjectNamespace } from "./cloudflare/types.ts";
 
 export interface MicrosoftMinecraftProfile {
   id: string;
@@ -144,6 +145,7 @@ export interface AppBindings {
   MULTIPLAYER_ROOMS?: unknown;
   SHARED_NODE_WORKSPACE_SIGNER?: unknown;
   TRANSLATION_CACHE?: unknown;
+  DPOP_REPLAY?: DurableObjectNamespace;
   [key: string]: unknown;
 }
 

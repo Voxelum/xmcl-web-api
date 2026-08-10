@@ -18,3 +18,8 @@ head_sampling_rate = 1
 [[routes]]
 pattern = "ai.xmcl.app"
 custom_domain = true
+
+[[durable_objects.bindings]]
+name = "DPOP_REPLAY"
+class_name = "DpopReplayObject"
+script_name = "xmcl-web-api"

@@ -13,11 +13,13 @@ export interface XmclPrincipal {
   scopes: string[];
   issuedAt: string;
   expiresAt: string;
+  dpopJkt?: string;
 }
 
 export interface PublicSession extends XmclPrincipal {
   accessToken: string;
   refreshToken: string;
+  tokenType?: "Bearer" | "DPoP";
 }
 
 /** Scopes issued to first-party browser and launcher user sessions. */
@@ -30,7 +32,12 @@ export const USER_SESSION_SCOPES = [
   "modpack:write",
 ] as const;
 
-export const ACCESS_TOKEN_TTL_MS = 24 * 60 * 60_000;
+export const ACCESS_TOKEN_TTL_MS = 10 * 60_000;
+
+export function requiresLegacySessionCheck(principal: XmclPrincipal) {
+  return Date.parse(principal.expiresAt) - Date.parse(principal.issuedAt) >
+    ACCESS_TOKEN_TTL_MS;
+}
 
 interface AccessClaims {
   iss: "xmcl";
@@ -40,6 +47,7 @@ interface AccessClaims {
   scope: string[];
   iat: number;
   exp: number;
+  cnf?: { jkt: string };
 }
 
 function encodeJson(value: unknown) {
@@ -90,20 +98,102 @@ function encodeBytes(bytes: Uint8Array) {
   );
 }
 
-export class SessionService {
+export class AccessTokenVerifier {
   constructor(
-    private readonly repository: AccountRepository,
-    private readonly secret: string,
-    private readonly now: () => Date = () => new Date(),
+    protected readonly secret: string,
+    protected readonly now: () => Date = () => new Date(),
   ) {
     if (secret.length < 32) {
       throw new Error("XMCL_SESSION_SECRET must be at least 32 characters");
     }
   }
 
+  async verify(accessToken: string): Promise<XmclPrincipal> {
+    const parts = accessToken.split(".");
+    if (parts.length !== 3) throw new AccountError(401, "invalid_access_token");
+    let validSignature = false;
+    try {
+      const supplied = decodeBase64Url(parts[2]);
+      validSignature = await crypto.subtle.verify(
+        "HMAC",
+        await crypto.subtle.importKey(
+          "raw",
+          new TextEncoder().encode(this.secret),
+          { name: "HMAC", hash: "SHA-256" },
+          false,
+          ["verify"],
+        ),
+        supplied,
+        new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
+      );
+    } catch {
+      validSignature = false;
+    }
+    if (!validSignature) {
+      throw new AccountError(401, "invalid_access_token");
+    }
+    let header: { alg?: unknown; typ?: unknown };
+    let claims: AccessClaims;
+    try {
+      header = decodeJson(parts[0]) as typeof header;
+      claims = decodeJson(parts[1]) as AccessClaims;
+    } catch {
+      throw new AccountError(401, "invalid_access_token");
+    }
+    if (
+      header.alg !== "HS256" || header.typ !== "JWT" ||
+      claims.iss !== "xmcl" ||
+      typeof claims.sub !== "string" || !claims.sub ||
+      typeof claims.sid !== "string" || !claims.sid ||
+      typeof claims.fid !== "string" || !claims.fid ||
+      !Array.isArray(claims.scope) ||
+      !claims.scope.every((scope) => typeof scope === "string") ||
+      !Number.isInteger(claims.iat) ||
+      !Number.isInteger(claims.exp) ||
+      (claims.cnf !== undefined &&
+        (typeof claims.cnf !== "object" ||
+          claims.cnf === null ||
+          typeof claims.cnf.jkt !== "string" ||
+          !claims.cnf.jkt)) ||
+      claims.exp <= claims.iat
+    ) {
+      throw new AccountError(401, "invalid_access_token");
+    }
+    if (claims.exp <= Math.floor(this.now().getTime() / 1000)) {
+      throw new AccountError(401, "access_token_expired");
+    }
+    return {
+      sessionId: claims.sid,
+      familyId: claims.fid,
+      accountId: claims.sub,
+      scopes: claims.scope,
+      issuedAt: new Date(claims.iat * 1000).toISOString(),
+      expiresAt: new Date(claims.exp * 1000).toISOString(),
+      dpopJkt: claims.cnf?.jkt,
+    };
+  }
+}
+
+export class SessionService extends AccessTokenVerifier {
+  constructor(
+    private readonly repository: AccountRepository,
+    secret: string,
+    now: () => Date = () => new Date(),
+  ) {
+    super(secret, now);
+  }
+
+  override async verify(accessToken: string): Promise<XmclPrincipal> {
+    const principal = await super.verify(accessToken);
+    return requiresLegacySessionCheck(principal)
+      ? await this.requireActiveSession(principal)
+      : principal;
+  }
+
   async issue(
     accountId: string,
     scopes: readonly string[] = USER_SESSION_SCOPES,
+    dpopJkt?: string,
   ): Promise<PublicSession> {
     const now = this.now();
     const sessionId = randomId("ses");
@@ -115,6 +205,7 @@ export class SessionService {
       scopes: [...scopes],
       issuedAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + ACCESS_TOKEN_TTL_MS).toISOString(),
+      dpopJkt,
       refreshHash: await sha256(refreshToken),
       consumedRefreshHashes: [],
       refreshExpiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60_000)
@@ -134,10 +225,19 @@ export class SessionService {
   async refresh(
     sessionId: string,
     refreshToken: string,
+    dpopPresentation?:
+      | string
+      | ((expectedJkt?: string) => Promise<string | undefined>),
   ): Promise<PublicSession> {
     const record = await this.repository.getSession(sessionId);
     if (!record) throw new AccountError(401, "invalid_refresh_token");
     if (record.revokedAt) throw new AccountError(401, "session_revoked");
+    const dpopJkt = typeof dpopPresentation === "function"
+      ? await dpopPresentation(record.dpopJkt)
+      : dpopPresentation;
+    if (record.dpopJkt !== dpopJkt) {
+      throw new AccountError(401, "invalid_dpop_proof");
+    }
     if (Date.parse(record.refreshExpiresAt) <= this.now().getTime()) {
       throw new AccountError(401, "refresh_token_expired");
     }
@@ -213,60 +313,17 @@ export class SessionService {
     }
   }
 
-  async verify(accessToken: string): Promise<XmclPrincipal> {
-    const parts = accessToken.split(".");
-    if (parts.length !== 3) throw new AccountError(401, "invalid_access_token");
-    let validSignature = false;
-    try {
-      const expected = await hmac(this.secret, `${parts[0]}.${parts[1]}`);
-      const supplied = decodeBase64Url(parts[2]);
-      validSignature = expected.length === supplied.length &&
-        await crypto.subtle.verify(
-          "HMAC",
-          await crypto.subtle.importKey(
-            "raw",
-            new TextEncoder().encode(this.secret),
-            { name: "HMAC", hash: "SHA-256" },
-            false,
-            ["verify"],
-          ),
-          supplied,
-          new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
-        );
-    } catch {
-      validSignature = false;
-    }
-    if (!validSignature) {
-      throw new AccountError(401, "invalid_access_token");
-    }
-    let claims: AccessClaims;
-    try {
-      claims = decodeJson(parts[1]) as AccessClaims;
-    } catch {
-      throw new AccountError(401, "invalid_access_token");
-    }
+  async requireActiveSession(
+    principal: XmclPrincipal,
+  ): Promise<XmclPrincipal> {
+    const record = await this.repository.getSession(principal.sessionId);
     if (
-      claims.iss !== "xmcl" || !claims.sub || !claims.sid ||
-      !Array.isArray(claims.scope) ||
-      claims.exp <= Math.floor(this.now().getTime() / 1000)
-    ) {
-      throw new AccountError(401, "access_token_expired");
-    }
-    const record = await this.repository.getSession(claims.sid);
-    if (
-      !record || record.revokedAt || record.accountId !== claims.sub ||
-      record.familyId !== claims.fid
+      !record || record.revokedAt || record.accountId !== principal.accountId ||
+      record.familyId !== principal.familyId
     ) {
       throw new AccountError(401, "session_revoked");
     }
-    return {
-      sessionId: claims.sid,
-      familyId: claims.fid,
-      accountId: claims.sub,
-      scopes: claims.scope,
-      issuedAt: new Date(claims.iat * 1000).toISOString(),
-      expiresAt: new Date(claims.exp * 1000).toISOString(),
-    };
+    return principal;
   }
 
   private async toPublic(
@@ -283,6 +340,7 @@ export class SessionService {
       scope: record.scopes,
       iat,
       exp,
+      ...(record.dpopJkt ? { cnf: { jkt: record.dpopJkt } } : {}),
     };
     const unsigned = `${encodeJson({ alg: "HS256", typ: "JWT" })}.${
       encodeJson(claims)
@@ -297,8 +355,10 @@ export class SessionService {
       scopes: record.scopes,
       issuedAt: record.issuedAt,
       expiresAt: record.expiresAt,
+      dpopJkt: record.dpopJkt,
       accessToken,
       refreshToken,
+      tokenType: record.dpopJkt ? "DPoP" : "Bearer",
     };
   }
 }

@@ -403,11 +403,31 @@ The same variables are used across every runtime (read via `hono/adapter`:
   design is deployed. The group ID is server-only configuration, never a browser
   request, cloud-init value, node command, or public API response.
 - `XMCL_OAUTH_REDIRECT_URIS` - comma-separated exact HTTPS callbacks for website
-  OAuth. For the production website this includes
-  `https://xmcl.app/oauth/callback`; register the same exact URL in every
-  enabled OAuth provider application. The launcher callback uses
+  OAuth previews. Production always allows exactly
+  `https://xmcl.app/oauth/callback` and
+  `https://www.xmcl.app/oauth/callback`; register both exact URLs in every
+  enabled production OAuth provider application. The launcher callback uses
   `http://127.0.0.1:<port>/commercial-auth` and requires no environment
   configuration.
+- XMCL access tokens are stateless signed JWTs with a 10-minute lifetime.
+  Authentication verifies the token without reading MongoDB. Refresh-token
+  rotation, replay detection, and session revocation remain stateful; revocation
+  therefore takes effect immediately for refresh and within 10 minutes for an
+  already-issued access token. During rollout only, previously issued 24-hour
+  access tokens retain the legacy session lookup until they expire, so existing
+  clients remain compatible without widening their former revocation behavior.
+- DPoP-capable browser and launcher sessions are sender-constrained. Their JWT
+  carries `cnf.jkt`; resource requests use `Authorization: DPoP` plus an ES256
+  proof bound to the method, URL, access token, and one-time `jti`. Refresh
+  tokens are bound to the same P-256 device key. The launcher stores its private
+  key only in OS-backed secret storage, while the website stores a non-exportable
+  `CryptoKey` in IndexedDB. Refresh, mutations, RTC credentials, and multiplayer
+  use sharded Durable Objects for cross-isolate replay detection on Cloudflare;
+  the Azure cold mirror uses a Mongo TTL-backed replay collection. Ordinary
+  reads keep a short process-local replay window so access-token verification
+  stays horizontally scalable. Unbound Bearer sessions remain accepted during
+  client rollout and for browsers that cannot persist a device key; enforcement
+  can become mandatory after those clients have drained.
 - `TURNS` - TURN server configuration (format: "realm:ip,realm:ip")
 - `CLOUDFLARE_API_TOKEN` - Cloudflare TURN API token (optional,
   `/rtc?type=cloudflare`)

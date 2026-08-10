@@ -22,6 +22,8 @@ import type {
 } from "../../src/cloudflare/types.ts";
 import { isRetiredServicePath } from "../../src/realtime.ts";
 
+export { DpopReplayObject } from "../../src/cloudflare/dpopReplay.ts";
+
 async function dispatchApiRequest(
   request: Request,
   env: any,

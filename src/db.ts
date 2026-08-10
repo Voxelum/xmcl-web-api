@@ -3,6 +3,10 @@ import type { AppConfig } from "./config.ts";
 
 /** The subset of the native MongoDB collection API the routes rely on. */
 export interface MongoCollection {
+  createIndex?(
+    keys: Record<string, 1 | -1>,
+    options?: { expireAfterSeconds?: number; name?: string },
+  ): Promise<unknown>;
   findOne(filter: Record<string, unknown>): Promise<any>;
   findOneAndUpdate(
     filter: Record<string, unknown>,

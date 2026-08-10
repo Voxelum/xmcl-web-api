@@ -20,6 +20,11 @@ pattern = "signaling.xmcl.app"
 custom_domain = true
 
 [[durable_objects.bindings]]
+name = "DPOP_REPLAY"
+class_name = "DpopReplayObject"
+script_name = "xmcl-web-api"
+
+[[durable_objects.bindings]]
 name = "MULTIPLAYER_ROOMS"
 class_name = "MultiplayerRoomObject"
 

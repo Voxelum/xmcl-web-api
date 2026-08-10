@@ -21,6 +21,7 @@ import {
 } from "./oauth/types.ts";
 import {
   ACCESS_TOKEN_TTL_MS,
+  requiresLegacySessionCheck,
   SessionService,
   USER_SESSION_SCOPES,
 } from "./session.ts";
@@ -165,7 +166,7 @@ Deno.test("launcher exchange creates an account and rejects transaction replay",
   assert.equal((await replay.json()).error, "launcher_transaction_replayed");
 });
 
-Deno.test("XMCL access tokens expire after 24 hours when issued and refreshed", async () => {
+Deno.test("XMCL access tokens expire after 10 minutes when issued and refreshed", async () => {
   let now = new Date("2026-07-23T12:00:00.000Z");
   const repository = new MemoryAccountRepository();
   const sessions = new SessionService(repository, secret, () => now);
@@ -184,6 +185,35 @@ Deno.test("XMCL access tokens expire after 24 hours when issued and refreshed", 
   assert.equal(
     Date.parse(refreshed.expiresAt) - Date.parse(refreshed.issuedAt),
     ACCESS_TOKEN_TTL_MS,
+  );
+});
+
+Deno.test("XMCL access-token verification does not read session storage", async () => {
+  const repository = new MemoryAccountRepository();
+  const sessions = new SessionService(repository, secret);
+  const issued = await sessions.issue("acct_stateless_access");
+  repository.getSession = () => {
+    throw new Error("access-token verification must not read session storage");
+  };
+
+  const principal = await sessions.verify(issued.accessToken);
+
+  assert.equal(principal.accountId, "acct_stateless_access");
+  assert.equal(principal.sessionId, issued.sessionId);
+  assert.equal(requiresLegacySessionCheck(principal), false);
+});
+
+Deno.test("pre-rollout access tokens retain the legacy session check", () => {
+  assert.equal(
+    requiresLegacySessionCheck({
+      sessionId: "ses_legacy",
+      familyId: "fam_legacy",
+      accountId: "acct_legacy",
+      scopes: [],
+      issuedAt: "2026-08-10T00:00:00.000Z",
+      expiresAt: "2026-08-11T00:00:00.000Z",
+    }),
+    true,
   );
 });
 
@@ -243,6 +273,48 @@ Deno.test("browser OAuth binds redirect, state, nonce and PKCE to a one-time tra
   const replay = await exchange();
   assert.equal(replay.status, 409);
   assert.equal((await replay.json()).error, "oauth_transaction_replayed");
+});
+
+Deno.test("browser OAuth binds the issued session to its DPoP key", async () => {
+  const { app, runtime } = setup();
+  const verifier = "fixture-dpop-pkce-verifier-with-enough-entropy";
+  const state = "fixture-dpop-state";
+  const pair = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  );
+  const dpopJwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
+  const authorizeQuery = new URLSearchParams({
+    redirectUri: "https://xmcl.app/oauth/callback",
+    state,
+    codeChallenge: await sha256(verifier),
+    dpopJwk: JSON.stringify(dpopJwk),
+  });
+  const authorize = await app.request(
+    `/v1/auth/discord/authorize?${authorizeQuery}`,
+  );
+  assert.equal(authorize.status, 200);
+  const authorization = await authorize.json();
+
+  const exchange = await app.request("/v1/auth/discord/exchange", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      transactionId: authorization.transactionId,
+      state,
+      codeVerifier: verifier,
+      code: "discord:discord-dpop-subject:DPoP User",
+      dpopJwk,
+    }),
+  });
+  assert.equal(exchange.status, 200);
+  const session = (await exchange.json()).session;
+  assert.equal(session.tokenType, "DPoP");
+  assert.equal(
+    (await runtime.sessions.verify(session.accessToken)).dpopJkt,
+    session.dpopJkt,
+  );
 });
 
 Deno.test("browser OAuth allows the launcher callback without a configured redirect URI", async () => {

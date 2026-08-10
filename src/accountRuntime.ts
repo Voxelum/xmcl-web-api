@@ -9,13 +9,34 @@ import { createMicrosoftOAuth } from "./oauth/microsoft.ts";
 import { createModrinthOAuth } from "./oauth/modrinth.ts";
 import { createOAuthRedirectPolicy } from "./oauth/redirectPolicy.ts";
 import type { OAuthRegistry } from "./oauth/types.ts";
-import { SessionService } from "./session.ts";
+import {
+  AccessTokenVerifier,
+  requiresLegacySessionCheck,
+  SessionService,
+} from "./session.ts";
 
 export interface AccountRuntime {
   accounts: AccountService;
   sessions: SessionService;
   merges: AccountMergeService;
   oauth: OAuthRegistry;
+}
+
+export function getAccessTokenVerifier(c: Context<AppEnv>) {
+  const secret = getConfig(c).XMCL_SESSION_SECRET;
+  if (!secret) throw new Error("XMCL_SESSION_SECRET is not set");
+  return new AccessTokenVerifier(secret);
+}
+
+export async function verifyAccessToken(
+  c: Context<AppEnv>,
+  accessToken: string,
+) {
+  const principal = await getAccessTokenVerifier(c).verify(accessToken);
+  if (!requiresLegacySessionCheck(principal)) return principal;
+  return await (await getAccountRuntime(c)).sessions.requireActiveSession(
+    principal,
+  );
 }
 
 export async function getAccountRuntime(

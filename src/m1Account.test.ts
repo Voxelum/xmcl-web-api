@@ -86,7 +86,7 @@ function createRuntime(now: () => Date): AccountRuntime {
   };
 }
 
-Deno.test("M1 sessions expire after 24 hours", async () => {
+Deno.test("M1 access tokens expire after 10 minutes", async () => {
   let timestamp = Date.parse("2026-07-22T14:00:00.000Z");
   const now = () => new Date(timestamp);
   const runtime = createRuntime(now);

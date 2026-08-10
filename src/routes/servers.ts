@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 import { Hono } from "hono";
-import { getAccountRuntime } from "../accountRuntime.ts";
+import { authenticateXmclRequest } from "../middleware/xmclAuth.ts";
 import {
   getServerControlRuntime,
   ServerControlRuntimeConfigurationError,
@@ -27,19 +27,15 @@ export type ServerRouteResolver = (
 export async function getMountedServerRouteDependencies(
   context: Context<AppEnv>,
 ): Promise<ServerRouteDependencies> {
-  const [serverControlRuntime, accountRuntime] = [
-    getServerControlRuntime(context),
-    await getAccountRuntime(context),
-  ];
+  const serverControlRuntime = getServerControlRuntime(context);
   return {
     service: serverControlRuntime.service,
     sessions: {
       async authenticate(authorization) {
-        if (!authorization?.startsWith("Bearer ")) return null;
+        if (!authorization) return null;
         try {
-          const principal = await accountRuntime.sessions.verify(
-            authorization.slice("Bearer ".length),
-          );
+          const principal = await authenticateXmclRequest(context);
+          if (!principal) return null;
           return { accountId: principal.accountId, scopes: principal.scopes };
         } catch {
           return null;
