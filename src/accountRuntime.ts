@@ -57,7 +57,6 @@ export async function getAccountRuntime(
   const oauth: OAuthRegistry = {
     microsoft: createMicrosoftOAuth({
       clientId: config.XMCL_MICROSOFT_CLIENT_ID ?? "",
-      clientSecret: config.XMCL_MICROSOFT_CLIENT_SECRET,
       redirectUris: redirects,
     }),
     modrinth: createModrinthOAuth({

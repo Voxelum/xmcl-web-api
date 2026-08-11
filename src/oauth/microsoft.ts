@@ -2,7 +2,6 @@ import { RemoteOAuthAdapter } from "./types.ts";
 
 export function createMicrosoftOAuth(options: {
   clientId: string;
-  clientSecret?: string;
   redirectUris: string[];
   fetch?: typeof globalThis.fetch;
 }) {
@@ -23,7 +22,6 @@ export function createMicrosoftOAuth(options: {
       credentialVerification: "provider_userinfo",
       launcherAvailable: true,
     },
-    clientSecret: options.clientSecret,
     fetch: options.fetch,
     mapUser: (body) => ({
       subject: body.id,
