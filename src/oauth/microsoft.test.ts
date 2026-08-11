@@ -34,6 +34,7 @@ Deno.test("redeems Microsoft public-client codes with PKCE and no client secret"
     requests[0].url,
     "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
   );
+  assert.equal(requests[0].headers.get("origin"), "https://www.xmcl.app");
   const form = new URLSearchParams(await requests[0].text());
   assert.equal(form.get("client_id"), "microsoft-public-client");
   assert.equal(form.get("code_verifier"), "pkce-verifier");

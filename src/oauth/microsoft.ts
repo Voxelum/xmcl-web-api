@@ -22,6 +22,9 @@ export function createMicrosoftOAuth(options: {
       credentialVerification: "provider_userinfo",
       launcherAvailable: true,
     },
+    tokenRequestHeaders: (input) => ({
+      origin: new URL(input.redirectUri).origin,
+    }),
     fetch: options.fetch,
     mapUser: (body) => ({
       subject: body.id,

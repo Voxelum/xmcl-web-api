@@ -74,6 +74,7 @@ export interface RemoteOAuthOptions {
   declaration: OAuthProviderDeclaration;
   clientSecret?: string;
   fetch?: typeof globalThis.fetch;
+  tokenRequestHeaders?: (input: BrowserExchange) => HeadersInit;
   mapUser(
     body: Record<string, unknown>,
   ): { subject?: unknown; displayName?: unknown };
@@ -83,11 +84,13 @@ export class RemoteOAuthAdapter implements OAuthProviderAdapter {
   readonly declaration: OAuthProviderDeclaration;
   private readonly clientSecret?: string;
   private readonly remoteFetch: typeof globalThis.fetch;
+  private readonly tokenRequestHeaders?: RemoteOAuthOptions["tokenRequestHeaders"];
   private readonly mapUser: RemoteOAuthOptions["mapUser"];
 
   constructor(options: RemoteOAuthOptions) {
     this.declaration = options.declaration;
     this.clientSecret = options.clientSecret;
+    this.tokenRequestHeaders = options.tokenRequestHeaders;
     // Cloudflare's fetch requires the Worker global as its receiver. Keeping an
     // unbound reference works in Node/Deno but throws an illegal-invocation
     // error in Workers when an OAuth adapter calls it later.
@@ -128,9 +131,11 @@ export class RemoteOAuthAdapter implements OAuthProviderAdapter {
 
     let response: Response;
     try {
+      const headers = new Headers(this.tokenRequestHeaders?.(input));
+      headers.set("content-type", "application/x-www-form-urlencoded");
       response = await this.remoteFetch(this.declaration.tokenEndpoint, {
         method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
+        headers,
         body,
         signal: AbortSignal.timeout(PROVIDER_REQUEST_TIMEOUT_MS),
       });
