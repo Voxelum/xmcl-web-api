@@ -227,11 +227,16 @@ async function logProviderRejection(
 ) {
   let providerError: string | undefined;
   let providerErrorCode: string | undefined;
+  let providerErrorSummary: string | undefined;
   try {
     const body = await response.clone().json() as Record<string, unknown>;
     if (typeof body.error === "string") providerError = body.error;
     if (typeof body.error_description === "string") {
       providerErrorCode = body.error_description.match(/\bAADSTS\d+\b/)?.[0];
+      providerErrorSummary = body.error_description
+        .split(/\s+(?:Trace ID|Correlation ID|Timestamp):/i, 1)[0]
+        .trim()
+        .slice(0, 500);
     }
   } catch {
     // Provider bodies are not guaranteed to be JSON.
@@ -242,5 +247,6 @@ async function logProviderRejection(
     status: response.status,
     providerError,
     providerErrorCode,
+    providerErrorSummary,
   });
 }
