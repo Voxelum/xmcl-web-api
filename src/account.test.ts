@@ -737,6 +737,14 @@ Deno.test("provider declarations gate launcher availability and declare verifica
   });
   assert.equal(microsoft.declaration.launcherAvailable, true);
   assert.equal(microsoft.declaration.audience, "https://graph.microsoft.com");
+  assert.equal(
+    microsoft.declaration.authorizationEndpoint,
+    "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize",
+  );
+  assert.equal(
+    microsoft.declaration.tokenEndpoint,
+    "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
+  );
   assert.deepEqual(microsoft.declaration.scopes, [
     "openid",
     "profile",

@@ -9,11 +9,11 @@ export function createMicrosoftOAuth(options: {
   return new RemoteOAuthAdapter({
     declaration: {
       provider: "microsoft",
-      issuer: "https://login.microsoftonline.com/common/v2.0",
+      issuer: "https://login.microsoftonline.com/consumers/v2.0",
       authorizationEndpoint:
-        "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+        "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize",
       tokenEndpoint:
-        "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+        "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
       userInfoEndpoint: "https://graph.microsoft.com/v1.0/me",
       clientId: options.clientId,
       audience: "https://graph.microsoft.com",
