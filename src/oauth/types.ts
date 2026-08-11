@@ -143,7 +143,11 @@ export class RemoteOAuthAdapter implements OAuthProviderAdapter {
       throw new OAuthProviderError("provider_unavailable");
     }
     if (!response.ok) {
-      logProviderRejection(this.declaration.provider, this.declaration.tokenEndpoint, response.status);
+      await logProviderRejection(
+        this.declaration.provider,
+        this.declaration.tokenEndpoint,
+        response,
+      );
       throw new OAuthProviderError("provider_rejected");
     }
     const token = await response.json() as { access_token?: string };
@@ -181,10 +185,10 @@ export class RemoteOAuthAdapter implements OAuthProviderAdapter {
       throw new OAuthProviderError("provider_unavailable");
     }
     if (!response.ok) {
-      logProviderRejection(
+      await logProviderRejection(
         this.declaration.provider,
         this.declaration.userInfoEndpoint,
-        response.status,
+        response,
       );
       throw new OAuthProviderError("invalid_provider_credential");
     }
@@ -216,14 +220,27 @@ function logProviderNetworkFailure(
   });
 }
 
-function logProviderRejection(
+async function logProviderRejection(
   provider: OAuthProvider,
   endpoint: string,
-  status: number,
+  response: Response,
 ) {
+  let providerError: string | undefined;
+  let providerErrorCode: string | undefined;
+  try {
+    const body = await response.clone().json() as Record<string, unknown>;
+    if (typeof body.error === "string") providerError = body.error;
+    if (typeof body.error_description === "string") {
+      providerErrorCode = body.error_description.match(/\bAADSTS\d+\b/)?.[0];
+    }
+  } catch {
+    // Provider bodies are not guaranteed to be JSON.
+  }
   console.warn("OAuth provider rejected request", {
     provider,
     endpointHost: new URL(endpoint).host,
-    status,
+    status: response.status,
+    providerError,
+    providerErrorCode,
   });
 }
