@@ -2,10 +2,7 @@ import { Hono } from "hono";
 import { proxyResponse } from "../proxy.ts";
 import { type AppConfig, getConfig } from "../config.ts";
 import type { AppEnv } from "../types.ts";
-import {
-  createModrinthClientAuthorization,
-  DEFAULT_MODRINTH_CLIENT_ID,
-} from "../oauth/modrinth.ts";
+import { DEFAULT_MODRINTH_CLIENT_ID } from "../oauth/modrinth.ts";
 
 export function createModrinthTokenRequest(
   config: AppConfig,
@@ -27,10 +24,7 @@ export function createModrinthTokenRequest(
     "User-Agent": userAgent,
   };
   if (config.XMCL_MODRINTH_CLIENT_SECRET) {
-    headers.Authorization = createModrinthClientAuthorization(
-      clientId,
-      config.XMCL_MODRINTH_CLIENT_SECRET,
-    );
+    headers.Authorization = config.XMCL_MODRINTH_CLIENT_SECRET;
   } else if (config.MODRINTH_SECRET) {
     headers.Authorization = config.MODRINTH_SECRET;
   }

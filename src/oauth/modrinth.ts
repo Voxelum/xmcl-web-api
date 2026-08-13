@@ -2,13 +2,6 @@ import { RemoteOAuthAdapter } from "./types.ts";
 
 export const DEFAULT_MODRINTH_CLIENT_ID = "GFz0B21y";
 
-export function createModrinthClientAuthorization(
-  clientId: string,
-  clientSecret: string,
-) {
-  return `Basic ${btoa(`${clientId}:${clientSecret}`)}`;
-}
-
 export function createModrinthOAuth(options: {
   clientId?: string;
   clientSecret?: string;
@@ -34,10 +27,7 @@ export function createModrinthOAuth(options: {
     },
     tokenRequestHeaders: clientSecret
       ? () => ({
-        Authorization: createModrinthClientAuthorization(
-          clientId,
-          clientSecret,
-        ),
+        Authorization: clientSecret,
       })
       : undefined,
     fetch: options.fetch,

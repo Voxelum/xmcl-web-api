@@ -40,7 +40,7 @@ Deno.test("uses the configured Modrinth OAuth client and client secret for brows
   });
   assert.equal(
     requests[0].headers.get("authorization"),
-    `Basic ${btoa("configured-modrinth-client:configured-modrinth-secret")}`,
+    "configured-modrinth-secret",
   );
   const form = new URLSearchParams(await requests[0].text());
   assert.equal(form.get("client_id"), "configured-modrinth-client");

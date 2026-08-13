@@ -31,7 +31,7 @@ Deno.test("prefers the raw Modrinth client secret when configured", async () => 
 
   assert.equal(
     request.headers.get("authorization"),
-    `Basic ${btoa("GFz0B21y:raw-client-secret")}`,
+    "raw-client-secret",
   );
   const form = new URLSearchParams(await request.text());
   assert.equal(form.get("client_secret"), null);
