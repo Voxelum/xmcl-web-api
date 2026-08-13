@@ -1,8 +1,5 @@
 import assert from "node:assert/strict";
-import {
-  createModrinthOAuth,
-  DEFAULT_MODRINTH_CLIENT_ID,
-} from "./modrinth.ts";
+import { createModrinthOAuth, DEFAULT_MODRINTH_CLIENT_ID } from "./modrinth.ts";
 
 Deno.test("uses the configured Modrinth OAuth client and client secret for browser exchange", async () => {
   const requests: Request[] = [];
@@ -43,11 +40,11 @@ Deno.test("uses the configured Modrinth OAuth client and client secret for brows
   });
   assert.equal(
     requests[0].headers.get("authorization"),
-    null,
+    `Basic ${btoa("configured-modrinth-client:configured-modrinth-secret")}`,
   );
   const form = new URLSearchParams(await requests[0].text());
   assert.equal(form.get("client_id"), "configured-modrinth-client");
-  assert.equal(form.get("client_secret"), "configured-modrinth-secret");
+  assert.equal(form.get("client_secret"), null);
 });
 
 Deno.test("uses the existing registered Modrinth client ID by default", () => {

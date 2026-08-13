@@ -29,7 +29,10 @@ Deno.test("prefers the raw Modrinth client secret when configured", async () => 
     XMCL_MODRINTH_CLIENT_SECRET: "raw-client-secret",
   });
 
-  assert.equal(request.headers.get("authorization"), null);
+  assert.equal(
+    request.headers.get("authorization"),
+    `Basic ${btoa("GFz0B21y:raw-client-secret")}`,
+  );
   const form = new URLSearchParams(await request.text());
-  assert.equal(form.get("client_secret"), "raw-client-secret");
+  assert.equal(form.get("client_secret"), null);
 });

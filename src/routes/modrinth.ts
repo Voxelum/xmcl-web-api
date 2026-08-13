@@ -2,7 +2,10 @@ import { Hono } from "hono";
 import { proxyResponse } from "../proxy.ts";
 import { type AppConfig, getConfig } from "../config.ts";
 import type { AppEnv } from "../types.ts";
-import { DEFAULT_MODRINTH_CLIENT_ID } from "../oauth/modrinth.ts";
+import {
+  createModrinthClientAuthorization,
+  DEFAULT_MODRINTH_CLIENT_ID,
+} from "../oauth/modrinth.ts";
 
 export function createModrinthTokenRequest(
   config: AppConfig,
@@ -11,21 +14,24 @@ export function createModrinthTokenRequest(
   userAgent: string,
 ) {
   const url = new URL("https://api.modrinth.com/_internal/oauth/token");
+  const clientId = config.XMCL_MODRINTH_CLIENT_ID ||
+    DEFAULT_MODRINTH_CLIENT_ID;
   const body = new URLSearchParams({
-    client_id: config.XMCL_MODRINTH_CLIENT_ID ||
-      DEFAULT_MODRINTH_CLIENT_ID,
+    client_id: clientId,
     redirect_uri: redirectUri,
     code,
     grant_type: "authorization_code",
   });
-  if (config.XMCL_MODRINTH_CLIENT_SECRET) {
-    body.set("client_secret", config.XMCL_MODRINTH_CLIENT_SECRET);
-  }
   const headers: Record<string, string> = {
     "Content-Type": "application/x-www-form-urlencoded",
     "User-Agent": userAgent,
   };
-  if (!config.XMCL_MODRINTH_CLIENT_SECRET && config.MODRINTH_SECRET) {
+  if (config.XMCL_MODRINTH_CLIENT_SECRET) {
+    headers.Authorization = createModrinthClientAuthorization(
+      clientId,
+      config.XMCL_MODRINTH_CLIENT_SECRET,
+    );
+  } else if (config.MODRINTH_SECRET) {
     headers.Authorization = config.MODRINTH_SECRET;
   }
   return new Request(url, {
