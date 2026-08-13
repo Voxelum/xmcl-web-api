@@ -9,11 +9,13 @@ import { type CashRate, MongoBillingStore } from "./ledger.ts";
 import { UsageSettlementService } from "./usageSettlement.ts";
 import { SHARED_HOSTING_RATES, SharedHostingService } from "./sharedHosting.ts";
 import { WaffoSdkProvider, WaffoService } from "./waffo.ts";
+import { XmclPlusService } from "./xmclPlus.ts";
 
 export interface BillingRuntime {
   billing: BillingService;
   usage: UsageSettlementService;
   sharedHosting: SharedHostingService;
+  plus: XmclPlusService;
 }
 
 export interface SharedRuntimeSettlementScheduler {
@@ -31,6 +33,9 @@ export interface SharedRuntimeSettlementResult {
   runtimeSettled: string[];
   runtimePaymentDue: string[];
   paymentReconciliation: BillingReconciliationResult;
+  plusRenewed: string[];
+  plusPaymentDue: string[];
+  plusCancelled: string[];
 }
 
 export interface SharedRuntimeSettlementWork {
@@ -61,12 +66,21 @@ export interface BillingReconciliationWork {
  * safe; missed invocations catch up through those watermarks.
  */
 export function createSharedRuntimeSettlementWork(
-  runtime: Pick<BillingRuntime, "sharedHosting">,
+  runtime:
+    & Pick<BillingRuntime, "sharedHosting">
+    & Partial<Pick<BillingRuntime, "plus">>,
   scheduler: SharedRuntimeSettlementScheduler,
   reconciliation?: BillingReconciliationWork,
 ): SharedRuntimeSettlementWork {
   const runHourly = async (at: Date, paymentLimit?: number) => {
-    const renewal = await runtime.sharedHosting.renewDue(at);
+    const [renewal, plusRenewal] = await Promise.all([
+      runtime.sharedHosting.renewDue(at),
+      runtime.plus?.renewDue(at) ?? Promise.resolve({
+        renewed: [] as string[],
+        paymentDue: [] as string[],
+        cancelled: [] as string[],
+      }),
+    ]);
     const runtimeSettlement = await scheduler.settleRunningRuntime(at);
     await scheduler.enforcePaymentDue([
       ...new Set([
@@ -82,6 +96,9 @@ export function createSharedRuntimeSettlementWork(
       runtimeSettled: runtimeSettlement.settled,
       runtimePaymentDue: runtimeSettlement.paymentDue,
       paymentReconciliation,
+      plusRenewed: plusRenewal.renewed,
+      plusPaymentDue: plusRenewal.paymentDue,
+      plusCancelled: plusRenewal.cancelled,
     };
   };
   return {
@@ -141,6 +158,9 @@ export function createBillingRuntime(
     sharedHosting: new SharedHostingService(store, {
       currency: config.BILLING_CURRENCY ?? "USD",
     }),
+    plus: new XmclPlusService(store, {
+      currency: config.BILLING_CURRENCY ?? "USD",
+    }),
   };
 }
 
@@ -156,6 +176,7 @@ export async function getBillingRuntime(
   c.set("billingRuntime", runtime);
   c.set("billingService", runtime.billing);
   c.set("sharedHostingService", runtime.sharedHosting);
+  c.set("xmclPlusService", runtime.plus);
   c.set("usageSettlementService", runtime.usage);
   return runtime;
 }
@@ -175,7 +196,13 @@ export async function getWaffoService(
   ) {
     throw new AccountError(503, "waffo_unavailable");
   }
-  const service = createWaffoPaymentService(runtime.billing, config);
+  const service = createWaffoPaymentService(
+    runtime.billing,
+    config,
+    async (accountId, at) => {
+      await runtime.plus.recoverPaymentDue(accountId, at);
+    },
+  );
   c.set("waffoService", service);
   return service;
 }
@@ -183,6 +210,7 @@ export async function getWaffoService(
 export function createWaffoPaymentService(
   billing: BillingService,
   config: AppConfig,
+  recoverPaymentDue?: (accountId: string, at: Date) => Promise<unknown>,
 ) {
   if (
     !config.WAFFO_MERCHANT_ID || !config.WAFFO_PRIVATE_KEY ||
@@ -206,5 +234,6 @@ export function createWaffoPaymentService(
   return new WaffoService(billing, provider, provider, {
     storeId: options.storeId,
     environment: options.environment,
+    recoverPaymentDue,
   });
 }

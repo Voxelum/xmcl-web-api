@@ -5,6 +5,7 @@ import type { DpopReplayStore } from "./dpop.ts";
 import type { AppEnv } from "./types.ts";
 
 let mongoIndexReady: Promise<void> | undefined;
+const DPOP_REPLAY_TTL_SECONDS = 300;
 
 export async function resolveDpopReplayStore(
   c: Context<AppEnv>,
@@ -27,21 +28,22 @@ export function requiresSharedDpopReplay(method: string, requestUrl: string) {
 }
 
 export function createMongoDpopReplayStore(db: Db): DpopReplayStore {
-  const collection = db.collection("xmcl_dpop_replays");
+  const collection = db.collection("xmcl_dpop_replays") as MongoCollection & {
+    insertOne(document: Record<string, unknown>): Promise<unknown>;
+  };
   return {
     async consume(key, expiresAt) {
       await ensureMongoTtlIndex(collection);
       try {
-        await collection.replaceOne(
-          {
-            _id: key,
-            expiresAt: { $lte: new Date() },
-          },
+        await collection.deleteOne({
+          _id: key,
+          expiresAt: { $lte: new Date() },
+        });
+        await collection.insertOne(
           {
             _id: key,
             expiresAt: new Date(expiresAt),
           },
-          { upsert: true },
         );
         return true;
       } catch (error) {
@@ -54,14 +56,43 @@ export function createMongoDpopReplayStore(db: Db): DpopReplayStore {
 
 async function ensureMongoTtlIndex(collection: MongoCollection) {
   if (!collection.createIndex) return;
-  mongoIndexReady ??= collection.createIndex(
-    { expiresAt: 1 },
-    { expireAfterSeconds: 0, name: "dpop_replay_expiry" },
-  ).then(() => undefined).catch((error) => {
+  mongoIndexReady ??= createMongoDpopReplayTtlIndex(collection).catch((error) => {
     mongoIndexReady = undefined;
     throw error;
   });
   await mongoIndexReady;
+}
+
+export async function createMongoDpopReplayTtlIndex(
+  collection: MongoCollection,
+) {
+  try {
+    await collection.createIndex!(
+      { expiresAt: 1 },
+      { expireAfterSeconds: 0, name: "dpop_replay_expiry" },
+    );
+  } catch (error) {
+    if (!shouldUseCosmosTtlIndex(error)) throw error;
+    await collection.createIndex!(
+      { _ts: 1 },
+      {
+        expireAfterSeconds: DPOP_REPLAY_TTL_SECONDS,
+        name: "dpop_replay_expiry",
+      },
+    );
+  }
+}
+
+function shouldUseCosmosTtlIndex(error: unknown) {
+  return typeof error === "object" && error !== null &&
+    (
+      (
+        "code" in error && error.code === 2 &&
+        "message" in error &&
+        String(error.message).includes("supported on '_ts' field only")
+      ) ||
+      ("code" in error && error.code === 86)
+    );
 }
 
 function isDuplicateKey(error: unknown) {

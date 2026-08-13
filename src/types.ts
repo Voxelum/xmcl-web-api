@@ -22,6 +22,7 @@ import type { BillingRuntime } from "./billingRuntime.ts";
 import type { WaffoService } from "./waffo.ts";
 import type { UsageSettlementService } from "./usageSettlement.ts";
 import type { SharedHostingService } from "./sharedHosting.ts";
+import type { XmclPlusService } from "./xmclPlus.ts";
 import type { SharedHostingScheduler } from "./sharedHostingScheduler.ts";
 import type { SharedHostingBillingScheduledWork } from "./sharedHostingScheduling.ts";
 import type { SharedNodeTransportService } from "./sharedNodeTransport.ts";
@@ -106,6 +107,8 @@ export interface AppVariables {
   usageSettlementService?: UsageSettlementService;
   /** Shared-hosting plan subscriptions and renewal billing. */
   sharedHostingService?: SharedHostingService;
+  /** XMCL Plus subscription and allowance projection. */
+  xmclPlusService?: XmclPlusService;
   /** Global shared-node scheduler; Docker and direct grant transfers remain node-agent owned. */
   sharedHostingScheduler?: SharedHostingScheduler;
   /** Trusted UTC renewal sweep; never supplied by a browser request. */

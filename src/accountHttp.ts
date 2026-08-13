@@ -47,6 +47,8 @@ export function handleAccountError(error: Error, c: Context) {
   console.error("Account request failed", {
     requestId: id,
     error: error.name,
+    errorCode: "code" in error ? String(error.code) : undefined,
+    errorCodeName: "codeName" in error ? String(error.codeName) : undefined,
   });
   return c.json({
     error: "internal_error",

@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import {
   AGNES_CHAT_COMPLETIONS_URL,
+  AiProviderClient,
   AgnesClient,
   AgnesConfigurationError,
+  DEEPSEEK_CHAT_COMPLETIONS_URL,
   parseAgnesApiKeys,
+  parseDeepSeekApiKeys,
 } from "./agnes.ts";
 
 Deno.test("Agnes key configuration is strict and deduplicated", () => {
@@ -21,6 +24,15 @@ Deno.test("Agnes key configuration is strict and deduplicated", () => {
   );
 });
 
+Deno.test("DeepSeek key configuration is optional but otherwise strict", () => {
+  assert.deepEqual(parseDeepSeekApiKeys(undefined), []);
+  assert.deepEqual(parseDeepSeekApiKeys('["deepseek-key"]'), ["deepseek-key"]);
+  assert.throws(
+    () => parseDeepSeekApiKeys("deepseek-key"),
+    AgnesConfigurationError,
+  );
+});
+
 Deno.test("Agnes client rotates keys between requests", async () => {
   const keyOrder: string[] = [];
   const client = new AgnesClient(["key-a", "key-b"], async (input, init) => {
@@ -33,6 +45,15 @@ Deno.test("Agnes client rotates keys between requests", async () => {
   assert.equal((await client.chatCompletions("{}")).status, 200);
   assert.equal((await client.chatCompletions("{}")).status, 200);
   assert.deepEqual(keyOrder, ["a", "b"]);
+});
+
+Deno.test("Agnes client omits an undefined AbortSignal from RequestInit", async () => {
+  const client = new AgnesClient(["key-a"], async (_input, init) => {
+    assert.equal(Object.hasOwn(init ?? {}, "signal"), false);
+    return Response.json({ ok: true });
+  });
+
+  assert.equal((await client.chatCompletions("{}")).status, 200);
 });
 
 Deno.test("Agnes client fails over on 429 and cools down that key", async () => {
@@ -97,4 +118,44 @@ Deno.test("Agnes client does not replay non-rate-limit failures", async () => {
 
   assert.equal((await client.chatCompletions("{}")).status, 401);
   assert.equal(calls, 1);
+});
+
+Deno.test("Agnes client tries the remaining key after a network failure", async () => {
+  let calls = 0;
+  const client = new AgnesClient(["key-a", "key-b"], async () => {
+    calls += 1;
+    if (calls === 1) throw new TypeError("fetch failed");
+    return Response.json({ ok: true });
+  });
+
+  assert.equal((await client.chatCompletions("{}")).status, 200);
+  assert.equal(calls, 2);
+});
+
+Deno.test("AI provider falls back to DeepSeek and replaces the model", async () => {
+  const calls: Array<{ url: string; model: string }> = [];
+  const client = new AiProviderClient(
+    ["agnes-key"],
+    ["deepseek-key"],
+    "deepseek-v4-flash",
+    async (input, init) => {
+      const url = String(input);
+      calls.push({
+        url,
+        model: JSON.parse(String(init?.body)).model,
+      });
+      return url === AGNES_CHAT_COMPLETIONS_URL
+        ? Response.json({ error: "unavailable" }, { status: 503 })
+        : Response.json({ ok: true });
+    },
+  );
+
+  const response = await client.chatCompletions(
+    JSON.stringify({ model: "agnes-2.5-flash", messages: [] }),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(calls, [
+    { url: AGNES_CHAT_COMPLETIONS_URL, model: "agnes-2.5-flash" },
+    { url: DEEPSEEK_CHAT_COMPLETIONS_URL, model: "deepseek-v4-flash" },
+  ]);
 });

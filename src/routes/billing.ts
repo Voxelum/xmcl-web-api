@@ -26,7 +26,18 @@ export function createBillingRoutes(
   const app = new Hono<AppEnv>();
   app.onError(handleAccountError);
   if (options.authenticated !== false) {
-    app.use("/v1/billing/*", xmclAuth([], resolve));
+    for (
+      const path of [
+        "/v1/billing/balance",
+        "/v1/billing/rates",
+        "/v1/billing/orders",
+        "/v1/billing/orders/:orderId",
+        "/v1/billing/ledger",
+        "/v1/billing/usage",
+      ]
+    ) {
+      app.use(path, xmclAuth([], resolve));
+    }
   }
 
   if (options.balance !== false) {

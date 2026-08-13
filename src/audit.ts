@@ -23,7 +23,7 @@ export interface AuditLog {
 }
 
 const sensitiveKey =
-  /(token|secret|oauth|paypal|authorization|card|pan|world|content)/i;
+  /(token|secret|oauth|waffo|authorization|card|pan|world|content)/i;
 
 /**
  * Audit metadata is intentionally a small, scalar allow-list. Keeping the

@@ -37,6 +37,7 @@ export function productionAppOptions(
   return {
     commercialRoutes: false,
     billingRoutes: true,
+    xmclPlusRoutes: true,
     paymentRoutes: hasWaffoSettings(config),
     sharedNodeTransportRoutes: config
       ? hasSharedNodeRuntimeSettings(config, bindings)

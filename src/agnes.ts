@@ -1,6 +1,9 @@
 export const AGNES_CHAT_COMPLETIONS_URL =
   "https://apihub.agnes-ai.com/v1/chat/completions";
 export const DEFAULT_AGNES_MODEL = "agnes-2.5-flash";
+export const DEEPSEEK_CHAT_COMPLETIONS_URL =
+  "https://api.deepseek.com/v1/chat/completions";
+export const DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash";
 
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
 const MAX_RATE_LIMIT_COOLDOWN_MS = 15 * 60_000;
@@ -10,6 +13,9 @@ export type AgnesFetch = (
   input: string | URL | Request,
   init?: RequestInit,
 ) => Promise<Response>;
+
+export const defaultAgnesFetch: AgnesFetch = (input, init) =>
+  fetch(input, init);
 
 interface KeyState {
   key: string;
@@ -24,14 +30,23 @@ export class AgnesConfigurationError extends Error {
 }
 
 export class AgnesUpstreamError extends Error {
-  constructor() {
+  constructor(
+    readonly provider: "agnes" | "deepseek",
+    readonly causeName: string,
+    readonly causeMessage: string,
+  ) {
     super("Agnes upstream request failed");
     this.name = "AgnesUpstreamError";
   }
 }
 
-export function parseAgnesApiKeys(value: string | undefined): string[] {
+function parseApiKeys(
+  value: string | undefined,
+  variableName: string,
+  required: boolean,
+): string[] {
   if (!value) {
+    if (!required) return [];
     throw new AgnesConfigurationError("AGNES_API_KEYS is not configured");
   }
 
@@ -40,7 +55,7 @@ export function parseAgnesApiKeys(value: string | undefined): string[] {
     parsed = JSON.parse(value);
   } catch {
     throw new AgnesConfigurationError(
-      "AGNES_API_KEYS must be a JSON array of strings",
+      `${variableName} must be a JSON array of strings`,
     );
   }
   if (
@@ -51,17 +66,25 @@ export function parseAgnesApiKeys(value: string | undefined): string[] {
     )
   ) {
     throw new AgnesConfigurationError(
-      `AGNES_API_KEYS must contain between 1 and ${MAX_KEYS} non-empty strings`,
+      `${variableName} must contain between 1 and ${MAX_KEYS} non-empty strings`,
     );
   }
 
   const keys = [...new Set(parsed.map((key) => key.trim()))];
   if (keys.length !== parsed.length) {
     throw new AgnesConfigurationError(
-      "AGNES_API_KEYS must not contain duplicate keys",
+      `${variableName} must not contain duplicate keys`,
     );
   }
   return keys;
+}
+
+export function parseAgnesApiKeys(value: string | undefined): string[] {
+  return parseApiKeys(value, "AGNES_API_KEYS", true);
+}
+
+export function parseDeepSeekApiKeys(value: string | undefined): string[] {
+  return parseApiKeys(value, "DEEPSEEK_API_KEYS", false);
 }
 
 export class AgnesClient {
@@ -70,8 +93,10 @@ export class AgnesClient {
 
   constructor(
     keys: readonly string[],
-    private readonly fetcher: AgnesFetch = fetch,
+    private readonly fetcher: AgnesFetch = defaultAgnesFetch,
     private readonly now: () => number = Date.now,
+    private readonly endpoint = AGNES_CHAT_COMPLETIONS_URL,
+    private readonly model?: string,
   ) {
     if (keys.length === 0) {
       throw new AgnesConfigurationError("At least one Agnes key is required");
@@ -85,6 +110,13 @@ export class AgnesClient {
   ): Promise<Response> {
     const attempted = new Set<number>();
     let latestRateLimited: Response | undefined;
+    let latestNetworkError:
+      | {
+        provider: "agnes" | "deepseek";
+        causeName: string;
+        causeMessage: string;
+      }
+      | undefined;
 
     while (attempted.size < this.keys.length) {
       const index = this.acquire(attempted);
@@ -93,18 +125,26 @@ export class AgnesClient {
 
       let response: Response;
       try {
-        response = await this.fetcher(AGNES_CHAT_COMPLETIONS_URL, {
+        response = await this.fetcher(this.endpoint, {
           method: "POST",
           headers: {
             authorization: `Bearer ${this.keys[index].key}`,
             "content-type": "application/json",
           },
-          body,
-          signal,
+          body: this.model ? replaceRequestModel(body, this.model) : body,
+          ...(signal ? { signal } : {}),
         });
-      } catch {
-        await latestRateLimited?.body?.cancel().catch(() => {});
-        throw new AgnesUpstreamError();
+      } catch (error) {
+        latestNetworkError = {
+          provider: this.endpoint === DEEPSEEK_CHAT_COMPLETIONS_URL
+            ? "deepseek"
+            : "agnes",
+          causeName: error instanceof Error ? error.name : "UnknownError",
+          causeMessage: error instanceof Error
+            ? error.message.slice(0, 200)
+            : String(error).slice(0, 200),
+        };
+        continue;
       }
 
       if (response.status !== 429) {
@@ -119,6 +159,13 @@ export class AgnesClient {
     }
 
     if (latestRateLimited) return latestRateLimited;
+    if (latestNetworkError) {
+      throw new AgnesUpstreamError(
+        latestNetworkError.provider,
+        latestNetworkError.causeName,
+        latestNetworkError.causeMessage,
+      );
+    }
 
     const retryAfterSeconds = Math.max(
       1,
@@ -158,6 +205,53 @@ export class AgnesClient {
       }
     }
     return undefined;
+  }
+}
+
+function replaceRequestModel(body: string, model: string): string {
+  const parsed = JSON.parse(body) as Record<string, unknown>;
+  return JSON.stringify({ ...parsed, model });
+}
+
+export class AiProviderClient {
+  private readonly agnes: AgnesClient;
+  private readonly deepSeek?: AgnesClient;
+
+  constructor(
+    agnesKeys: readonly string[],
+    deepSeekKeys: readonly string[],
+    deepSeekModel = DEFAULT_DEEPSEEK_MODEL,
+    fetcher: AgnesFetch = defaultAgnesFetch,
+    now: () => number = Date.now,
+  ) {
+    this.agnes = new AgnesClient(agnesKeys, fetcher, now);
+    this.deepSeek = deepSeekKeys.length > 0
+      ? new AgnesClient(
+        deepSeekKeys,
+        fetcher,
+        now,
+        DEEPSEEK_CHAT_COMPLETIONS_URL,
+        deepSeekModel,
+      )
+      : undefined;
+  }
+
+  async chatCompletions(
+    body: string,
+    signal?: AbortSignal,
+  ): Promise<Response> {
+    let agnesResponse: Response | undefined;
+    try {
+      agnesResponse = await this.agnes.chatCompletions(body, signal);
+      if (agnesResponse.status !== 429 && agnesResponse.status < 500) {
+        return agnesResponse;
+      }
+    } catch (error) {
+      if (!(error instanceof AgnesUpstreamError) || !this.deepSeek) throw error;
+    }
+    if (!this.deepSeek) return agnesResponse!;
+    await agnesResponse?.body?.cancel().catch(() => {});
+    return await this.deepSeek.chatCompletions(body, signal);
   }
 }
 

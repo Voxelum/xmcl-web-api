@@ -30,7 +30,17 @@ function fixture(
   fetcher: AgnesFetch,
   config: AppConfig = { AGNES_API_KEYS: '["key-a","key-b"]' },
   scopes = ["ai:invoke"],
+  entitled = true,
 ) {
+  const settlements: Array<{
+    authorizationId: string;
+    usageId: string;
+    usage: {
+      promptTokens: number;
+      cachedPromptTokens: number;
+      completionTokens: number;
+    };
+  }> = [];
   const runtime = {
     sessions: {
       verify: async (token: string) => {
@@ -53,10 +63,25 @@ function fixture(
       async () => runtime,
       fetcher,
       () => config,
+      () => Promise.resolve(entitled),
+      () =>
+        Promise.resolve({
+          reserveAi: () => Promise.resolve(true),
+          releaseAi: () => Promise.resolve(),
+          settleAi: (authorizationId, usageId, usage) => {
+            settlements.push({ authorizationId, usageId, usage });
+            return Promise.resolve({
+              authorizationId,
+              usageId,
+              weightedUnits: 0,
+            });
+          },
+        }),
     ),
   );
   return {
     app,
+    settlements,
     request: (body: unknown, init: RequestInit = {}) => {
       const requestBody = body && typeof body === "object" &&
           !Array.isArray(body) && "messages" in body &&
@@ -98,6 +123,47 @@ Deno.test("chat completions requires an XMCL session with ai:invoke", async () =
   assert.equal((await forbidden.json()).error, "insufficient_scope");
 });
 
+Deno.test("chat completions requires a paid AI entitlement", async () => {
+  let calls = 0;
+  const { request } = fixture(
+    async () => {
+      calls += 1;
+      return Response.json({});
+    },
+    { AGNES_API_KEYS: '["key-a"]' },
+    ["ai:invoke"],
+    false,
+  );
+
+  const response = await request({
+    messages: [{ role: "user", content: "hello" }],
+  });
+  assert.equal(response.status, 402);
+  assert.equal(
+    (await response.json()).error.code,
+    "ai_subscription_required",
+  );
+  assert.equal(calls, 0);
+});
+
+Deno.test("AI reservations ignore a reused client request ID", async () => {
+  const f = fixture(async () =>
+    Response.json({
+      id: "chatcmpl_usage",
+      choices: [],
+      usage: { prompt_tokens: 10, completion_tokens: 2 },
+    }));
+  const body = { messages: [{ role: "user", content: "hello" }] };
+  const headers = { "x-request-id": "client-controlled-id" };
+  assert.equal((await f.request(body, { headers })).status, 200);
+  assert.equal((await f.request(body, { headers })).status, 200);
+  assert.equal(f.settlements.length, 2);
+  assert.notEqual(
+    f.settlements[0].authorizationId,
+    f.settlements[1].authorizationId,
+  );
+});
+
 Deno.test("Launcher envelope reaches mocked Agnes with a server-owned prompt and model", async () => {
   let upstreamBody: Record<string, unknown> | undefined;
   let upstreamHeaders: Headers | undefined;
@@ -107,6 +173,11 @@ Deno.test("Launcher envelope reaches mocked Agnes with a server-owned prompt and
     return Response.json({
       id: "chatcmpl_1",
       choices: [{ message: { role: "assistant", content: "hello" } }],
+      usage: {
+        prompt_tokens: 100,
+        completion_tokens: 20,
+        prompt_tokens_details: { cached_tokens: 40 },
+      },
     });
   });
 
@@ -136,6 +207,7 @@ Deno.test("Launcher envelope reaches mocked Agnes with a server-owned prompt and
   });
   assert.equal(response.status, 200);
   assert.equal(upstreamBody?.model, "agnes-2.5-flash");
+  assert.equal(upstreamBody?.max_tokens, 8192);
   assert.equal(upstreamBody?.xmcl, undefined);
   const messages = upstreamBody?.messages as Array<Record<string, unknown>>;
   assert.equal(messages[0].role, "system");
@@ -163,7 +235,11 @@ Deno.test("chat completions retries a 429 with the next key", async () => {
         status: 429,
         headers: { "retry-after": "30" },
       })
-      : Response.json({ choices: [] });
+      : Response.json({
+        id: "chatcmpl_retry",
+        choices: [],
+        usage: { prompt_tokens: 10, completion_tokens: 2 },
+      });
   });
 
   const response = await request({
@@ -174,19 +250,65 @@ Deno.test("chat completions retries a 429 with the next key", async () => {
   assert.deepEqual(authorizations, ["Bearer key-a", "Bearer key-b"]);
 });
 
+Deno.test("chat completions falls back from Agnes to DeepSeek", async () => {
+  const calls: Array<{ url: string; model: string }> = [];
+  const routed = fixture(
+    async (input, init) => {
+      const url = String(input);
+      const body = JSON.parse(String(init?.body));
+      calls.push({ url, model: body.model });
+      if (url.includes("agnes-ai.com")) {
+        return Response.json({ error: "unavailable" }, { status: 503 });
+      }
+      return Response.json({
+        id: "deepseek_completion",
+        choices: [{ message: { role: "assistant", content: "fallback" } }],
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 10,
+          prompt_cache_hit_tokens: 60,
+          prompt_cache_miss_tokens: 40,
+        },
+      });
+    },
+    {
+      AGNES_API_KEYS: '["agnes-key"]',
+      DEEPSEEK_API_KEYS: '["deepseek-key"]',
+      DEEPSEEK_DEFAULT_MODEL: "deepseek-v4-flash",
+    },
+  );
+
+  const response = await routed.request({
+    messages: [{ role: "user", content: "hello" }],
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(calls.map((call) => call.model), [
+    "agnes-2.5-flash",
+    "deepseek-v4-flash",
+  ]);
+  assert.deepEqual(routed.settlements[0]?.usage, {
+    promptTokens: 100,
+    cachedPromptTokens: 60,
+    completionTokens: 10,
+  });
+});
+
 Deno.test("chat completions streams SSE bytes without buffering or rewriting", async () => {
   const sse = [
     'data: {"choices":[{"delta":{"content":"hel"}}]}\n\n',
     'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n',
+    'data: {"id":"chatcmpl_stream","choices":[],"usage":{"prompt_tokens":50,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":20}}}\n\n',
     "data: [DONE]\n\n",
   ].join("");
-  const { request } = fixture(async () =>
-    new Response(sse, {
+  let upstreamBody: Record<string, unknown> | undefined;
+  const streamed = fixture(async (_input, init) => {
+    upstreamBody = JSON.parse(String(init?.body));
+    return new Response(sse, {
       headers: { "content-type": "text/event-stream; charset=utf-8" },
-    })
-  );
+    });
+  });
 
-  const response = await request({
+  const response = await streamed.request({
     messages: [{ role: "user", content: "hello" }],
     stream: true,
   });
@@ -196,6 +318,12 @@ Deno.test("chat completions streams SSE bytes without buffering or rewriting", a
     "text/event-stream; charset=utf-8",
   );
   assert.equal(await response.text(), sse);
+  assert.deepEqual(upstreamBody?.stream_options, { include_usage: true });
+  assert.deepEqual(streamed.settlements[0]?.usage, {
+    promptTokens: 50,
+    cachedPromptTokens: 20,
+    completionTokens: 5,
+  });
 });
 
 Deno.test("chat completions rejects client-supplied system prompts", async () => {

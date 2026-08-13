@@ -34,6 +34,7 @@ import sharedNodeTransport from "./routes/sharedNodeTransport.ts";
 import sharedModdedRuntime from "./routes/sharedModdedRuntime.ts";
 import sharedWorldSeeds from "./routes/sharedWorldSeeds.ts";
 import chatCompletions from "./routes/chatCompletions.ts";
+import xmclPlus from "./routes/xmclPlus.ts";
 import type { AppEnv } from "./types.ts";
 import { AccountError } from "./account.ts";
 import { handleAccountError, requestId } from "./accountHttp.ts";
@@ -59,6 +60,8 @@ export interface CreateAppOptions {
   commercialRoutes?: boolean;
   /** Public payment routes can be enabled without shared-hosting composition. */
   billingRoutes?: boolean;
+  /** Mounts XMCL Together Home subscription and allowance routes. */
+  xmclPlusRoutes?: boolean;
   /** Mounts authenticated internal node transport after complete composition. */
   sharedNodeTransportRoutes?: boolean;
   /** Mounts the configured Waffo checkout and signed webhook routes. */
@@ -123,6 +126,9 @@ export function createApp(
     const enableCommercialRoutes = options.commercialRoutes !== false;
     if (enableCommercialRoutes || options.billingRoutes === true) {
       app.route("/", billing);
+    }
+    if (enableCommercialRoutes || options.xmclPlusRoutes === true) {
+      app.route("/", xmclPlus);
     }
     if (enableCommercialRoutes || options.paymentRoutes === true) {
       app.route("/", waffo);

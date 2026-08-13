@@ -337,7 +337,7 @@ Deno.test("removes sensitive values from audit fixtures", () => {
     safeAuditMetadata({
       ticketId: "SUP-1001",
       providerToken: "must-not-persist",
-      paypalTransaction: "must-not-persist",
+      waffoTransaction: "must-not-persist",
       operationCount: 1,
     }),
     { ticketId: "SUP-1001", operationCount: 1 },

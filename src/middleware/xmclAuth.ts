@@ -53,7 +53,13 @@ export async function authenticateXmclRequest(
     await verifyDpopProof({
       proof,
       method: c.req.method,
-      url: c.req.url,
+      url: resolveDpopVerificationUrl(
+        c.req.url,
+        c.req.header("x-xmcl-original-target"),
+        typeof c.env?.WEBSITE_HOSTNAME === "string"
+          ? c.env.WEBSITE_HOSTNAME
+          : undefined,
+      ),
       accessToken,
       expectedJkt: principal.dpopJkt,
       replayStore: requiresSharedDpopReplay(c.req.method, c.req.url)
@@ -66,12 +72,43 @@ export async function authenticateXmclRequest(
   return principal;
 }
 
+export function resolveDpopVerificationUrl(
+  requestUrl: string,
+  originalTarget?: string,
+  websiteHostname?: string,
+) {
+  if (!originalTarget || !websiteHostname) return requestUrl;
+  try {
+    const internal = new URL(requestUrl);
+    if (internal.hostname.toLowerCase() !== websiteHostname.toLowerCase()) {
+      return requestUrl;
+    }
+    const external = new URL(originalTarget, internal.origin);
+    const externalPath = external.pathname === "/api"
+      ? "/"
+      : external.pathname.startsWith("/api/")
+      ? external.pathname.slice("/api".length)
+      : undefined;
+    if (
+      external.origin !== internal.origin ||
+      externalPath !== internal.pathname ||
+      external.search !== internal.search
+    ) {
+      return requestUrl;
+    }
+    return external.toString();
+  } catch {
+    return requestUrl;
+  }
+}
+
 export function xmclAuth(
   requiredScopes: string[] = [],
   runtime: AccountRuntimeResolver = getAccountRuntime,
 ) {
   return createMiddleware<AppEnv>(async (c, next) => {
-    const principal = (await authenticateXmclRequest(c, runtime))!;
+    const principal = c.get("xmclPrincipal") ??
+      (await authenticateXmclRequest(c, runtime))!;
     if (requiredScopes.some((scope) => !principal.scopes.includes(scope))) {
       throw new AccountError(
         403,

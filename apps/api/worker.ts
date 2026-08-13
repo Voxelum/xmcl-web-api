@@ -21,6 +21,8 @@ import type {
   ScheduledController,
 } from "../../src/cloudflare/types.ts";
 import { isRetiredServicePath } from "../../src/realtime.ts";
+import { MongoBillingStore } from "../../src/ledger.ts";
+import { XmclPlusService } from "../../src/xmclPlus.ts";
 
 export { DpopReplayObject } from "../../src/cloudflare/dpopReplay.ts";
 
@@ -110,6 +112,16 @@ export default {
             }
           }
           const scheduledAt = new Date(controller.scheduledTime).toISOString();
+          if (env.MONGO_CONNECION_STRING) {
+            const plusResult = await new XmclPlusService(
+              new MongoBillingStore(await getCloudflareDb(env)),
+              { currency: env.BILLING_CURRENCY ?? "USD" },
+            ).renewDue(new Date(controller.scheduledTime));
+            console.log({
+              event: "xmcl_plus.renewal.completed",
+              ...plusResult,
+            });
+          }
           const signer = createS3SigV4Presigner({
             endpoint: env.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT,
             region: env.XMCL_VULTR_OBJECT_STORAGE_REGION,

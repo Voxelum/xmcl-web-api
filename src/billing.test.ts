@@ -35,6 +35,7 @@ function fixture(options: {
   verifier?: FakeWaffoWebhookVerifier;
 } = {}) {
   let ids = 0;
+  let sessionVerifications = 0;
   const store = new MemoryBillingStore();
   const billing = new BillingService(store, {
     currency: "USD",
@@ -58,6 +59,7 @@ function fixture(options: {
   const runtime = {
     sessions: {
       verify: async (token: string) => {
+        sessionVerifications += 1;
         if (token === "user") {
           return {
             sessionId: "session_user",
@@ -88,7 +90,16 @@ function fixture(options: {
   app.route("/", createBillingRoutes(billing, resolve));
   app.route("/", createWaffoRoutes(waffo, resolve));
   app.route("/", createUsageSettlementRoutes(usage, resolve));
-  return { app, billing, waffo, provider, usage, verifier, runtime };
+  return {
+    app,
+    billing,
+    waffo,
+    provider,
+    usage,
+    verifier,
+    runtime,
+    sessionVerifications: () => sessionVerifications,
+  };
 }
 
 async function credit(waffo: WaffoService, amountMinor: number) {
@@ -185,6 +196,21 @@ Deno.test("billing reads and orders require session auth; internal usage require
   assert.equal(denied.status, 403);
 });
 
+Deno.test("billing order list and detail authenticate exactly once", async () => {
+  const f = fixture();
+  const headers = { authorization: ["Bearer", "user"].join(" ") };
+
+  assert.equal(
+    (await f.app.request("/v1/billing/orders", { headers })).status,
+    200,
+  );
+  assert.equal(
+    (await f.app.request("/v1/billing/orders/missing", { headers })).status,
+    404,
+  );
+  assert.equal(f.sessionVerifications(), 2);
+});
+
 Deno.test("the shared Hono app registers the Billing route families", () => {
   const paths = createApp().routes.map((route) => route.path);
   assert(paths.includes("/v1/billing/balance"));
@@ -220,6 +246,7 @@ Deno.test("Waffo order replays deterministically, conflicts on a changed intent,
   );
   assert.equal(f.provider.createCalls.length, 1);
   assert.equal((await request(101)).status, 409);
+  assert.equal(f.sessionVerifications(), 3);
 
   const failing = fixture({ failCreate: true });
   const unavailable = await failing.app.request("/v1/billing/waffo/orders", {

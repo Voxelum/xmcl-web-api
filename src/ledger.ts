@@ -25,13 +25,13 @@ export interface CashBalance {
 }
 
 export type LedgerKind =
-  | "paypal_credit"
   | "waffo_credit"
   | "reservation"
   | "reservation_release"
   | "usage_charge"
   | "shared_base_fee"
   | "shared_runtime_fee"
+  | "plus_base_fee"
   | "refund"
   | "balance_adjust";
 
@@ -62,8 +62,8 @@ export interface BillingOrder {
   orderId: string;
   accountId: string;
   amount: Money;
-  /** Missing on legacy records and therefore treated as PayPal. */
-  provider?: "paypal" | "waffo";
+  /** Missing on legacy records and therefore treated as PayPal-only history. */
+  provider?: "waffo" | "paypal";
   providerOrderId?: string;
   approvalUrl?: string;
   providerCreation?: {
@@ -79,6 +79,8 @@ export interface BillingOrder {
       | "provider_error";
   };
   status: "pending" | "completed" | "failed";
+  /** Gross amount collected by Waffo, including provider-calculated tax. */
+  providerPaidTotalMinor?: number;
   createdAt: string;
   updatedAt?: string;
 }
@@ -104,6 +106,28 @@ export interface UsageStreamCursor {
   lastIntervalEnd?: string;
 }
 
+export interface AllowanceUsage {
+  aiUnits: number;
+  turnEgressBytes: number;
+}
+
+export interface AiAllowanceReservation {
+  authorizationId: string;
+  accountId: string;
+  allocations: Array<{ sourceKey: string; units: number }>;
+  maximumUnits: number;
+  createdAt: string;
+}
+
+export interface TurnCredentialIssuance {
+  customIdentifier: string;
+  accountId: string;
+  sourceKey: string;
+  issuedAt: string;
+  expiresAt: string;
+  observedEgressBytes: number;
+}
+
 export interface BillingState {
   balances: Map<string, { availableMinor: number; reservedMinor: number }>;
   ledger: LedgerEntry[];
@@ -116,8 +140,15 @@ export interface BillingState {
   streams: Map<string, UsageStreamCursor>;
   webhookEventIds: Set<string>;
   webhookRawBodies: Map<string, string>;
+  refundTotalsByOrderId: Map<string, number>;
+  providerRefundTotalsByOrderId: Map<string, number>;
   adminOperations: Map<string, unknown>;
   sharedHostingSubscriptions: Map<string, unknown>;
+  plusSubscriptions: Map<string, unknown>;
+  allowanceUsage: Map<string, AllowanceUsage>;
+  aiAllowanceReservations: Map<string, AiAllowanceReservation>;
+  turnCredentialIssuances: Map<string, TurnCredentialIssuance>;
+  turnMeteringEnabled: boolean;
   sharedRuntimeWatermarks: Map<
     string,
     { assignmentId: string; startedAt: string; settledHours: number }
@@ -137,8 +168,15 @@ function emptyState(): BillingState {
     streams: new Map(),
     webhookEventIds: new Set(),
     webhookRawBodies: new Map(),
+    refundTotalsByOrderId: new Map(),
+    providerRefundTotalsByOrderId: new Map(),
     adminOperations: new Map(),
     sharedHostingSubscriptions: new Map(),
+    plusSubscriptions: new Map(),
+    allowanceUsage: new Map(),
+    aiAllowanceReservations: new Map(),
+    turnCredentialIssuances: new Map(),
+    turnMeteringEnabled: false,
     sharedRuntimeWatermarks: new Map(),
   };
 }
@@ -200,8 +238,15 @@ interface SerializedBillingState {
   streams: [string, UsageStreamCursor][];
   webhookEventIds: string[];
   webhookRawBodies: [string, string][];
+  refundTotalsByOrderId?: [string, number][];
+  providerRefundTotalsByOrderId?: [string, number][];
   adminOperations: [string, unknown][];
   sharedHostingSubscriptions: [string, unknown][];
+  plusSubscriptions?: [string, unknown][];
+  allowanceUsage?: [string, AllowanceUsage][];
+  aiAllowanceReservations?: [string, AiAllowanceReservation][];
+  turnCredentialIssuances?: [string, TurnCredentialIssuance][];
+  turnMeteringEnabled?: boolean;
   sharedRuntimeWatermarks: [
     string,
     { assignmentId: string; startedAt: string; settledHours: number },
@@ -236,8 +281,17 @@ function serializeState(state: BillingState): SerializedBillingState {
     streams: [...state.streams.entries()],
     webhookEventIds: [...state.webhookEventIds],
     webhookRawBodies: [...state.webhookRawBodies.entries()],
+    refundTotalsByOrderId: [...state.refundTotalsByOrderId.entries()],
+    providerRefundTotalsByOrderId: [
+      ...state.providerRefundTotalsByOrderId.entries(),
+    ],
     adminOperations: [...state.adminOperations.entries()],
     sharedHostingSubscriptions: [...state.sharedHostingSubscriptions.entries()],
+    plusSubscriptions: [...state.plusSubscriptions.entries()],
+    allowanceUsage: [...state.allowanceUsage.entries()],
+    aiAllowanceReservations: [...state.aiAllowanceReservations.entries()],
+    turnCredentialIssuances: [...state.turnCredentialIssuances.entries()],
+    turnMeteringEnabled: state.turnMeteringEnabled,
     sharedRuntimeWatermarks: [...state.sharedRuntimeWatermarks.entries()],
   };
 }
@@ -278,6 +332,12 @@ function deserializeState(value: unknown): BillingState {
     webhookRawBodies: new Map(
       requireArray(state.webhookRawBodies, "webhookRawBodies"),
     ),
+    refundTotalsByOrderId: new Map(
+      state.refundTotalsByOrderId ?? [],
+    ),
+    providerRefundTotalsByOrderId: new Map(
+      state.providerRefundTotalsByOrderId ?? [],
+    ),
     adminOperations: new Map(
       requireArray(state.adminOperations, "adminOperations"),
     ),
@@ -287,6 +347,25 @@ function deserializeState(value: unknown): BillingState {
         "sharedHostingSubscriptions",
       ),
     ),
+    plusSubscriptions: new Map(
+      requireArray(state.plusSubscriptions ?? [], "plusSubscriptions"),
+    ),
+    allowanceUsage: new Map(
+      requireArray(state.allowanceUsage ?? [], "allowanceUsage"),
+    ),
+    aiAllowanceReservations: new Map(
+      requireArray(
+        state.aiAllowanceReservations ?? [],
+        "aiAllowanceReservations",
+      ),
+    ),
+    turnCredentialIssuances: new Map(
+      requireArray(
+        state.turnCredentialIssuances ?? [],
+        "turnCredentialIssuances",
+      ),
+    ),
+    turnMeteringEnabled: state.turnMeteringEnabled ?? false,
     sharedRuntimeWatermarks: new Map(
       requireArray(
         state.sharedRuntimeWatermarks ?? [],

@@ -14,6 +14,8 @@ export interface AppConfig {
   RTC_SECRET?: string;
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_APP_ID?: string;
+  CLOUDFLARE_ACCOUNT_ID?: string;
+  CLOUDFLARE_ANALYTICS_API_TOKEN?: string;
   CURSEFORGE_KEY?: string;
   TURNS?: string;
   MONGO_CONNECION_STRING?: string;
@@ -36,9 +38,13 @@ export interface AppConfig {
    * OpenAI-compatible chat proxy.
    */
   AGNES_API_KEYS?: string;
+  DEEPSEEK_API_KEYS?: string;
+  DEEPSEEK_DEFAULT_MODEL?: string;
   /** Default model when a chat-completions request omits `model`. */
   AGNES_DEFAULT_MODEL?: string;
   XMCL_SESSION_SECRET?: string;
+  /** New signing key during a zero-downtime session-key rotation. */
+  XMCL_SESSION_SECRET_PRIMARY?: string;
   XMCL_MULTIPLAYER_TICKET_SECRET?: string;
   XMCL_MICROSOFT_CLIENT_ID?: string;
   XMCL_MICROSOFT_CLIENT_SECRET?: string;
