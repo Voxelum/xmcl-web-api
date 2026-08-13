@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import { Hono } from "hono";
 import type { AppEnv } from "../types.ts";
-import { AccountError } from "../account.ts";
+import { AccountError, type AccountIdentity } from "../account.ts";
 import { type AccountRuntime, getAccountRuntime } from "../accountRuntime.ts";
 import { handleAccountError, jsonBody } from "../accountHttp.ts";
 import {
@@ -25,6 +25,17 @@ function publicAccount(account: {
     status: account.status,
     createdAt: account.createdAt,
   };
+}
+
+function publicIdentities(identities: AccountIdentity[]) {
+  return identities.map((identity) => ({
+    provider: identity.provider,
+    ...(identity.displayName
+      ? { displayName: identity.displayName }
+      : {}),
+    linkedBy: identity.linkedBy,
+    linkedAt: identity.linkedAt,
+  }));
 }
 
 async function optionalAccountId(c: Context<AppEnv>, runtime: AccountRuntime) {
@@ -122,6 +133,7 @@ export function createSessionRoutes(
     );
     return c.json({
       account: publicAccount(binding.account),
+      identities: publicIdentities(binding.account.identities),
       session,
       bindingDisposition: binding.bindingDisposition,
     });
@@ -156,6 +168,7 @@ export function createSessionRoutes(
       );
       return c.json({
         account: publicAccount(binding.account),
+        identities: publicIdentities(binding.account.identities),
         session,
         bindingDisposition: binding.bindingDisposition,
       });

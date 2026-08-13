@@ -152,6 +152,13 @@ Deno.test("launcher exchange creates an account and rejects transaction replay",
   const result = await response.json();
   assert.equal(result.bindingDisposition, "created");
   assert.equal(result.account.status, "active");
+  assert.deepEqual(
+    result.identities.map((identity: { provider: string }) =>
+      identity.provider
+    ),
+    ["microsoft"],
+  );
+  assert.equal(JSON.stringify(result.identities).includes("ms-subject-1"), false);
   assert.ok(result.session.accessToken);
   assert.ok(result.session.refreshToken);
 
@@ -164,6 +171,35 @@ Deno.test("launcher exchange creates an account and rejects transaction replay",
   );
   assert.equal(replay.status, 409);
   assert.equal((await replay.json()).error, "launcher_transaction_replayed");
+});
+
+Deno.test("launcher exchange returns every linked identity", async () => {
+  const { app } = setup();
+  const first = await (await launcher(app, "microsoft", "linked-microsoft"))
+    .json();
+  const response = await launcher(
+    app,
+    "modrinth",
+    "linked-modrinth",
+    `Bearer ${first.session.accessToken}`,
+  );
+
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.deepEqual(
+    result.identities.map((identity: { provider: string }) =>
+      identity.provider
+    ),
+    ["microsoft", "modrinth"],
+  );
+  assert.equal(
+    JSON.stringify(result.identities).includes("linked-microsoft"),
+    false,
+  );
+  assert.equal(
+    JSON.stringify(result.identities).includes("linked-modrinth"),
+    false,
+  );
 });
 
 Deno.test("XMCL access tokens expire after 10 minutes when issued and refreshed", async () => {
@@ -269,7 +305,14 @@ Deno.test("browser OAuth binds redirect, state, nonce and PKCE to a one-time tra
 
   const first = await exchange();
   assert.equal(first.status, 200);
-  assert.equal((await first.json()).bindingDisposition, "created");
+  const result = await first.json();
+  assert.equal(result.bindingDisposition, "created");
+  assert.deepEqual(
+    result.identities.map((identity: { provider: string }) =>
+      identity.provider
+    ),
+    ["google"],
+  );
   const replay = await exchange();
   assert.equal(replay.status, 409);
   assert.equal((await replay.json()).error, "oauth_transaction_replayed");
