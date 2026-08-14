@@ -25,8 +25,8 @@ jobs:
     permissions:
       contents: read
     env:
-      # Each GitHub Environment owns an independently scoped Cloudflare token.
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_WORKERS_DEPLOY_API_TOKEN }}
+      # Staging and production share the repository-level deployment token.
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
     steps:
       - name: Checkout
