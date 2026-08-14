@@ -5,9 +5,15 @@ compatibility_date = "2025-03-20"
 compatibility_flags = ["nodejs_compat_v2"]
 
 [vars]
+BILLING_CURRENCY = "USD"
+BILLING_RATES_JSON = "[]"
 MONGODB_NAME = "coturn"
 XMCL_DEPLOYMENT_ENVIRONMENT = "production"
 XMCL_HOME_RELEASE_ENABLED = "false"
+WAFFO_ENVIRONMENT = "prod"
+WAFFO_STORE_ID = "STO_43NzeqTrCZj6Z1Dvqd76Di"
+WAFFO_PRODUCT_ID = "PROD_3jywaliubkyhIgeYSGXx5s"
+WAFFO_SUCCESS_URL = "https://xmcl.app/together"
 
 [observability]
 enabled = true
