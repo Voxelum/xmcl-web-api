@@ -36,7 +36,6 @@ export interface OAuthTransaction {
   state: string;
   nonce: string;
   codeChallenge: string;
-  dpopJkt?: string;
   expiresAt: string;
   consumedAt?: string;
 }
@@ -171,7 +170,6 @@ export class AccountService {
     redirectUri: string;
     state: string;
     codeChallenge: string;
-    dpopJkt?: string;
     redirectPolicy: OAuthRedirectPolicy;
   }) {
     if (
@@ -193,7 +191,6 @@ export class AccountService {
       state: input.state,
       nonce: randomId("nonce"),
       codeChallenge: input.codeChallenge,
-      dpopJkt: input.dpopJkt,
       expiresAt: new Date(this.now().getTime() + 10 * 60_000).toISOString(),
     };
     await this.repository.saveTransaction(transaction);
@@ -205,7 +202,6 @@ export class AccountService {
     provider: OAuthProvider;
     state: string;
     codeVerifier: string;
-    dpopJkt?: string;
   }) {
     const transaction = await this.repository.getTransaction(
       input.transactionId,
@@ -221,9 +217,6 @@ export class AccountService {
     }
     if (transaction.state !== input.state) {
       throw new AccountError(422, "oauth_state_mismatch");
-    }
-    if (transaction.dpopJkt !== input.dpopJkt) {
-      throw new AccountError(422, "invalid_dpop_key");
     }
     if (
       !input.codeVerifier ||

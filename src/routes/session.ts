@@ -90,7 +90,6 @@ export function createSessionRoutes(
       redirectUri: c.req.query("redirectUri") ?? "",
       state: c.req.query("state") ?? "",
       codeChallenge: c.req.query("codeChallenge") ?? "",
-      dpopJkt: await requestedDpopJkt(c.req.query("dpopJwk")),
       redirectPolicy: createOAuthRedirectPolicy(
         adapter.declaration.redirectUris,
       ),
@@ -112,7 +111,6 @@ export function createSessionRoutes(
       provider,
       state: String(body.state ?? ""),
       codeVerifier: String(body.codeVerifier ?? ""),
-      dpopJkt,
     });
     if (transaction.intent !== "sign_in") {
       throw new AccountError(409, "oauth_intent_mismatch");

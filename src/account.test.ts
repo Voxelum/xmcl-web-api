@@ -318,10 +318,19 @@ Deno.test("browser OAuth binds redirect, state, nonce and PKCE to a one-time tra
   assert.equal((await replay.json()).error, "oauth_transaction_replayed");
 });
 
-Deno.test("browser OAuth binds the issued session to its DPoP key", async () => {
+Deno.test("browser OAuth binds the session to the exchange DPoP key", async () => {
   const { app, runtime } = setup();
   const verifier = "fixture-dpop-pkce-verifier-with-enough-entropy";
   const state = "fixture-dpop-state";
+  const authorizePair = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  );
+  const authorizeDpopJwk = await crypto.subtle.exportKey(
+    "jwk",
+    authorizePair.publicKey,
+  );
   const pair = await crypto.subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
     true,
@@ -332,7 +341,7 @@ Deno.test("browser OAuth binds the issued session to its DPoP key", async () => 
     redirectUri: "https://xmcl.app/oauth/callback",
     state,
     codeChallenge: await sha256(verifier),
-    dpopJwk: JSON.stringify(dpopJwk),
+    dpopJwk: JSON.stringify(authorizeDpopJwk),
   });
   const authorize = await app.request(
     `/v1/auth/discord/authorize?${authorizeQuery}`,
