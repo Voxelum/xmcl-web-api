@@ -101,9 +101,9 @@ app.use("/v1/admin/*", async (c, next) => {
   c.set("adminOperationAccountReader", {
     read: async (accountId) => {
       const db = await c.get("getDb")();
-      const account = await db.collection("xmcl_accounts").findOne({
+      const [account] = await db.collection("xmcl_accounts").find({
         _id: accountId,
-      });
+      }).toArray();
       if (account) return publicAdminAccount(account as Account);
       const billingAccount = billingOnlyAdminAccount(
         accountId,
