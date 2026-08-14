@@ -23,3 +23,8 @@ custom_domain = true
 name = "DPOP_REPLAY"
 class_name = "DpopReplayObject"
 script_name = "xmcl-web-api"
+
+[[durable_objects.bindings]]
+name = "ALERT_COOLDOWN"
+class_name = "AlertCooldownObject"
+script_name = "xmcl-web-api"

@@ -25,8 +25,22 @@ import { MongoBillingStore } from "../../src/ledger.ts";
 import { AllowanceMeter } from "../../src/allowanceMetering.ts";
 import { XmclPlusService } from "../../src/xmclPlus.ts";
 import { runtimeEnvironmentError } from "../../src/runtimeEnvironment.ts";
+import { AlertCooldownObject } from "../../src/cloudflare/alertCooldown.ts";
+import { sendRuntimeAlert } from "../../src/cloudflare/runtimeAlerting.ts";
 
 export { DpopReplayObject } from "../../src/cloudflare/dpopReplay.ts";
+export { AlertCooldownObject };
+
+function alertProduction(env: any, alert: Parameters<
+  typeof sendRuntimeAlert
+>[0]["alert"]) {
+  return sendRuntimeAlert({
+    namespace: env.ALERT_COOLDOWN,
+    webhookUrl: env.XMCL_PRODUCTION_DISCORD_ALERT_WEBHOOK_URL,
+    environment: "production",
+    alert,
+  });
+}
 
 async function dispatchApiRequest(
   request: Request,
@@ -35,6 +49,12 @@ async function dispatchApiRequest(
 ) {
   const environmentError = runtimeEnvironmentError(env, "production");
   if (environmentError) {
+    ctx.waitUntil(alertProduction(env, {
+      severity: "critical",
+      event: "api.production.environment_invalid",
+      summary: "Production API failed its deployment isolation guard.",
+      fields: { reason: environmentError },
+    }));
     return Response.json(
       { status: "unavailable", error: environmentError },
       { status: 503 },
@@ -53,13 +73,42 @@ async function dispatchApiRequest(
         event: "api.readiness_failed",
         ...workerErrorFields(error),
       });
+      ctx.waitUntil(alertProduction(env, {
+        severity: "critical",
+        event: "api.production.readiness_failed",
+        summary: "Production API readiness could not reach its database.",
+      }));
       return Response.json({ status: "unavailable" }, { status: 503 });
     }
   }
   if (isRetiredServicePath(request)) {
     return new Response("This API path has been retired", { status: 410 });
   }
-  return createCloudflareApp(env, "api").fetch(request, env, ctx);
+  const isWaffoWebhook = request.method === "POST" &&
+    url.pathname === "/v1/webhooks/waffo";
+  let response: Response;
+  try {
+    response = await createCloudflareApp(env, "api").fetch(request, env, ctx);
+  } catch (error) {
+    if (isWaffoWebhook) {
+      ctx.waitUntil(alertProduction(env, {
+        severity: "critical",
+        event: "waffo.production.webhook_failed",
+        summary: "A production Waffo webhook failed before reconciliation.",
+        fields: { status: 500 },
+      }));
+    }
+    throw error;
+  }
+  if (isWaffoWebhook && response.status >= 500) {
+    ctx.waitUntil(alertProduction(env, {
+      severity: "critical",
+      event: "waffo.production.webhook_failed",
+      summary: "A production Waffo webhook failed before reconciliation.",
+      fields: { status: response.status },
+    }));
+  }
+  return response;
 }
 
 export default {
@@ -99,10 +148,12 @@ export default {
   ): void {
     ctx.waitUntil(
       (async () => {
+        let scheduledStage = "environment_guard";
         try {
           const environmentError = runtimeEnvironmentError(env, "production");
           if (environmentError) throw new Error(environmentError);
           if (env.SERVER_CONTROL_SCHEDULED_WORK) {
+            scheduledStage = "server_control";
             await runServerControlScheduledSweep(
               env.SERVER_CONTROL_SCHEDULED_WORK,
               new Date(controller.scheduledTime).toISOString(),
@@ -143,32 +194,44 @@ export default {
             env.MONGO_CONNECION_STRING &&
             env.XMCL_HOME_RELEASE_ENABLED === "true"
           ) {
+            scheduledStage = "ai_settlement";
             const aiResult = await new AllowanceMeter(
               new MongoBillingStore(await getCloudflareDb(env)),
               () => new Date(controller.scheduledTime),
             ).settlePendingAi();
             console.log({
               event: "ai.settlement.completed",
-              ...aiResult,
+              settledCount: aiResult.settled.length,
+              failedCount: aiResult.failed.length,
             });
             if (aiResult.failed.length > 0) {
               console.warn({
                 event: "ai.settlement.pending",
-                failures: aiResult.failed,
+                failedCount: aiResult.failed.length,
+              });
+              await alertProduction(env, {
+                severity: "warning",
+                event: "ai.production_settlement.pending",
+                summary: "Production AI usage settlement remains pending.",
+                occurredAt: scheduledAt,
+                fields: { failedCount: aiResult.failed.length },
               });
             }
+            scheduledStage = "home_renewal";
             const plusResult = await new XmclPlusService(
               new MongoBillingStore(await getCloudflareDb(env)),
               { currency: env.BILLING_CURRENCY ?? "USD" },
             ).renewDue(new Date(controller.scheduledTime));
             console.log({
               event: "xmcl_plus.renewal.completed",
-              ...plusResult,
+              renewedCount: plusResult.renewed.length,
+              paymentDueCount: plusResult.paymentDue.length,
+              cancelledCount: plusResult.cancelled.length,
             });
             if (plusResult.paymentDue.length > 0) {
               console.warn({
                 event: "xmcl_plus.renewal.payment_due",
-                subscriptionIds: plusResult.paymentDue,
+                paymentDueCount: plusResult.paymentDue.length,
               });
             }
           }
@@ -184,6 +247,7 @@ export default {
               SHARED_NODE_WORKSPACE_SIGNER: signer,
             })
           ) {
+            scheduledStage = "shared_hosting";
             const runtime = createSharedHostingRuntime(
               await getCloudflareDb(env),
               env,
@@ -199,16 +263,19 @@ export default {
               scheduledAt,
             );
           } else if (env.SHARED_HOSTING_BILLING_SCHEDULED_WORK) {
+            scheduledStage = "shared_hosting_billing";
             await runSharedHostingBillingScheduledSweep(
               env.SHARED_HOSTING_BILLING_SCHEDULED_WORK,
               scheduledAt,
             );
           } else if (env.SHARED_NODE_SCHEDULED_WORK) {
+            scheduledStage = "shared_node";
             await runSharedNodeScheduledSweep(
               env.SHARED_NODE_SCHEDULED_WORK,
               scheduledAt,
             );
           }
+          scheduledStage = "reconciliation";
           await env.RECONCILIATION_SCHEDULED_WORK?.run?.();
         } catch (error) {
           console.error({
@@ -216,6 +283,13 @@ export default {
             scheduledTime: controller.scheduledTime,
             cron: controller.cron,
             ...workerErrorFields(error),
+          });
+          await alertProduction(env, {
+            severity: "critical",
+            event: `worker.production.${scheduledStage}.failed`,
+            summary: "A production scheduled task failed.",
+            occurredAt: new Date(controller.scheduledTime).toISOString(),
+            fields: { stage: scheduledStage },
           });
           const observed = new Error(
             `Scheduled Worker task failed; scheduledTime=${controller.scheduledTime}`,

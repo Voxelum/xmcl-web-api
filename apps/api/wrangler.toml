@@ -41,9 +41,17 @@ deleted_classes = ["MultiplayerRoomObject"]
 name = "DPOP_REPLAY"
 class_name = "DpopReplayObject"
 
+[[durable_objects.bindings]]
+name = "ALERT_COOLDOWN"
+class_name = "AlertCooldownObject"
+
 [[migrations]]
 tag = "v7"
 new_sqlite_classes = ["DpopReplayObject"]
+
+[[migrations]]
+tag = "v8-alert-cooldown"
+new_sqlite_classes = ["AlertCooldownObject"]
 
 # Secrets and optional bindings are configured per Worker. The API Worker owns
 # Mongo-backed routes, payment webhooks, and scheduled work.

@@ -40,15 +40,9 @@ import type {
 } from "../../src/operations.ts";
 import type { AppEnv } from "../../src/types.ts";
 import { observeWorkerRequest } from "../../src/cloudflare/observability.ts";
-import {
-  type DiscordAlert,
-  sendDiscordAlert,
-} from "../../src/discordAlerting.ts";
-import {
-  AlertCooldownObject,
-  claimAlertCooldown,
-  releaseAlertCooldown,
-} from "../../src/cloudflare/alertCooldown.ts";
+import { AlertCooldownObject } from "../../src/cloudflare/alertCooldown.ts";
+import { sendRuntimeAlert } from "../../src/cloudflare/runtimeAlerting.ts";
+import type { DiscordAlert } from "../../src/discordAlerting.ts";
 
 export { AlertCooldownObject };
 
@@ -78,7 +72,6 @@ const adminReadPaths = new Set([
 ]);
 const app = new Hono<AppEnv>();
 type StagingBindings = AppConfig & AppEnv["Bindings"];
-const ALERT_COOLDOWN_MS = 15 * 60_000;
 
 async function alertStaging(
   env: StagingBindings,
@@ -86,48 +79,12 @@ async function alertStaging(
     occurredAt?: string;
   },
 ) {
-  const webhookUrl = env.XMCL_STAGING_DISCORD_ALERT_WEBHOOK_URL;
-  if (!webhookUrl) return;
-  if (!env.ALERT_COOLDOWN) {
-    console.error({
-      event: "alert.cooldown_not_configured",
-      alertEvent: alert.event,
-    });
-    return;
-  }
-  const now = Date.now();
-  let claimed: boolean;
-  try {
-    claimed = await claimAlertCooldown(
-      env.ALERT_COOLDOWN,
-      alert.event,
-      now,
-      ALERT_COOLDOWN_MS,
-    );
-  } catch (error) {
-    console.error({
-      event: "alert.cooldown_failed",
-      alertEvent: alert.event,
-      errorName: error instanceof Error ? error.name : "UnknownError",
-    });
-    return;
-  }
-  if (!claimed) return;
-  try {
-    await sendDiscordAlert(webhookUrl, {
-      ...alert,
-      environment: "staging",
-      occurredAt: alert.occurredAt ?? new Date(now).toISOString(),
-    });
-  } catch (error) {
-    await releaseAlertCooldown(env.ALERT_COOLDOWN, alert.event).catch(() => {});
-    console.error({
-      event: "alert.discord_delivery_failed",
-      alertEvent: alert.event,
-      errorName: error instanceof Error ? error.name : "UnknownError",
-    });
-    return;
-  }
+  await sendRuntimeAlert({
+    namespace: env.ALERT_COOLDOWN,
+    webhookUrl: env.XMCL_STAGING_DISCORD_ALERT_WEBHOOK_URL,
+    environment: "staging",
+    alert,
+  });
 }
 
 app.use("*", createDbMiddleware(getCloudflareDb));

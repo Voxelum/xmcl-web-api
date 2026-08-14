@@ -15,7 +15,7 @@
     "deploy:ai": "wrangler deploy --config apps/ai/wrangler.toml",
     "deploy:signaling": "wrangler deploy --config apps/signaling/wrangler.toml",
     "deploy:workers": "npm run deploy:api && npm run deploy:ai && npm run deploy:signaling",
-    "test:home-release": "deno test --allow-env --allow-net --allow-read src/homeRelease.test.ts src/xmclPlus.test.ts src/allowanceMetering.test.ts src/turnMetering.test.ts src/discordAlerting.test.ts src/cloudflare/alertCooldown.test.ts src/routes/chatCompletions.test.ts src/routes/rtc.test.ts src/waffo.test.ts src/waffoReconciliation.test.ts src/runtimeEnvironment.test.ts src/oauth/redirectPolicy.test.ts src/productionComposition.test.ts src/operations.test.ts src/routes/operations.test.ts apps/workers.test.ts apps/waffo-staging/worker.test.ts",
+    "test:home-release": "deno test --allow-env --allow-net --allow-read src/homeRelease.test.ts src/xmclPlus.test.ts src/allowanceMetering.test.ts src/turnMetering.test.ts src/discordAlerting.test.ts src/cloudflare/alertCooldown.test.ts src/cloudflare/runtimeAlerting.test.ts src/routes/chatCompletions.test.ts src/routes/rtc.test.ts src/waffo.test.ts src/waffoReconciliation.test.ts src/runtimeEnvironment.test.ts src/oauth/redirectPolicy.test.ts src/productionComposition.test.ts src/operations.test.ts src/routes/operations.test.ts apps/workers.test.ts apps/waffo-staging/worker.test.ts",
     "typecheck:workers": "tsc --noEmit -p tsconfig.workers.json && npm run check:workers",
     "check:workers": "npm run check:api && npm run check:ai && npm run check:signaling",
     "check:api": "wrangler deploy --dry-run --config apps/api/wrangler.toml",

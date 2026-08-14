@@ -14,6 +14,7 @@ import {
   runTurnMeteringSweep,
   TurnCredentialMeter,
 } from "../../src/turnMetering.ts";
+import { sendRuntimeAlert } from "../../src/cloudflare/runtimeAlerting.ts";
 
 export { MultiplayerRoomObject } from "./room.ts";
 
@@ -37,7 +38,39 @@ export default {
   fetch(request: Request, env: any, ctx: ExecutionContext): Promise<Response> {
     return observeWorkerRequest(
       request,
-      () => dispatchSignalingRequest(request, env, ctx),
+      async () => {
+        let response: Response;
+        try {
+          response = await dispatchSignalingRequest(request, env, ctx);
+        } catch (error) {
+          ctx.waitUntil(sendRuntimeAlert({
+            namespace: env.ALERT_COOLDOWN,
+            webhookUrl: env.XMCL_PRODUCTION_DISCORD_ALERT_WEBHOOK_URL,
+            environment: "production",
+            alert: {
+              severity: "critical",
+              event: "signaling.production.request_failed",
+              summary: "A production signaling request failed unexpectedly.",
+              fields: { status: 500 },
+            },
+          }));
+          throw error;
+        }
+        if (response.status >= 500) {
+          ctx.waitUntil(sendRuntimeAlert({
+            namespace: env.ALERT_COOLDOWN,
+            webhookUrl: env.XMCL_PRODUCTION_DISCORD_ALERT_WEBHOOK_URL,
+            environment: "production",
+            alert: {
+              severity: "critical",
+              event: "signaling.production.request_failed",
+              summary: "A production signaling request returned a server error.",
+              fields: { status: response.status },
+            },
+          }));
+        }
+        return response;
+      },
     );
   },
   scheduled(
@@ -52,6 +85,17 @@ export default {
           env.CLOUDFLARE_ANALYTICS_API_TOKEN)
       ) {
         console.warn({ event: "turn.metering.not_configured" });
+        await sendRuntimeAlert({
+          namespace: env.ALERT_COOLDOWN,
+          webhookUrl: env.XMCL_PRODUCTION_DISCORD_ALERT_WEBHOOK_URL,
+          environment: "production",
+          alert: {
+            severity: "critical",
+            event: "turn.production_metering.not_configured",
+            summary: "Production TURN metering configuration is incomplete.",
+            occurredAt: new Date(controller.scheduledTime).toISOString(),
+          },
+        });
         return;
       }
       const db = await getCloudflareDb(env);
@@ -68,9 +112,21 @@ export default {
     })().catch((error) => {
       console.error({
         event: "turn.metering.failed",
-        error: error instanceof Error ? error.message : String(error),
+        errorName: error instanceof Error ? error.name : "UnknownError",
       });
-      throw error;
+      return sendRuntimeAlert({
+        namespace: env.ALERT_COOLDOWN,
+        webhookUrl: env.XMCL_PRODUCTION_DISCORD_ALERT_WEBHOOK_URL,
+        environment: "production",
+        alert: {
+          severity: "critical",
+          event: "turn.production_metering.failed",
+          summary: "The production TURN metering sweep failed.",
+          occurredAt: new Date(controller.scheduledTime).toISOString(),
+        },
+      }).then(() => {
+        throw error;
+      });
     }));
   },
 };

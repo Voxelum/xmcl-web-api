@@ -33,6 +33,8 @@ export interface AppConfig {
   XMCL_HOME_RELEASE_ENABLED?: "true" | "false";
   /** Discord webhook used only for privacy-safe operational alerts. */
   XMCL_STAGING_DISCORD_ALERT_WEBHOOK_URL?: string;
+  /** Production Discord webhook used only for privacy-safe operational alerts. */
+  XMCL_PRODUCTION_DISCORD_ALERT_WEBHOOK_URL?: string;
   /**
    * Base URL of the community content i18n repo served as raw files, laid out
    * as `<base>/<locale>/<id>.json`. Checked before the Mongo caches. Defaults
