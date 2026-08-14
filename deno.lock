@@ -788,7 +788,7 @@
     "packageJson": {
       "dependencies": [
         "npm:@types/node@^20.19.0",
-        "npm:@waffo/pancake-ts@0.16",
+        "npm:@waffo/pancake-ts@0.18",
         "npm:esbuild@0.20",
         "npm:geoip-country@4.2.262",
         "npm:hono@4.12.27",

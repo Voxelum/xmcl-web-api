@@ -25,7 +25,7 @@
     "check:signaling": "wrangler deploy --dry-run --config apps/signaling/wrangler.toml"
   },
   "dependencies": {
-    "@waffo/pancake-ts": "^0.16.0",
+    "@waffo/pancake-ts": "^0.18.0",
     "geoip-country": "4.2.262",
     "hono": "4.12.27",
     "mongodb": "6.15.0",
