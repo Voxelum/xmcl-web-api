@@ -29,6 +29,7 @@ export function createMicrosoftOAuth(options: {
     mapUser: (body) => ({
       subject: body.id,
       displayName: body.displayName,
+      email: body.mail ?? body.userPrincipalName,
     }),
   });
 }

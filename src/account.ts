@@ -12,6 +12,7 @@ export interface AccountIdentity {
   provider: OAuthProvider;
   subject: string;
   displayName?: string;
+  email?: string;
   linkedBy: "launcher_bootstrap" | "launcher_link" | "web_link";
   linkedAt: string;
 }
@@ -293,6 +294,19 @@ export class AccountService {
         account.status = "active";
         delete account.deletionRequestedAt;
         delete account.deletionEffectiveAt;
+        await this.repository.saveAccount(account);
+      }
+      const storedIdentity = account.identities.find((identity) =>
+        identity.provider === input.identity.provider &&
+        identity.subject === input.identity.subject
+      );
+      if (
+        storedIdentity &&
+        (storedIdentity.displayName !== input.identity.displayName ||
+          storedIdentity.email !== input.identity.email)
+      ) {
+        storedIdentity.displayName = input.identity.displayName;
+        storedIdentity.email = input.identity.email;
         await this.repository.saveAccount(account);
       }
       return { account, bindingDisposition: "restored" };

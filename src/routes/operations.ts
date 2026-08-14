@@ -228,6 +228,22 @@ operations.get("/v1/admin/accounts/:accountId", async (c) => {
   }
 });
 
+operations.get("/v1/admin/accounts", async (c) => {
+  try {
+    assertAdminPermission(
+      c.var.adminPrincipal,
+      "read_audit",
+      new Date().toISOString(),
+    );
+    if (!c.var.adminOperationAccountSearch) throw new Error("unavailable");
+    return c.json(
+      await c.var.adminOperationAccountSearch.search(c.req.query("query") ?? ""),
+    );
+  } catch (cause) {
+    return error(c, cause);
+  }
+});
+
 async function requestOperation(
   c: Context<AppEnv>,
   action: AdminOperationAction,

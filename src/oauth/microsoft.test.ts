@@ -15,6 +15,7 @@ Deno.test("redeems Microsoft public-client codes with PKCE and no client secret"
       return Response.json({
         id: "microsoft-user",
         displayName: "Demo User",
+        mail: "Admin@Example.COM",
       });
     },
   });
@@ -29,6 +30,7 @@ Deno.test("redeems Microsoft public-client codes with PKCE and no client secret"
     provider: "microsoft",
     subject: "microsoft-user",
     displayName: "Demo User",
+    email: "admin@example.com",
   });
   assert.equal(
     requests[0].url,

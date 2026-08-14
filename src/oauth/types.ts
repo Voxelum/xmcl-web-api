@@ -21,6 +21,7 @@ export interface VerifiedIdentity {
   provider: OAuthProvider;
   subject: string;
   displayName?: string;
+  email?: string;
 }
 
 export interface BrowserExchange {
@@ -77,7 +78,7 @@ export interface RemoteOAuthOptions {
   tokenRequestHeaders?: (input: BrowserExchange) => HeadersInit;
   mapUser(
     body: Record<string, unknown>,
-  ): { subject?: unknown; displayName?: unknown };
+  ): { subject?: unknown; displayName?: unknown; email?: unknown };
 }
 
 export class RemoteOAuthAdapter implements OAuthProviderAdapter {
@@ -203,12 +204,16 @@ export class RemoteOAuthAdapter implements OAuthProviderAdapter {
     if (typeof mapped.subject !== "string" || mapped.subject.length === 0) {
       throw new OAuthProviderError("invalid_provider_credential");
     }
+    const email = typeof mapped.email === "string"
+      ? mapped.email.trim().toLowerCase()
+      : undefined;
     return {
       provider: this.declaration.provider,
       subject: mapped.subject,
       displayName: typeof mapped.displayName === "string"
         ? mapped.displayName
         : undefined,
+      ...(email ? { email } : {}),
     };
   }
 }

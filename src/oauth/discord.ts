@@ -16,7 +16,7 @@ export function createDiscordOAuth(options: {
       clientId: options.clientId,
       audience: options.clientId,
       subjectClaim: "id",
-      scopes: ["identify"],
+      scopes: ["identify", "email"],
       redirectUris: options.redirectUris,
       credentialVerification: "provider_userinfo",
       // Discord is browser-OAuth-only in the launcher. Browser availability is
@@ -29,6 +29,7 @@ export function createDiscordOAuth(options: {
     mapUser: (body) => ({
       subject: body.id,
       displayName: body.global_name ?? body.username,
+      email: body.email,
     }),
   });
 }

@@ -100,6 +100,7 @@ function createHarness(options: {
   billingService?: BillingService;
   serverControl?: ServerControlAdminOperationCommandAdapter;
   authenticator?: AdminPrincipalAuthenticator;
+  accountSearch?: { search(query: string): Promise<{ items: unknown[] }> };
 } = {}) {
   const repository = new MemoryOperations();
   const audit = new MemoryAudit();
@@ -126,6 +127,7 @@ function createHarness(options: {
       }
       c.set("billingAdminOperationAdapter", options.billing);
       c.set("serverControlAdminOperationAdapter", options.serverControl);
+      c.set("adminOperationAccountSearch", options.accountSearch);
       c.set("adminOperationNow", () => "2026-07-22T14:00:00.000Z");
       await next();
     });
@@ -133,6 +135,29 @@ function createHarness(options: {
 
   return { app, repository, audit };
 }
+
+Deno.test("support principals can search sanitized accounts", async () => {
+  const queries: string[] = [];
+  const { app } = createHarness({
+    accountSearch: {
+      search(query) {
+        queries.push(query);
+        return Promise.resolve({
+          items: [{ accountId: "account_123", status: "active" }],
+        });
+      },
+    },
+  });
+  const response = await app.request(
+    "/v1/admin/accounts?query=admin%40example.com",
+    { headers: { Authorization: ["Bearer", "support"].join(" ") } },
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(queries, ["admin@example.com"]);
+  assert.deepEqual(await response.json(), {
+    items: [{ accountId: "account_123", status: "active" }],
+  });
+});
 
 Deno.test("billing operators can read the sanitized billing overview", async () => {
   const { app } = createHarness({

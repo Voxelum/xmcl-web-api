@@ -31,6 +31,10 @@ export function createModrinthOAuth(options: {
       })
       : undefined,
     fetch: options.fetch,
-    mapUser: (body) => ({ subject: body.id, displayName: body.username }),
+    mapUser: (body) => ({
+      subject: body.id,
+      displayName: body.username,
+      email: body.email,
+    }),
   });
 }

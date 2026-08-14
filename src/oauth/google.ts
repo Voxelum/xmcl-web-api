@@ -16,7 +16,7 @@ export function createGoogleOAuth(options: {
       clientId: options.clientId,
       audience: options.clientId,
       subjectClaim: "sub",
-      scopes: ["openid", "profile"],
+      scopes: ["openid", "profile", "email"],
       redirectUris: options.redirectUris,
       credentialVerification: "oidc_token_and_userinfo",
       // Google is browser-OAuth-only in the launcher. Browser availability is
@@ -26,6 +26,10 @@ export function createGoogleOAuth(options: {
     },
     clientSecret: options.clientSecret,
     fetch: options.fetch,
-    mapUser: (body) => ({ subject: body.sub, displayName: body.name }),
+    mapUser: (body) => ({
+      subject: body.sub,
+      displayName: body.name,
+      email: body.email,
+    }),
   });
 }

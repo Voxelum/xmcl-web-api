@@ -3,20 +3,14 @@ import { cors } from "hono/cors";
 import { getCloudflareDb } from "../../src/cloudflare/runtime.ts";
 import type {
   ExecutionContext,
-  ScheduledController,
 } from "../../src/cloudflare/types.ts";
 import type { AppConfig } from "../../src/config.ts";
 import { createDbMiddleware } from "../../src/middleware/db.ts";
 import { getBillingRuntime } from "../../src/billingRuntime.ts";
 import { getAccountRuntime } from "../../src/accountRuntime.ts";
-import {
-  createSharedHostingRuntime,
-  getSharedHostingRuntime,
-} from "../../src/sharedHostingRuntime.ts";
+import { getSharedHostingRuntime } from "../../src/sharedHostingRuntime.ts";
 import { hasSharedNodeRuntimeSettings } from "../../src/productionComposition.ts";
 import { createS3SigV4Presigner } from "../../src/s3SigV4.ts";
-import { runSharedHostingBillingScheduledSweep } from "../../src/sharedHostingScheduling.ts";
-import { runSharedNodeScheduledSweep } from "../../src/sharedNodeScheduling.ts";
 import { createBillingRoutes } from "../../src/routes/billing.ts";
 import { createSharedHostingRoutes } from "../../src/routes/sharedHosting.ts";
 import { createSharedHostingServiceRoutes } from "../../src/routes/sharedHostingServices.ts";
@@ -26,6 +20,8 @@ import { createXmclPlusRoutes } from "../../src/routes/xmclPlus.ts";
 import { createSessionRoutes } from "../../src/routes/session.ts";
 import { createAccountRoutes } from "../../src/routes/account.ts";
 import operations from "../../src/routes/operations.ts";
+import { authenticateXmclRequest } from "../../src/middleware/xmclAuth.ts";
+import type { Account } from "../../src/account.ts";
 import type {
   AdminPrincipal,
   AdminPrincipalAuthenticator,
@@ -96,31 +92,57 @@ app.use("/v1/xmcl-plus/*", async (c, next) => {
 });
 app.use("/v1/admin/*", async (c, next) => {
   await getBillingRuntime(c);
+  const config = c.env as StagingBindings;
   const authenticator = stagingAdminAuthenticator(
-    (c.env as StagingBindings).XMCL_STAGING_ADMIN_ACCESS_TOKEN,
+    config.XMCL_STAGING_ADMIN_ACCESS_TOKEN,
   );
   if (authenticator) c.set("adminOperationAuthenticator", authenticator);
   c.set("adminOperationAccountReader", {
     read: async (accountId) => {
       const account = await (await getAccountRuntime(c)).accounts
         .requireAccount(accountId);
+      return publicAdminAccount(account);
+    },
+  });
+  c.set("adminOperationAccountSearch", {
+    search: async (query) => {
+      const value = query.trim();
+      if (!value) return { items: [] };
+      const db = await c.get("getDb")();
+      const accounts = await db.collection("xmcl_accounts").find({
+        $or: [
+          { _id: value },
+          { "identities.email": value.toLowerCase() },
+          { "identities.displayName": value },
+        ],
+      }).toArray();
       return {
-        accountId: account.accountId,
-        status: account.status,
-        createdAt: account.createdAt,
-        ...(account.deletionEffectiveAt
-          ? { deletionEffectiveAt: account.deletionEffectiveAt }
-          : {}),
-        identities: account.identities.map((identity) => ({
-          provider: identity.provider,
-          ...(identity.displayName
-            ? { displayName: identity.displayName }
-            : {}),
-          linkedBy: identity.linkedBy,
-          linkedAt: identity.linkedAt,
-        })),
+        items: accounts.slice(0, 20).map((account) =>
+          publicAdminAccount(account as Account)
+        ),
       };
     },
+  });
+  c.set("adminOperationAuditEvents", async () => {
+    const db = await c.get("getDb")();
+    const records = await db.collection("xmcl_audit").find({}).toArray();
+    return {
+      items: records
+        .sort((left, right) =>
+          String(right.occurredAt).localeCompare(String(left.occurredAt))
+        )
+        .slice(0, 100)
+        .map((record) => ({
+          eventId: String(record.auditId ?? record._id),
+          schemaVersion: 1 as const,
+          actor: { type: "account", id: String(record.accountId) },
+          action: String(record.action),
+          resourceType: "account",
+          resourceId: String(record.accountId),
+          correlationId: String(record.requestId ?? record.auditId ?? record._id),
+          occurredAt: String(record.occurredAt),
+        })),
+    };
   });
   await next();
 });
@@ -150,6 +172,38 @@ app.route("/", createXmclPlusRoutes());
 app.route("/", createWaffoRoutes());
 app.route("/", createSessionRoutes());
 app.route("/", createAccountRoutes());
+app.post("/v1/admin/session", async (c) => {
+  const config = c.env as StagingBindings;
+  if (
+    !config.XMCL_STAGING_ADMIN_ACCESS_TOKEN ||
+    !config.XMCL_STAGING_ADMIN_EMAILS
+  ) {
+    return c.json({ error: "admin_auth_unavailable" }, 503);
+  }
+  try {
+    const principal = await authenticateXmclRequest(c);
+    const account = await (await getAccountRuntime(c)).accounts.requireAccount(
+      principal!.accountId,
+    );
+    const allowedEmails = new Set(
+      config.XMCL_STAGING_ADMIN_EMAILS.split(",")
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean),
+    );
+    const email = account.identities
+      .map((identity) => identity.email?.toLowerCase())
+      .find((value): value is string => !!value && allowedEmails.has(value));
+    if (!email) return c.json({ error: "admin_forbidden" }, 403);
+    return c.json(
+      await issueStagingAdminSession(
+        config.XMCL_STAGING_ADMIN_ACCESS_TOKEN,
+        account.accountId,
+      ),
+    );
+  } catch {
+    return c.json({ error: "admin_authentication_required" }, 401);
+  }
+});
 app.route("/", operations);
 
 export function stagingAdminAuthenticator(
@@ -159,19 +213,128 @@ export function stagingAdminAuthenticator(
   return {
     async authenticate(authorization) {
       const actualToken = authorization?.match(/^Bearer (.+)$/)?.[1];
-      if (
-        !actualToken ||
-        !await secureTokenEqual(actualToken, expectedToken)
-      ) {
-        return undefined;
+      if (!actualToken) return undefined;
+      if (await secureTokenEqual(actualToken, expectedToken)) {
+        return {
+          id: "staging-billing-operator",
+          scopes: ["billing_operator"],
+          mfaVerifiedAt: new Date().toISOString(),
+        };
       }
-      const principal: AdminPrincipal = {
-        id: "staging-billing-operator",
-        scopes: ["billing_operator"],
-        mfaVerifiedAt: new Date().toISOString(),
-      };
-      return principal;
+      return await verifyStagingAdminSession(expectedToken, actualToken);
     },
+  };
+}
+
+export async function issueStagingAdminSession(
+  secret: string,
+  accountId: string,
+) {
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 15 * 60_000);
+  const payload = encodeAdminPayload({
+    version: 1,
+    accountId,
+    mfaVerifiedAt: now.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+  });
+  return {
+    accessToken: `${payload}.${await signAdminPayload(secret, payload)}`,
+    expiresAt: expiresAt.toISOString(),
+  };
+}
+
+export async function verifyStagingAdminSession(
+  secret: string,
+  token: string,
+): Promise<AdminPrincipal | undefined> {
+  const [payload, signature, ...extra] = token.split(".");
+  if (!payload || !signature || extra.length > 0) return undefined;
+  if (
+    !await secureTokenEqual(
+      signature,
+      await signAdminPayload(secret, payload),
+    )
+  ) return undefined;
+  try {
+    const claims = decodeAdminPayload(payload);
+    if (
+      claims.version !== 1 ||
+      typeof claims.accountId !== "string" ||
+      typeof claims.mfaVerifiedAt !== "string" ||
+      typeof claims.expiresAt !== "string" ||
+      Date.parse(claims.expiresAt) <= Date.now()
+    ) return undefined;
+    return {
+      id: claims.accountId,
+      scopes: ["admin"],
+      mfaVerifiedAt: claims.mfaVerifiedAt,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function encodeAdminPayload(value: unknown) {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(
+    /=+$/,
+    "",
+  );
+}
+
+function decodeAdminPayload(value: string) {
+  const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
+  return JSON.parse(
+    atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=")),
+  ) as {
+    version?: unknown;
+    accountId?: unknown;
+    mfaVerifiedAt?: unknown;
+    expiresAt?: unknown;
+  };
+}
+
+async function signAdminPayload(secret: string, payload: string) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = new Uint8Array(
+    await crypto.subtle.sign(
+      "HMAC",
+      key,
+      new TextEncoder().encode(payload),
+    ),
+  );
+  let binary = "";
+  for (const byte of signature) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(
+    /=+$/,
+    "",
+  );
+}
+
+function publicAdminAccount(account: Account) {
+  return {
+    accountId: account.accountId,
+    status: account.status,
+    createdAt: account.createdAt,
+    ...(account.deletionEffectiveAt
+      ? { deletionEffectiveAt: account.deletionEffectiveAt }
+      : {}),
+    identities: account.identities.map((identity) => ({
+      provider: identity.provider,
+      ...(identity.displayName ? { displayName: identity.displayName } : {}),
+      ...(identity.email ? { email: identity.email } : {}),
+      linkedBy: identity.linkedBy,
+      linkedAt: identity.linkedAt,
+    })),
   };
 }
 
@@ -237,15 +400,6 @@ export default {
       (sharedHostingReadPaths.has(url.pathname) ||
         url.pathname === "/v1/shared-hosting/services" ||
         /^\/v1\/shared-hosting\/services\/[^/]+\/export$/.test(url.pathname));
-    const isSharedHostingMutation = request.method === "POST" &&
-      (url.pathname === "/v1/shared-hosting/subscriptions" ||
-        url.pathname === "/v1/shared-hosting/services" ||
-        /^\/v1\/shared-hosting\/subscriptions\/[^/]+\/cancel$/.test(
-          url.pathname,
-        ) ||
-        /^\/v1\/shared-hosting\/services\/[^/]+\/(?:start|stop)$/.test(
-          url.pathname,
-        ));
     const isSharedHostingPreflight = request.method === "OPTIONS" &&
       url.pathname.startsWith("/v1/shared-hosting/");
     const isPlusRead = request.method === "GET" &&
@@ -270,8 +424,8 @@ export default {
     );
     if (
       !isBillingRead && !isBillingMutation && !isBillingPreflight &&
-      !isSharedHostingRead && !isSharedHostingMutation &&
-      !isSharedHostingPreflight && !isPlusRead && !isPlusMutation &&
+      !isSharedHostingRead && !isSharedHostingPreflight &&
+      !isPlusRead && !isPlusMutation &&
       !isPlusPreflight && !isAccountSurface && !isAdminSurface &&
       !isWebhook && !isSharedNodeTransport
     ) {
@@ -280,51 +434,6 @@ export default {
     return app.fetch(request, env, ctx);
   },
 
-  scheduled(
-    controller: ScheduledController,
-    env: StagingBindings,
-    ctx: ExecutionContext,
-  ): void {
-    ctx.waitUntil((async () => {
-      const signer = workspaceSigner(env);
-      if (
-        !hasSharedNodeRuntimeSettings(env, {
-          SHARED_NODE_WORKSPACE_SIGNER: signer,
-        })
-      ) {
-        throw new Error("shared node production settings are incomplete");
-      }
-      const runtime = createSharedHostingRuntime(
-        await getCloudflareDb(env),
-        env,
-        signer,
-      );
-      const scheduledAt = new Date(controller.scheduledTime).toISOString();
-      const failures: unknown[] = [];
-      for (
-        const task of [
-          () => runSharedNodeScheduledSweep(runtime.transport, scheduledAt),
-          () =>
-            runSharedHostingBillingScheduledSweep(
-              runtime.billingScheduledWork,
-              scheduledAt,
-            ),
-        ]
-      ) {
-        try {
-          await task();
-        } catch (error) {
-          failures.push(error);
-        }
-      }
-      if (failures.length > 0) {
-        throw new AggregateError(
-          failures,
-          "shared hosting scheduled work failed",
-        );
-      }
-    })());
-  },
 };
 
 export function isStagingAccountRequest(method: string, path: string) {
@@ -356,7 +465,9 @@ export function isStagingAccountRequest(method: string, path: string) {
 
 export function isStagingAdminRequest(method: string, path: string) {
   if (method === "OPTIONS" && path.startsWith("/v1/admin/")) return true;
+  if (method === "POST" && path === "/v1/admin/session") return true;
   return method === "GET" &&
     (adminReadPaths.has(path) ||
+      path === "/v1/admin/accounts" ||
       /^\/v1\/admin\/accounts\/[^/]+$/.test(path));
 }

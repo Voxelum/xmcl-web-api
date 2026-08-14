@@ -92,6 +92,8 @@ export interface AppConfig {
    * operations console. Configure it as a Worker secret, never as a plain var.
    */
   XMCL_STAGING_ADMIN_ACCESS_TOKEN?: string;
+  /** Comma-separated verified OAuth emails allowed to mint staging admin sessions. */
+  XMCL_STAGING_ADMIN_EMAILS?: string;
   /**
    * Optional comma-separated exact HTTPS callbacks for website OAuth.
    * Launcher loopback callbacks are code-owned and require no configuration.

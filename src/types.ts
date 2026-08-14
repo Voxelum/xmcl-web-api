@@ -86,6 +86,9 @@ export interface AppVariables {
   adminOperationReconciliation?: Pick<ReconciliationRepository, "latest">;
   /** Read-only account projection supplied by the account owner. */
   adminOperationAccountReader?: { read(accountId: string): Promise<unknown> };
+  adminOperationAccountSearch?: {
+    search(query: string): Promise<{ items: unknown[] }>;
+  };
   /** WorldBackup platform composition injects its owned backup adapter. */
   worldBackupService?: WorldBackupService;
   /** Dedicated Worker/internal-service authenticator for WorldBackup restore event callbacks. */

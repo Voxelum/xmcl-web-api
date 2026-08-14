@@ -13,7 +13,11 @@ Deno.test("uses the configured Modrinth OAuth client and client secret for brows
       if (request.url.includes("/oauth/token")) {
         return Response.json({ access_token: "provider-access-token" });
       }
-      return Response.json({ id: "modrinth-user", username: "Demo User" });
+      return Response.json({
+        id: "modrinth-user",
+        username: "Demo User",
+        email: "User@Example.COM",
+      });
     },
   });
 
@@ -37,6 +41,7 @@ Deno.test("uses the configured Modrinth OAuth client and client secret for brows
     provider: "modrinth",
     subject: "modrinth-user",
     displayName: "Demo User",
+    email: "user@example.com",
   });
   assert.equal(
     requests[0].headers.get("authorization"),
