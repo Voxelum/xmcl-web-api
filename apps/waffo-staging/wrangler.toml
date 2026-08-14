@@ -8,6 +8,9 @@ workers_dev = true
 [vars]
 BILLING_CURRENCY = "USD"
 BILLING_RATES_JSON = "[]"
+MONGODB_NAME = "coturn_staging"
+XMCL_DEPLOYMENT_ENVIRONMENT = "staging"
+XMCL_HOME_RELEASE_ENABLED = "true"
 WAFFO_ENVIRONMENT = "test"
 WAFFO_STORE_ID = "STO_43NzeqTrCZj6Z1Dvqd76Di"
 WAFFO_PRODUCT_ID = "PROD_3jywaliubkyhIgeYSGXx5s"
@@ -17,6 +20,7 @@ XMCL_MICROSOFT_CLIENT_ID = "1363d629-5b06-48a9-a5fb-c65de945f13e"
 XMCL_GOOGLE_CLIENT_ID = "833424700852-3gelr6b6n9ea7j85q1o8v2q1m08asavm.apps.googleusercontent.com"
 XMCL_DISCORD_CLIENT_ID = "1075044884400054363"
 XMCL_MODRINTH_CLIENT_ID = "GFz0B21y"
+CLOUDFLARE_ACCOUNT_ID = "7af57e4bbecec7133ccf33d2b530b4b5"
 VULTR_SHARED_NODE_REGION_IDS = "ams,atl,blr,ewr,lax,lhr,nrt,ord,sea,sgp,syd"
 
 [observability]
@@ -24,6 +28,9 @@ enabled = true
 
 [observability.logs]
 invocation_logs = true
+
+[triggers]
+crons = ["*/5 * * * *"]
 
 [[routes]]
 pattern = "api-staging.xmcl.app"

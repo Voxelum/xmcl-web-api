@@ -170,6 +170,42 @@ Deno.test("enforces action scopes and a recent second factor", () => {
   );
 });
 
+Deno.test("recent OAuth authentication permits reads but not money movement", () => {
+  const oauthOnly: AdminPrincipal = {
+    id: "admin-readonly-001",
+    scopes: ["admin"],
+    authenticatedAt: "2026-07-22T13:50:00.000Z",
+  };
+  assert.doesNotThrow(() =>
+    assertAdminPermission(oauthOnly, "read_billing", now())
+  );
+  assert.doesNotThrow(() =>
+    assertAdminPermission(oauthOnly, "read_audit", now())
+  );
+  assert.throws(
+    () => assertAdminPermission(oauthOnly, "refund", now()),
+    (error) =>
+      error instanceof AdminOperationError && error.code === "mfa_required",
+  );
+  assert.throws(
+    () => assertAdminPermission(oauthOnly, "balance_adjust", now()),
+    (error) =>
+      error instanceof AdminOperationError && error.code === "mfa_required",
+  );
+});
+
+Deno.test("fresh MFA supersedes an older OAuth authentication time", () => {
+  const steppedUp: AdminPrincipal = {
+    id: "admin-step-up-001",
+    scopes: ["admin"],
+    authenticatedAt: "2026-07-22T12:00:00.000Z",
+    mfaVerifiedAt: "2026-07-22T13:59:00.000Z",
+  };
+  assert.doesNotThrow(() =>
+    assertAdminPermission(steppedUp, "refund", now())
+  );
+});
+
 Deno.test("rejects D6-invalid reasons and ticket identifiers before persistence", async () => {
   const { service, operations } = makeService();
   await assert.rejects(

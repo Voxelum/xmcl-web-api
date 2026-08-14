@@ -26,6 +26,11 @@ export interface AiAllowanceSettlement {
   weightedUnits: number;
 }
 
+export interface AiSettlementSweepResult {
+  settled: string[];
+  failed: Array<{ authorizationId: string; error: string }>;
+}
+
 function activeSources(
   state: BillingState,
   accountId: string,
@@ -126,7 +131,10 @@ export class AllowanceMeter {
     return await this.store.transaction((state) => {
       const staleBefore = this.now().getTime() - 60 * 60 * 1_000;
       for (const [id, reservation] of state.aiAllowanceReservations) {
-        if (Date.parse(reservation.createdAt) < staleBefore) {
+        if (
+          !reservation.pendingSettlement &&
+          Date.parse(reservation.createdAt) < staleBefore
+        ) {
           state.aiAllowanceReservations.delete(id);
         }
       }
@@ -172,6 +180,67 @@ export class AllowanceMeter {
     });
   }
 
+  async recordAiDelivery(
+    authorizationId: string,
+    usageId: string,
+    usage: OpenAiTokenUsage,
+  ): Promise<void> {
+    const weightedUnits = weightedAiUnits(usage);
+    await this.store.transaction((state) => {
+      const reservation = state.aiAllowanceReservations.get(authorizationId);
+      if (!reservation) throw new Error("AI allowance reservation is missing");
+      if (weightedUnits > reservation.maximumUnits) {
+        throw new Error("AI usage exceeded its allowance reservation");
+      }
+      const pending = reservation.pendingSettlement;
+      if (pending) {
+        if (
+          pending.usageId !== usageId ||
+          stableFingerprint(pending.usage) !== stableFingerprint(usage)
+        ) {
+          throw new Error("Conflicting AI delivery record");
+        }
+        return;
+      }
+      reservation.pendingSettlement = {
+        usageId,
+        usage: structuredClone(usage),
+        recordedAt: this.now().toISOString(),
+      };
+    });
+  }
+
+  async settlePendingAi(limit = 100): Promise<AiSettlementSweepResult> {
+    requirePositiveSafeInteger(limit, "invalid_ai_settlement_limit");
+    const pending = await this.store.read((state) =>
+      [...state.aiAllowanceReservations.values()]
+        .filter((reservation) => reservation.pendingSettlement)
+        .sort((left, right) =>
+          left.pendingSettlement!.recordedAt.localeCompare(
+            right.pendingSettlement!.recordedAt,
+          )
+        )
+        .slice(0, limit)
+        .map((reservation) => ({
+          authorizationId: reservation.authorizationId,
+          ...reservation.pendingSettlement!,
+        }))
+    );
+    const result: AiSettlementSweepResult = { settled: [], failed: [] };
+    for (const item of pending) {
+      try {
+        await this.settleAi(item.authorizationId, item.usageId, item.usage);
+        result.settled.push(item.authorizationId);
+      } catch (error) {
+        result.failed.push({
+          authorizationId: item.authorizationId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return result;
+  }
+
   async settleAi(
     authorizationId: string,
     usageId: string,
@@ -194,6 +263,14 @@ export class AllowanceMeter {
       }
       const reservation = state.aiAllowanceReservations.get(authorizationId);
       if (!reservation) throw new Error("AI allowance reservation is missing");
+      const pending = reservation.pendingSettlement;
+      if (
+        pending &&
+        (pending.usageId !== usageId ||
+          stableFingerprint(pending.usage) !== stableFingerprint(usage))
+      ) {
+        throw new Error("Conflicting AI delivery record");
+      }
       if (weightedUnits > reservation.maximumUnits) {
         throw new Error("AI usage exceeded its allowance reservation");
       }

@@ -4,6 +4,11 @@ main = "worker.ts"
 compatibility_date = "2025-03-20"
 compatibility_flags = ["nodejs_compat_v2"]
 
+[vars]
+MONGODB_NAME = "coturn"
+XMCL_DEPLOYMENT_ENVIRONMENT = "production"
+XMCL_HOME_RELEASE_ENABLED = "false"
+
 [observability]
 enabled = true
 head_sampling_rate = 1

@@ -54,3 +54,18 @@ Deno.test("OAuth redirect policy allows only exact configured HTTPS web callback
     true,
   );
 });
+
+Deno.test("staging OAuth policy excludes production web callbacks", () => {
+  const stagingCallback =
+    "https://staging.xmcl-page.pages.dev/oauth/callback";
+  const policy = createOAuthRedirectPolicy([stagingCallback], {
+    includeProductionDefaults: false,
+  });
+  assert.deepEqual(policy.declaredRedirectUris, [stagingCallback]);
+  assert.equal(policy.allows(stagingCallback), true);
+  assert.equal(policy.allows("https://xmcl.app/oauth/callback"), false);
+  assert.equal(
+    policy.allows("http://127.0.0.1:25555/commercial-auth"),
+    true,
+  );
+});

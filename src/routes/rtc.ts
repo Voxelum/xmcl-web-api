@@ -13,11 +13,6 @@ import {
 import type { AppEnv } from "../types.ts";
 
 const CREDENTIAL_TTL_SECONDS = 24 * 60 * 60;
-const BUILTIN_TURNS = [
-  { ip: "20.239.69.131", realm: "hk" },
-  { ip: "20.199.15.21", realm: "fr" },
-  { ip: "20.215.243.212", realm: "po" },
-] as const;
 const STUNS = [
   "stun.miwifi.com:3478",
   "stun.l.google.com:19302",
@@ -49,8 +44,6 @@ interface RtcRouteOptions {
   ) => Promise<Pick<TurnCredentialMeter, "authorize" | "release">>;
   resolveConfig?: (c: Context<AppEnv>) => Pick<
     AppConfig,
-    | "RTC_SECRET"
-    | "TURNS"
     | "CLOUDFLARE_TURN_API_TOKEN"
     | "CLOUDFLARE_TURN_KEY_ID"
     | "CLOUDFLARE_TURN_ANALYTICS_API_TOKEN"
@@ -59,62 +52,6 @@ interface RtcRouteOptions {
     | "CLOUDFLARE_ACCOUNT_ID"
     | "CLOUDFLARE_ANALYTICS_API_TOKEN"
   >;
-}
-
-async function hmacSha1Base64(secret: string, message: string) {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-1" },
-    false,
-    ["sign"],
-  );
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(message),
-  );
-  return btoa(String.fromCharCode(...new Uint8Array(signature)));
-}
-
-function parseTurns(turns: string | undefined) {
-  if (!turns) return [];
-  return turns.split(",").flatMap((entry) => {
-    const separator = entry.indexOf(":");
-    if (separator <= 0 || separator === entry.length - 1) {
-      console.error({ event: "rtc.turns_configuration_error" });
-      return [];
-    }
-    return [{
-      realm: entry.slice(0, separator).trim(),
-      ip: entry.slice(separator + 1).trim(),
-    }];
-  }).filter((turn) => turn.realm && turn.ip);
-}
-
-async function getBuiltinTurnCredentials(
-  accountId: string,
-  secret: string,
-  configuredTurns: ReturnType<typeof parseTurns>,
-) {
-  const username = `${
-    Math.floor(Date.now() / 1000) + CREDENTIAL_TTL_SECONDS
-  }:${accountId}`;
-  const password = await hmacSha1Base64(secret, username);
-  const turns = [...BUILTIN_TURNS, ...configuredTurns];
-  const uris = turns.map((turn) => `turn:${turn.ip}`);
-  return {
-    username,
-    password,
-    ttl: CREDENTIAL_TTL_SECONDS,
-    uris,
-    meta: Object.fromEntries(turns.map((turn) => [turn.ip, turn.realm])),
-    servers: uris.map((urls) => ({
-      urls,
-      username,
-      credential: password,
-    })),
-  };
 }
 
 async function getCloudflareTurnServers(
@@ -253,18 +190,11 @@ export function createRtcRoutes(options: RtcRouteOptions = {}) {
         }
       }
 
-      const builtin = config.RTC_SECRET
-        ? await getBuiltinTurnCredentials(
-          accountId,
-          config.RTC_SECRET,
-          parseTurns(config.TURNS),
-        )
-        : undefined;
-      return c.json({
-        stuns: STUNS,
-        ...(builtin ?? { uris: [] }),
-        servers: builtin?.servers ?? [],
+      console.warn({
+        event: "rtc.turn_metering_unavailable",
+        accountId,
       });
+      return c.json({ stuns: STUNS, uris: [], servers: [] });
     },
   );
   return app;

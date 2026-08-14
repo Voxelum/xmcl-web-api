@@ -31,6 +31,7 @@ function fixture(
   config: AppConfig = { AGNES_API_KEYS: '["key-a","key-b"]' },
   scopes = ["ai:invoke"],
   entitled = true,
+  meterOptions: { settleError?: Error } = {},
 ) {
   const settlements: Array<{
     authorizationId: string;
@@ -41,6 +42,9 @@ function fixture(
       completionTokens: number;
     };
   }> = [];
+  const releases: string[] = [];
+  const deliveries: string[] = [];
+  let settlementAttempts = 0;
   const runtime = {
     sessions: {
       verify: async (token: string) => {
@@ -67,8 +71,19 @@ function fixture(
       () =>
         Promise.resolve({
           reserveAi: () => Promise.resolve(true),
-          releaseAi: () => Promise.resolve(),
+          releaseAi: (authorizationId) => {
+            releases.push(authorizationId);
+            return Promise.resolve();
+          },
+          recordAiDelivery: (authorizationId) => {
+            deliveries.push(authorizationId);
+            return Promise.resolve();
+          },
           settleAi: (authorizationId, usageId, usage) => {
+            settlementAttempts += 1;
+            if (meterOptions.settleError) {
+              return Promise.reject(meterOptions.settleError);
+            }
             settlements.push({ authorizationId, usageId, usage });
             return Promise.resolve({
               authorizationId,
@@ -81,7 +96,10 @@ function fixture(
   );
   return {
     app,
+    releases,
+    deliveries,
     settlements,
+    settlementAttempts: () => settlementAttempts,
     request: (body: unknown, init: RequestInit = {}) => {
       const requestBody = body && typeof body === "object" &&
           !Array.isArray(body) && "messages" in body &&
@@ -324,6 +342,46 @@ Deno.test("chat completions streams SSE bytes without buffering or rewriting", a
     cachedPromptTokens: 20,
     completionTokens: 5,
   });
+});
+
+Deno.test("streamed AI settlement retries without releasing the reservation", async () => {
+  const sse = [
+    'data: {"id":"chatcmpl_stream","choices":[],"usage":{"prompt_tokens":50,"completion_tokens":5}}\n\n',
+    "data: [DONE]\n\n",
+  ].join("");
+  const streamed = fixture(
+    async () =>
+      new Response(sse, {
+        headers: { "content-type": "text/event-stream; charset=utf-8" },
+      }),
+    { AGNES_API_KEYS: '["key-a"]' },
+    ["ai:invoke"],
+    true,
+    { settleError: new Error("settlement unavailable") },
+  );
+
+  const response = await streamed.request({
+    messages: [{ role: "user", content: "hello" }],
+    stream: true,
+  });
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), sse);
+  assert.equal(streamed.settlements.length, 0);
+  assert.equal(streamed.settlementAttempts(), 3);
+  assert.equal(streamed.deliveries.length, 1);
+  assert.equal(streamed.releases.length, 0);
+});
+
+Deno.test("successful AI responses without usage release their reservation", async () => {
+  const missingUsage = fixture(async () =>
+    Response.json({ id: "chatcmpl_missing_usage", choices: [] }));
+  const response = await missingUsage.request({
+    messages: [{ role: "user", content: "hello" }],
+  });
+
+  assert.equal(response.status, 500);
+  assert.equal(missingUsage.releases.length, 1);
+  assert.equal(missingUsage.deliveries.length, 0);
 });
 
 Deno.test("chat completions rejects client-supplied system prompts", async () => {

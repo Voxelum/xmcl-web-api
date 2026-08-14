@@ -67,6 +67,7 @@ export async function getAccountRuntime(
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean),
+    { includeProductionDefaults: config.XMCL_DEPLOYMENT_ENVIRONMENT !== "staging" },
   );
   const redirects = [...redirectPolicy.declaredRedirectUris];
   const oauth: OAuthRegistry = {

@@ -117,6 +117,15 @@ export interface AiAllowanceReservation {
   allocations: Array<{ sourceKey: string; units: number }>;
   maximumUnits: number;
   createdAt: string;
+  pendingSettlement?: {
+    usageId: string;
+    usage: {
+      promptTokens: number;
+      cachedPromptTokens: number;
+      completionTokens: number;
+    };
+    recordedAt: string;
+  };
 }
 
 export interface TurnCredentialIssuance {

@@ -3,9 +3,46 @@ import {
   billingOnlyAdminAccount,
   isStagingAccountRequest,
   isStagingAdminRequest,
+  isStagingUsageRequest,
+  isRecentBrowserOAuthAdminPrincipal,
   issueStagingAdminSession,
   stagingAdminAuthenticator,
+  verifiedAllowedAdminEmail,
+  verifyStagingAdminSession,
 } from "./worker.ts";
+
+const stagingEnvironment = {
+  XMCL_DEPLOYMENT_ENVIRONMENT: "staging",
+  XMCL_HOME_RELEASE_ENABLED: "true",
+  MONGODB_NAME: "coturn_staging",
+  WAFFO_ENVIRONMENT: "test",
+};
+
+async function signedAdminToken(secret: string, claims: unknown) {
+  const payload = btoa(JSON.stringify(claims))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = new Uint8Array(
+    await crypto.subtle.sign(
+      "HMAC",
+      key,
+      new TextEncoder().encode(payload),
+    ),
+  );
+  let binary = "";
+  for (const byte of signature) binary += String.fromCharCode(byte);
+  return `${payload}.${
+    btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+  }`;
+}
 
 Deno.test("staging exposes billing-only accounts to Admin support", () => {
   const account = billingOnlyAdminAccount("acct_billing_only", {
@@ -94,6 +131,58 @@ Deno.test("staging admin surface remains read-only", () => {
   );
 });
 
+Deno.test("admin allowlist requires a provider-verified email", () => {
+  const baseIdentity = {
+    provider: "google" as const,
+    subject: "google-user",
+    email: "admin@example.com",
+    linkedBy: "web_link" as const,
+    linkedAt: "2026-08-14T00:00:00.000Z",
+  };
+  const account = {
+    accountId: "acct_admin",
+    status: "active" as const,
+    createdAt: "2026-08-14T00:00:00.000Z",
+    identities: [baseIdentity],
+  };
+  const allowlist = new Set(["admin@example.com"]);
+
+  assert.equal(verifiedAllowedAdminEmail(account, allowlist), undefined);
+  assert.equal(
+    verifiedAllowedAdminEmail({
+      ...account,
+      identities: [{ ...baseIdentity, emailVerified: true as const }],
+    }, allowlist),
+    "admin@example.com",
+  );
+});
+
+Deno.test("admin session requires a recent browser OAuth authentication", () => {
+  const now = new Date("2026-08-14T10:00:00.000Z");
+  assert.equal(isRecentBrowserOAuthAdminPrincipal({
+    authenticationMethod: "browser_oauth",
+    authenticatedAt: "2026-08-14T09:50:00.000Z",
+  }, now), true);
+  assert.equal(isRecentBrowserOAuthAdminPrincipal({
+    authenticationMethod: "launcher",
+    authenticatedAt: "2026-08-14T09:50:00.000Z",
+  }, now), false);
+  assert.equal(isRecentBrowserOAuthAdminPrincipal({
+    authenticationMethod: "browser_oauth",
+    authenticatedAt: "2026-08-14T09:44:59.000Z",
+  }, now), false);
+});
+
+Deno.test("staging exposes only metered Home AI and TURN usage routes", () => {
+  assert.equal(
+    isStagingUsageRequest("POST", "/v1/chat/completions"),
+    true,
+  );
+  assert.equal(isStagingUsageRequest("POST", "/v1/rtc/official"), true);
+  assert.equal(isStagingUsageRequest("GET", "/v1/rtc/official"), false);
+  assert.equal(isStagingUsageRequest("POST", "/v1/internal/usage/ai"), false);
+});
+
 Deno.test("staging keeps hosted-server mutations disabled", async () => {
   const worker = (await import("./worker.ts")).default;
   for (
@@ -106,7 +195,7 @@ Deno.test("staging keeps hosted-server mutations disabled", async () => {
   ) {
     const response = await worker.fetch(
       new Request(`https://api-staging.xmcl.app${path}`, { method: "POST" }),
-      {} as never,
+      stagingEnvironment as never,
       { waitUntil() {}, passThroughOnException() {} } as never,
     );
     assert.equal(response.status, 404, path);
@@ -114,14 +203,18 @@ Deno.test("staging keeps hosted-server mutations disabled", async () => {
 });
 
 Deno.test("staging admin bearer authenticates independently", async () => {
-  const authenticator = stagingAdminAuthenticator("staging-secret");
+  const staticToken = "staging-static-token";
+  const authenticator = stagingAdminAuthenticator(
+    staticToken,
+    "staging-session-secret",
+  );
   assert.ok(authenticator);
   assert.equal(
-    await authenticator.authenticate("Bearer wrong-secret"),
+    await authenticator.authenticate(["Bearer", "wrong-secret"].join(" ")),
     undefined,
   );
   const principal = await authenticator.authenticate(
-    "Bearer staging-secret",
+    ["Bearer", staticToken].join(" "),
   );
   assert.equal(principal?.id, "staging-billing-operator");
   assert.deepEqual(principal?.scopes, ["billing_operator"]);
@@ -133,15 +226,31 @@ Deno.test("staging admin sessions are signed, scoped, and short-lived", async ()
   assert.ok(Date.parse(session.expiresAt) > Date.now());
   assert.ok(Date.parse(session.expiresAt) <= Date.now() + 15 * 60_000 + 1000);
 
-  const principal = await stagingAdminAuthenticator(secret)?.authenticate(
+  const principal = await stagingAdminAuthenticator(undefined, secret)
+    ?.authenticate(
     `Bearer ${session.accessToken}`,
   );
   assert.equal(principal?.id, "account_123");
   assert.deepEqual(principal?.scopes, ["admin"]);
   assert.equal(
-    await stagingAdminAuthenticator("different-secret")?.authenticate(
+    await stagingAdminAuthenticator(undefined, "different-secret")
+      ?.authenticate(
       `Bearer ${session.accessToken}`,
     ),
+    undefined,
+  );
+});
+
+Deno.test("staging admin sessions reject malformed expiry claims", async () => {
+  const secret = "staging-admin-secret-with-sufficient-entropy";
+  const invalid = await signedAdminToken(secret, {
+    version: 2,
+    accountId: "account_123",
+    authenticatedAt: new Date().toISOString(),
+    expiresAt: "not-a-date",
+  });
+  assert.equal(
+    await verifyStagingAdminSession(secret, invalid),
     undefined,
   );
 });

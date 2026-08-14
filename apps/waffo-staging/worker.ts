@@ -3,10 +3,19 @@ import { cors } from "hono/cors";
 import { getCloudflareDb } from "../../src/cloudflare/runtime.ts";
 import type {
   ExecutionContext,
+  ScheduledController,
 } from "../../src/cloudflare/types.ts";
 import type { AppConfig } from "../../src/config.ts";
 import { createDbMiddleware } from "../../src/middleware/db.ts";
 import { getBillingRuntime } from "../../src/billingRuntime.ts";
+import { MongoBillingStore } from "../../src/ledger.ts";
+import { AllowanceMeter } from "../../src/allowanceMetering.ts";
+import { XmclPlusService } from "../../src/xmclPlus.ts";
+import { runtimeEnvironmentError } from "../../src/runtimeEnvironment.ts";
+import {
+  runTurnMeteringSweep,
+  TurnCredentialMeter,
+} from "../../src/turnMetering.ts";
 import { getAccountRuntime } from "../../src/accountRuntime.ts";
 import { getSharedHostingRuntime } from "../../src/sharedHostingRuntime.ts";
 import { hasSharedNodeRuntimeSettings } from "../../src/productionComposition.ts";
@@ -19,6 +28,8 @@ import { createWaffoRoutes } from "../../src/routes/waffo.ts";
 import { createXmclPlusRoutes } from "../../src/routes/xmclPlus.ts";
 import { createSessionRoutes } from "../../src/routes/session.ts";
 import { createAccountRoutes } from "../../src/routes/account.ts";
+import { createChatCompletionsRoutes } from "../../src/routes/chatCompletions.ts";
+import { createRtcRoutes } from "../../src/routes/rtc.ts";
 import operations from "../../src/routes/operations.ts";
 import { authenticateXmclRequest } from "../../src/middleware/xmclAuth.ts";
 import type { Account } from "../../src/account.ts";
@@ -83,6 +94,8 @@ app.use("/v1/sessions/*", stagingCors());
 app.use("/v1/account", stagingCors());
 app.use("/v1/account/*", stagingCors());
 app.use("/v1/admin/*", stagingCors());
+app.use("/v1/chat/*", stagingCors());
+app.use("/v1/rtc/*", stagingCors());
 app.use("/v1/shared-hosting/*", async (c, next) => {
   await getBillingRuntime(c);
   await next();
@@ -96,6 +109,7 @@ app.use("/v1/admin/*", async (c, next) => {
   const config = c.env as StagingBindings;
   const authenticator = stagingAdminAuthenticator(
     config.XMCL_STAGING_ADMIN_ACCESS_TOKEN,
+    config.XMCL_STAGING_ADMIN_SESSION_SECRET,
   );
   if (authenticator) c.set("adminOperationAuthenticator", authenticator);
   c.set("adminOperationAccountReader", {
@@ -138,6 +152,7 @@ app.use("/v1/admin/*", async (c, next) => {
         );
         if (billingAccount) items.push(billingAccount);
       }
+
       return {
         items,
       };
@@ -192,16 +207,21 @@ app.route("/", createXmclPlusRoutes());
 app.route("/", createWaffoRoutes());
 app.route("/", createSessionRoutes());
 app.route("/", createAccountRoutes());
+app.route("/", createChatCompletionsRoutes());
+app.route("/", createRtcRoutes());
 app.post("/v1/admin/session", async (c) => {
   const config = c.env as StagingBindings;
   if (
-    !config.XMCL_STAGING_ADMIN_ACCESS_TOKEN ||
+    !config.XMCL_STAGING_ADMIN_SESSION_SECRET ||
     !config.XMCL_STAGING_ADMIN_EMAILS
   ) {
     return c.json({ error: "admin_auth_unavailable" }, 503);
   }
   try {
     const principal = await authenticateXmclRequest(c);
+    if (!isRecentBrowserOAuthAdminPrincipal(principal!)) {
+      return c.json({ error: "admin_reauthentication_required" }, 401);
+    }
     const account = await (await getAccountRuntime(c)).accounts.requireAccount(
       principal!.accountId,
     );
@@ -210,13 +230,11 @@ app.post("/v1/admin/session", async (c) => {
         .map((value) => value.trim().toLowerCase())
         .filter(Boolean),
     );
-    const email = account.identities
-      .map((identity) => identity.email?.toLowerCase())
-      .find((value): value is string => !!value && allowedEmails.has(value));
+    const email = verifiedAllowedAdminEmail(account, allowedEmails);
     if (!email) return c.json({ error: "admin_forbidden" }, 403);
     return c.json(
       await issueStagingAdminSession(
-        config.XMCL_STAGING_ADMIN_ACCESS_TOKEN,
+        config.XMCL_STAGING_ADMIN_SESSION_SECRET,
         account.accountId,
       ),
     );
@@ -227,21 +245,24 @@ app.post("/v1/admin/session", async (c) => {
 app.route("/", operations);
 
 export function stagingAdminAuthenticator(
-  expectedToken: string | undefined,
+  staticToken: string | undefined,
+  sessionSecret?: string,
 ): AdminPrincipalAuthenticator | undefined {
-  if (!expectedToken) return undefined;
+  if (!staticToken && !sessionSecret) return undefined;
   return {
     async authenticate(authorization) {
       const actualToken = authorization?.match(/^Bearer (.+)$/)?.[1];
       if (!actualToken) return undefined;
-      if (await secureTokenEqual(actualToken, expectedToken)) {
+      if (staticToken && await secureTokenEqual(actualToken, staticToken)) {
         return {
           id: "staging-billing-operator",
           scopes: ["billing_operator"],
-          mfaVerifiedAt: new Date().toISOString(),
+          authenticatedAt: new Date().toISOString(),
         };
       }
-      return await verifyStagingAdminSession(expectedToken, actualToken);
+      return sessionSecret
+        ? await verifyStagingAdminSession(sessionSecret, actualToken)
+        : undefined;
     },
   };
 }
@@ -253,9 +274,9 @@ export async function issueStagingAdminSession(
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 15 * 60_000);
   const payload = encodeAdminPayload({
-    version: 1,
+    version: 2,
     accountId,
-    mfaVerifiedAt: now.toISOString(),
+    authenticatedAt: now.toISOString(),
     expiresAt: expiresAt.toISOString(),
   });
   return {
@@ -278,17 +299,25 @@ export async function verifyStagingAdminSession(
   ) return undefined;
   try {
     const claims = decodeAdminPayload(payload);
+    const authenticatedAt = Date.parse(String(claims.authenticatedAt));
+    const expiresAt = Date.parse(String(claims.expiresAt));
+    const now = Date.now();
     if (
-      claims.version !== 1 ||
+      claims.version !== 2 ||
       typeof claims.accountId !== "string" ||
-      typeof claims.mfaVerifiedAt !== "string" ||
+      typeof claims.authenticatedAt !== "string" ||
       typeof claims.expiresAt !== "string" ||
-      Date.parse(claims.expiresAt) <= Date.now()
+      !Number.isFinite(authenticatedAt) ||
+      !Number.isFinite(expiresAt) ||
+      authenticatedAt > now + 60_000 ||
+      expiresAt <= now ||
+      expiresAt <= authenticatedAt ||
+      expiresAt - authenticatedAt > 15 * 60_000 + 1_000
     ) return undefined;
     return {
       id: claims.accountId,
       scopes: ["admin"],
-      mfaVerifiedAt: claims.mfaVerifiedAt,
+      authenticatedAt: claims.authenticatedAt,
     };
   } catch {
     return undefined;
@@ -312,7 +341,7 @@ function decodeAdminPayload(value: string) {
   ) as {
     version?: unknown;
     accountId?: unknown;
-    mfaVerifiedAt?: unknown;
+    authenticatedAt?: unknown;
     expiresAt?: unknown;
   };
 }
@@ -340,6 +369,33 @@ async function signAdminPayload(secret: string, payload: string) {
   );
 }
 
+export function isRecentBrowserOAuthAdminPrincipal(
+  principal: Pick<
+    import("../../src/session.ts").XmclPrincipal,
+    "authenticatedAt" | "authenticationMethod"
+  >,
+  now = new Date(),
+) {
+  if (
+    principal.authenticationMethod !== "browser_oauth" ||
+    !principal.authenticatedAt
+  ) return false;
+  const authenticatedAt = Date.parse(principal.authenticatedAt);
+  const age = now.getTime() - authenticatedAt;
+  return Number.isFinite(authenticatedAt) && age >= -60_000 &&
+    age <= 15 * 60_000;
+}
+
+export function verifiedAllowedAdminEmail(
+  account: Account,
+  allowedEmails: ReadonlySet<string>,
+) {
+  return account.identities
+    .filter((identity) => identity.emailVerified === true)
+    .map((identity) => identity.email?.toLowerCase())
+    .find((value): value is string => !!value && allowedEmails.has(value));
+}
+
 function publicAdminAccount(account: Account) {
   return {
     accountId: account.accountId,
@@ -352,6 +408,7 @@ function publicAdminAccount(account: Account) {
       provider: identity.provider,
       ...(identity.displayName ? { displayName: identity.displayName } : {}),
       ...(identity.email ? { email: identity.email } : {}),
+      ...(identity.emailVerified ? { emailVerified: true } : {}),
       linkedBy: identity.linkedBy,
       linkedAt: identity.linkedAt,
     })),
@@ -407,21 +464,27 @@ function workspaceSigner(env: StagingBindings) {
     secretKey: env.XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY,
   });
 }
-
 export default {
   async fetch(
     request: Request,
     env: StagingBindings,
     ctx: ExecutionContext,
   ): Promise<Response> {
+    const environmentError = runtimeEnvironmentError(env, "staging");
+    if (environmentError) {
+      return Response.json(
+        { status: "unavailable", error: environmentError },
+        { status: 503 },
+      );
+    }
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
-      return Response.json({ status: "ok", environment: "test" });
+      return Response.json({ status: "ok", environment: "staging" });
     }
     if (request.method === "GET" && url.pathname === "/health/ready") {
       try {
         await getCloudflareDb(env);
-        return Response.json({ status: "ready", environment: "test" });
+        return Response.json({ status: "ready", environment: "staging" });
       } catch (error) {
         console.error({
           event: "waffo_staging.readiness_failed",
@@ -462,6 +525,10 @@ export default {
       request.method,
       url.pathname,
     );
+    const isUsageSurface = isStagingUsageRequest(
+      request.method,
+      url.pathname,
+    );
     const isWebhook = request.method === "POST" &&
       url.pathname === webhookPath;
     const isSharedNodeTransport = url.pathname.startsWith(
@@ -472,13 +539,101 @@ export default {
       !isSharedHostingRead && !isSharedHostingPreflight &&
       !isPlusRead && !isPlusMutation &&
       !isPlusPreflight && !isAccountSurface && !isAdminSurface &&
-      !isWebhook && !isSharedNodeTransport
+      !isUsageSurface && !isWebhook && !isSharedNodeTransport
     ) {
       return new Response("Not Found", { status: 404 });
     }
     return app.fetch(request, env, ctx);
   },
 
+  scheduled(
+    controller: ScheduledController,
+    env: StagingBindings,
+    ctx: ExecutionContext,
+  ): void {
+    ctx.waitUntil(
+      (async () => {
+        const environmentError = runtimeEnvironmentError(env, "staging");
+        if (environmentError) throw new Error(environmentError);
+        const scheduledAt = new Date(controller.scheduledTime);
+        try {
+          const aiResult = await new AllowanceMeter(
+            new MongoBillingStore(await getCloudflareDb(env)),
+            () => scheduledAt,
+          ).settlePendingAi();
+          console.log({
+            event: "ai.staging_settlement.completed",
+            scheduledAt: scheduledAt.toISOString(),
+            ...aiResult,
+          });
+          if (aiResult.failed.length > 0) {
+            console.warn({
+              event: "ai.staging_settlement.pending",
+              scheduledAt: scheduledAt.toISOString(),
+              failures: aiResult.failed,
+            });
+          }
+          const result = await new XmclPlusService(
+            new MongoBillingStore(await getCloudflareDb(env)),
+            { currency: env.BILLING_CURRENCY ?? "USD" },
+          ).renewDue(scheduledAt);
+          console.log({
+            event: "xmcl_plus.staging_renewal.completed",
+            scheduledAt: scheduledAt.toISOString(),
+            ...result,
+          });
+          if (result.paymentDue.length > 0) {
+            console.warn({
+              event: "xmcl_plus.staging_renewal.payment_due",
+              scheduledAt: scheduledAt.toISOString(),
+              subscriptionIds: result.paymentDue,
+            });
+          }
+        } catch (error) {
+          console.error({
+            event: "xmcl_plus.staging_renewal.failed",
+            scheduledAt: scheduledAt.toISOString(),
+            errorName: error instanceof Error ? error.name : "UnknownError",
+            errorMessage: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
+        const analyticsToken = env.CLOUDFLARE_TURN_ANALYTICS_API_TOKEN ??
+          env.CLOUDFLARE_ANALYTICS_API_TOKEN;
+        if (env.CLOUDFLARE_ACCOUNT_ID && analyticsToken) {
+          try {
+            const turnResult = await runTurnMeteringSweep(
+              new TurnCredentialMeter(
+                new MongoBillingStore(await getCloudflareDb(env)),
+              ),
+              {
+                accountId: env.CLOUDFLARE_ACCOUNT_ID,
+                apiToken: analyticsToken,
+              },
+              scheduledAt,
+            );
+            console.log({
+              event: "turn.staging_metering.completed",
+              scheduledAt: scheduledAt.toISOString(),
+              ...turnResult,
+            });
+          } catch (error) {
+            console.error({
+              event: "turn.staging_metering.failed",
+              scheduledAt: scheduledAt.toISOString(),
+              errorName: error instanceof Error ? error.name : "UnknownError",
+              errorMessage: error instanceof Error
+                ? error.message
+                : String(error),
+            });
+            throw error;
+          }
+        } else {
+          console.warn({ event: "turn.staging_metering.not_configured" });
+        }
+      })(),
+    );
+  },
 };
 
 export function isStagingAccountRequest(method: string, path: string) {
@@ -515,4 +670,11 @@ export function isStagingAdminRequest(method: string, path: string) {
     (adminReadPaths.has(path) ||
       path === "/v1/admin/accounts" ||
       /^\/v1\/admin\/accounts\/[^/]+$/.test(path));
+}
+
+export function isStagingUsageRequest(method: string, path: string) {
+  return (method === "POST" &&
+    (path === "/v1/chat/completions" || path === "/v1/rtc/official")) ||
+    (method === "OPTIONS" &&
+      (path.startsWith("/v1/chat/") || path.startsWith("/v1/rtc/")));
 }

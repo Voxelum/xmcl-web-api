@@ -12,9 +12,22 @@ const context: ExecutionContext = {
 
 Deno.test("Cloudflare entrypoints own static, non-overlapping route surfaces", async () => {
   const [api, ai, signaling] = await Promise.all([
-    routeIndex(apiWorker),
-    routeIndex(aiWorker),
-    routeIndex(signalingWorker),
+    routeIndex(apiWorker, {
+      XMCL_DEPLOYMENT_ENVIRONMENT: "production",
+      XMCL_HOME_RELEASE_ENABLED: "false",
+      MONGODB_NAME: "coturn",
+    }),
+    routeIndex(aiWorker, {
+      XMCL_DEPLOYMENT_ENVIRONMENT: "production",
+      XMCL_HOME_RELEASE_ENABLED: "true",
+      MONGODB_NAME: "coturn",
+      WAFFO_ENVIRONMENT: "prod",
+    }),
+    routeIndex(signalingWorker, {
+      XMCL_DEPLOYMENT_ENVIRONMENT: "production",
+      XMCL_HOME_RELEASE_ENABLED: "false",
+      MONGODB_NAME: "coturn",
+    }),
   ]);
 
   assert.equal(api.includes("/translation"), true);
@@ -39,10 +52,13 @@ interface WorkerEntrypoint {
   ): Promise<Response>;
 }
 
-async function routeIndex(worker: WorkerEntrypoint) {
+async function routeIndex(
+  worker: WorkerEntrypoint,
+  env: Record<string, unknown> = {},
+) {
   const response = await worker.fetch(
     new Request("https://worker.test/"),
-    {},
+    env,
     context,
   );
   assert.equal(response.status, 200);

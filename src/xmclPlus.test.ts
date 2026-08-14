@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { BillingService } from "./billing.ts";
 import { MemoryBillingStore } from "./ledger.ts";
 import { SharedHostingService } from "./sharedHosting.ts";
-import { XMCL_PLUS_OFFER, XmclPlusService } from "./xmclPlus.ts";
+import {
+  allowanceSourceKey,
+  XMCL_PLUS_OFFER,
+  XmclPlusService,
+} from "./xmclPlus.ts";
 
 function fixture() {
   let now = new Date("2026-08-12T00:00:00.000Z");
@@ -28,6 +32,17 @@ function fixture() {
     shared,
     setNow(value: string) {
       now = new Date(value);
+    },
+    async consume(accountId: string, aiUnits: number, turnEgressBytes: number) {
+      const allowances = await plus.allowances(accountId);
+      const source = allowances.sources[0];
+      assert.ok(source);
+      await store.transaction((state) => {
+        state.allowanceUsage.set(allowanceSourceKey(source), {
+          aiUnits,
+          turnEgressBytes,
+        });
+      });
     },
     credit: (accountId: string, amountMinor: number) =>
       billing.applyAdminOperation({
@@ -188,4 +203,66 @@ Deno.test("Plus cancellation and insufficient renewal preserve monthly billing s
   assert.equal(recovered?.status, "active");
   assert.equal(recovered?.currentPeriodStartedAt, "2026-09-12T00:00:00.000Z");
   assert.equal(recovered?.currentPeriodEndsAt, "2026-10-12T00:00:00.000Z");
+});
+
+Deno.test("Plus renewal resets the active allowance period without carrying usage forward", async () => {
+  const f = fixture();
+  await f.credit("account_reset", 598);
+  const subscription = await f.plus.subscribe({
+    accountId: "account_reset",
+    idempotencyKey: "subscribe",
+  });
+  const before = await f.plus.allowances("account_reset");
+  assert.equal(before.aiUnits.remaining, XMCL_PLUS_OFFER.aiUnitsPerPeriod);
+  await f.consume("account_reset", 125_000, 2_000_000_000);
+  const consumed = await f.plus.allowances("account_reset");
+  assert.equal(consumed.aiUnits.consumed, 125_000);
+  assert.equal(consumed.turnEgressBytes.consumed, 2_000_000_000);
+
+  f.setNow(subscription.currentPeriodEndsAt);
+  assert.deepEqual(await f.plus.renewDue(), {
+    renewed: [subscription.subscriptionId],
+    paymentDue: [],
+    cancelled: [],
+  });
+  const renewed = await f.plus.allowances("account_reset");
+  assert.equal(renewed.aiUnits.included, XMCL_PLUS_OFFER.aiUnitsPerPeriod);
+  assert.equal(renewed.aiUnits.consumed, 0);
+  assert.equal(renewed.aiUnits.remaining, XMCL_PLUS_OFFER.aiUnitsPerPeriod);
+  assert.equal(
+    renewed.turnEgressBytes.remaining,
+    XMCL_PLUS_OFFER.turnEgressBytesPerPeriod,
+  );
+  assert.notEqual(
+    renewed.sources[0]?.periodStartedAt,
+    before.sources[0]?.periodStartedAt,
+  );
+});
+
+Deno.test("late Plus renewal charges once and starts a current period", async () => {
+  const f = fixture();
+  await f.credit("account_late", 598);
+  const subscription = await f.plus.subscribe({
+    accountId: "account_late",
+    idempotencyKey: "subscribe",
+  });
+  f.setNow("2026-12-20T00:00:00.000Z");
+
+  assert.deepEqual(await f.plus.renewDue(), {
+    renewed: [subscription.subscriptionId],
+    paymentDue: [],
+    cancelled: [],
+  });
+  const renewed = await f.plus.status("account_late");
+  assert.equal(renewed?.currentPeriodStartedAt, "2026-12-20T00:00:00.000Z");
+  assert.equal(renewed?.currentPeriodEndsAt, "2027-01-20T00:00:00.000Z");
+  assert.equal(
+    (await f.billing.balance("account_late")).available.amountMinor,
+    0,
+  );
+  assert.deepEqual(await f.plus.renewDue(), {
+    renewed: [],
+    paymentDue: [],
+    cancelled: [],
+  });
 });

@@ -30,6 +30,7 @@ export function createGoogleOAuth(options: {
       subject: body.sub,
       displayName: body.name,
       email: body.email,
+      emailVerified: body.email_verified === true,
     }),
   });
 }

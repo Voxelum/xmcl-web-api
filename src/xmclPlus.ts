@@ -381,9 +381,13 @@ export class XmclPlusService {
         subscription.updatedAt = at.toISOString();
         return "paymentDue";
       }
-      subscription.currentPeriodStartedAt = subscription.currentPeriodEndsAt;
+      const previousPeriodEnd = new Date(subscription.currentPeriodEndsAt);
+      const nextPeriodStart = previousPeriodEnd.getTime() < at.getTime()
+        ? at
+        : previousPeriodEnd;
+      subscription.currentPeriodStartedAt = nextPeriodStart.toISOString();
       subscription.currentPeriodEndsAt = addCalendarMonth(
-        new Date(subscription.currentPeriodEndsAt),
+        nextPeriodStart,
       ).toISOString();
       subscription.updatedAt = at.toISOString();
       this.charge(state, subscription);

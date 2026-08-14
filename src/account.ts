@@ -13,6 +13,7 @@ export interface AccountIdentity {
   subject: string;
   displayName?: string;
   email?: string;
+  emailVerified?: true;
   linkedBy: "launcher_bootstrap" | "launcher_link" | "web_link";
   linkedAt: string;
 }
@@ -48,6 +49,8 @@ export interface SessionRecord {
   scopes: string[];
   issuedAt: string;
   expiresAt: string;
+  authenticatedAt?: string;
+  authenticationMethod?: "browser_oauth" | "launcher";
   dpopJkt?: string;
   refreshHash: string;
   consumedRefreshHashes: string[];
@@ -303,10 +306,12 @@ export class AccountService {
       if (
         storedIdentity &&
         (storedIdentity.displayName !== input.identity.displayName ||
-          storedIdentity.email !== input.identity.email)
+          storedIdentity.email !== input.identity.email ||
+          storedIdentity.emailVerified !== input.identity.emailVerified)
       ) {
         storedIdentity.displayName = input.identity.displayName;
         storedIdentity.email = input.identity.email;
+        storedIdentity.emailVerified = input.identity.emailVerified;
         await this.repository.saveAccount(account);
       }
       return { account, bindingDisposition: "restored" };

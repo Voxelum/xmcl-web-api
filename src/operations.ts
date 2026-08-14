@@ -22,7 +22,8 @@ export const ADMIN_OPERATION_SCHEMA_VERSION = 1 as const;
 export interface AdminPrincipal {
   id: string;
   scopes: Array<"support" | "billing_operator" | "risk_operator" | "admin">;
-  mfaVerifiedAt: string;
+  authenticatedAt?: string;
+  mfaVerifiedAt?: string;
 }
 
 export interface AdminOperation {
@@ -252,9 +253,27 @@ export function assertAdminPermission(
   mfaMaxAgeMs = 15 * 60_000,
 ) {
   if (!principal) throw new AdminOperationError("forbidden");
-  const mfaAge = Date.parse(now) - Date.parse(principal.mfaVerifiedAt);
-  if (!Number.isFinite(mfaAge) || mfaAge < 0 || mfaAge > mfaMaxAgeMs) {
+  const authenticationTimes = [
+    principal.authenticatedAt,
+    principal.mfaVerifiedAt,
+  ].map((value) => Date.parse(value ?? "")).filter(Number.isFinite);
+  const authenticatedAt = authenticationTimes.length > 0
+    ? Math.max(...authenticationTimes)
+    : Number.NaN;
+  const authenticationAge = Date.parse(now) - authenticatedAt;
+  if (
+    !Number.isFinite(authenticationAge) || authenticationAge < 0 ||
+    authenticationAge > mfaMaxAgeMs
+  ) {
     throw new AdminOperationError("mfa_required");
+  }
+  const requiresMfa = action === "refund" || action === "balance_adjust" ||
+    action === "server_suspend" || action === "server_restore";
+  if (requiresMfa) {
+    const mfaAge = Date.parse(now) - Date.parse(principal.mfaVerifiedAt ?? "");
+    if (!Number.isFinite(mfaAge) || mfaAge < 0 || mfaAge > mfaMaxAgeMs) {
+      throw new AdminOperationError("mfa_required");
+    }
   }
   const permitted = action === "refund" || action === "balance_adjust" ||
       action === "read_billing"

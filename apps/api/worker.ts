@@ -22,7 +22,9 @@ import type {
 } from "../../src/cloudflare/types.ts";
 import { isRetiredServicePath } from "../../src/realtime.ts";
 import { MongoBillingStore } from "../../src/ledger.ts";
+import { AllowanceMeter } from "../../src/allowanceMetering.ts";
 import { XmclPlusService } from "../../src/xmclPlus.ts";
+import { runtimeEnvironmentError } from "../../src/runtimeEnvironment.ts";
 
 export { DpopReplayObject } from "../../src/cloudflare/dpopReplay.ts";
 
@@ -31,6 +33,29 @@ async function dispatchApiRequest(
   env: any,
   ctx: ExecutionContext,
 ) {
+  const environmentError = runtimeEnvironmentError(env, "production");
+  if (environmentError) {
+    return Response.json(
+      { status: "unavailable", error: environmentError },
+      { status: 503 },
+    );
+  }
+  const url = new URL(request.url);
+  if (request.method === "GET" && url.pathname === "/health") {
+    return Response.json({ status: "ok", environment: "production" });
+  }
+  if (request.method === "GET" && url.pathname === "/health/ready") {
+    try {
+      await getCloudflareDb(env);
+      return Response.json({ status: "ready", environment: "production" });
+    } catch (error) {
+      console.error({
+        event: "api.readiness_failed",
+        ...workerErrorFields(error),
+      });
+      return Response.json({ status: "unavailable" }, { status: 503 });
+    }
+  }
   if (isRetiredServicePath(request)) {
     return new Response("This API path has been retired", { status: 410 });
   }
@@ -75,6 +100,8 @@ export default {
     ctx.waitUntil(
       (async () => {
         try {
+          const environmentError = runtimeEnvironmentError(env, "production");
+          if (environmentError) throw new Error(environmentError);
           if (env.SERVER_CONTROL_SCHEDULED_WORK) {
             await runServerControlScheduledSweep(
               env.SERVER_CONTROL_SCHEDULED_WORK,
@@ -112,7 +139,24 @@ export default {
             }
           }
           const scheduledAt = new Date(controller.scheduledTime).toISOString();
-          if (env.MONGO_CONNECION_STRING) {
+          if (
+            env.MONGO_CONNECION_STRING &&
+            env.XMCL_HOME_RELEASE_ENABLED === "true"
+          ) {
+            const aiResult = await new AllowanceMeter(
+              new MongoBillingStore(await getCloudflareDb(env)),
+              () => new Date(controller.scheduledTime),
+            ).settlePendingAi();
+            console.log({
+              event: "ai.settlement.completed",
+              ...aiResult,
+            });
+            if (aiResult.failed.length > 0) {
+              console.warn({
+                event: "ai.settlement.pending",
+                failures: aiResult.failed,
+              });
+            }
             const plusResult = await new XmclPlusService(
               new MongoBillingStore(await getCloudflareDb(env)),
               { currency: env.BILLING_CURRENCY ?? "USD" },
@@ -121,6 +165,12 @@ export default {
               event: "xmcl_plus.renewal.completed",
               ...plusResult,
             });
+            if (plusResult.paymentDue.length > 0) {
+              console.warn({
+                event: "xmcl_plus.renewal.payment_due",
+                subscriptionIds: plusResult.paymentDue,
+              });
+            }
           }
           const signer = createS3SigV4Presigner({
             endpoint: env.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT,

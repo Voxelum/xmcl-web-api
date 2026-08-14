@@ -13,6 +13,8 @@ export interface XmclPrincipal {
   scopes: string[];
   issuedAt: string;
   expiresAt: string;
+  authenticatedAt?: string;
+  authenticationMethod?: "browser_oauth" | "launcher";
   dpopJkt?: string;
 }
 
@@ -47,6 +49,8 @@ interface AccessClaims {
   scope: string[];
   iat: number;
   exp: number;
+  auth_time?: number;
+  amr?: "browser_oauth" | "launcher";
   cnf?: { jkt: string };
 }
 
@@ -167,6 +171,11 @@ export class AccessTokenVerifier {
           claims.cnf === null ||
           typeof claims.cnf.jkt !== "string" ||
           !claims.cnf.jkt)) ||
+      (claims.auth_time !== undefined &&
+        !Number.isInteger(claims.auth_time)) ||
+      (claims.amr !== undefined &&
+        claims.amr !== "browser_oauth" &&
+        claims.amr !== "launcher") ||
       claims.exp <= claims.iat
     ) {
       throw new AccountError(401, "invalid_access_token");
@@ -181,6 +190,10 @@ export class AccessTokenVerifier {
       scopes: claims.scope,
       issuedAt: new Date(claims.iat * 1000).toISOString(),
       expiresAt: new Date(claims.exp * 1000).toISOString(),
+      authenticatedAt: claims.auth_time === undefined
+        ? undefined
+        : new Date(claims.auth_time * 1000).toISOString(),
+      authenticationMethod: claims.amr,
       dpopJkt: claims.cnf?.jkt,
     };
   }
@@ -207,6 +220,10 @@ export class SessionService extends AccessTokenVerifier {
     accountId: string,
     scopes: readonly string[] = USER_SESSION_SCOPES,
     dpopJkt?: string,
+    authentication?: {
+      method: "browser_oauth" | "launcher";
+      authenticatedAt?: Date;
+    },
   ): Promise<PublicSession> {
     const now = this.now();
     const sessionId = randomId("ses");
@@ -218,6 +235,10 @@ export class SessionService extends AccessTokenVerifier {
       scopes: [...scopes],
       issuedAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + ACCESS_TOKEN_TTL_MS).toISOString(),
+      authenticatedAt: authentication
+        ? (authentication.authenticatedAt ?? now).toISOString()
+        : undefined,
+      authenticationMethod: authentication?.method,
       dpopJkt,
       refreshHash: await sha256(refreshToken),
       consumedRefreshHashes: [],
@@ -353,6 +374,10 @@ export class SessionService extends AccessTokenVerifier {
       scope: record.scopes,
       iat,
       exp,
+      ...(record.authenticatedAt
+        ? { auth_time: Math.floor(Date.parse(record.authenticatedAt) / 1000) }
+        : {}),
+      ...(record.authenticationMethod ? { amr: record.authenticationMethod } : {}),
       ...(record.dpopJkt ? { cnf: { jkt: record.dpopJkt } } : {}),
     };
     const unsigned = `${encodeJson({ alg: "HS256", typ: "JWT" })}.${
@@ -368,6 +393,8 @@ export class SessionService extends AccessTokenVerifier {
       scopes: record.scopes,
       issuedAt: record.issuedAt,
       expiresAt: record.expiresAt,
+      authenticatedAt: record.authenticatedAt,
+      authenticationMethod: record.authenticationMethod,
       dpopJkt: record.dpopJkt,
       accessToken,
       refreshToken,

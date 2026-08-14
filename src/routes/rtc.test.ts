@@ -137,3 +137,23 @@ Deno.test("exhausted Together allowance returns no TURN credentials", async () =
   assert.deepEqual(body.uris, []);
   assert.deepEqual(body.servers, []);
 });
+
+Deno.test("active Together subscriptions fail closed when TURN metering is unavailable", async () => {
+  const response = await app("active", () => {
+    throw new Error("must not call an unmetered TURN provider");
+  }, {
+    RTC_SECRET: "legacy-rtc-secret",
+    TURNS: "sg:203.0.113.10",
+    CLOUDFLARE_TURN_KEY_ID: "turn-key",
+    CLOUDFLARE_TURN_API_TOKEN: "turn-token",
+  }).request("/v1/rtc/official", {
+    method: "POST",
+    headers: authorization,
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(body.uris, []);
+  assert.deepEqual(body.servers, []);
+  assert.ok(body.stuns.length > 0);
+});

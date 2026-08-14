@@ -35,6 +35,7 @@ export function createModrinthOAuth(options: {
       subject: body.id,
       displayName: body.username,
       email: body.email,
+      emailVerified: body.email_verified === true,
     }),
   });
 }

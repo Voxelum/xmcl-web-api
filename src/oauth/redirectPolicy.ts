@@ -14,10 +14,13 @@ export interface OAuthRedirectPolicy {
 
 export function createOAuthRedirectPolicy(
   configuredRedirectUris: readonly string[],
+  options: { includeProductionDefaults?: boolean } = {},
 ): OAuthRedirectPolicy {
   const declaredRedirectUris = [
     ...new Set([
-      ...PRODUCTION_WEB_OAUTH_REDIRECT_URIS,
+      ...(options.includeProductionDefaults === false
+        ? []
+        : PRODUCTION_WEB_OAUTH_REDIRECT_URIS),
       ...configuredRedirectUris,
     ].filter(isExactHttpsCallback)),
   ];

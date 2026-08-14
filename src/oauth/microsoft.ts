@@ -30,6 +30,7 @@ export function createMicrosoftOAuth(options: {
       subject: body.id,
       displayName: body.displayName,
       email: body.mail ?? body.userPrincipalName,
+      emailVerified: true,
     }),
   });
 }

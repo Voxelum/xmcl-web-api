@@ -68,3 +68,48 @@ Deno.test("expired subscriptions cannot reserve AI allowance", async () => {
   );
   assert.equal(await meter.reserveAi("account", "auth_expired", 1), false);
 });
+
+Deno.test("delivered AI usage survives stale cleanup and settles after restart", async () => {
+  const { store, meter, plus } = await plusFixture();
+  const usage = {
+    promptTokens: 100,
+    cachedPromptTokens: 40,
+    completionTokens: 20,
+  };
+  assert.equal(await meter.reserveAi("account", "auth_pending", 200), true);
+  await meter.recordAiDelivery("auth_pending", "usage_pending", usage);
+
+  const restarted = new AllowanceMeter(
+    store,
+    () => new Date("2026-08-12T02:00:00.000Z"),
+  );
+  assert.equal(await restarted.reserveAi("account", "auth_new", 1), true);
+  const before = await store.read((state) =>
+    state.aiAllowanceReservations.has("auth_pending")
+  );
+  assert.equal(before, true);
+
+  const sweep = await restarted.settlePendingAi();
+  assert.deepEqual(sweep, { settled: ["auth_pending"], failed: [] });
+  assert.equal((await plus.allowances("account")).aiUnits.consumed, 144);
+  assert.deepEqual(await restarted.settlePendingAi(), {
+    settled: [],
+    failed: [],
+  });
+});
+
+Deno.test("stale undelivered AI reservations are reclaimed", async () => {
+  const { store, meter } = await plusFixture();
+  assert.equal(await meter.reserveAi("account", "auth_stale", 2_000_000), true);
+  const later = new AllowanceMeter(
+    store,
+    () => new Date("2026-08-12T02:00:00.000Z"),
+  );
+  assert.equal(await later.reserveAi("account", "auth_replacement", 1), true);
+  assert.equal(
+    await store.read((state) =>
+      state.aiAllowanceReservations.has("auth_stale")
+    ),
+    false,
+  );
+});

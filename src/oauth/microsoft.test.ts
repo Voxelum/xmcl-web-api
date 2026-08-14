@@ -31,6 +31,7 @@ Deno.test("redeems Microsoft public-client codes with PKCE and no client secret"
     subject: "microsoft-user",
     displayName: "Demo User",
     email: "admin@example.com",
+    emailVerified: true,
   });
   assert.equal(
     requests[0].url,
@@ -41,4 +42,30 @@ Deno.test("redeems Microsoft public-client codes with PKCE and no client secret"
   assert.equal(form.get("client_id"), "microsoft-public-client");
   assert.equal(form.get("code_verifier"), "pkce-verifier");
   assert.equal(form.has("client_secret"), false);
+});
+
+Deno.test("Microsoft launcher credentials do not establish verified email trust", async () => {
+  const adapter = createMicrosoftOAuth({
+    clientId: "microsoft-public-client",
+    redirectUris: [],
+    fetch: async () =>
+      Response.json({
+        id: "microsoft-user",
+        displayName: "Demo User",
+        mail: "Admin@Example.COM",
+      }),
+  });
+
+  assert.deepEqual(
+    await adapter.verifyLauncherCredential({
+      accessToken: "graph-token",
+      completedAt: "2026-08-14T00:00:00.000Z",
+    }),
+    {
+      provider: "microsoft",
+      subject: "microsoft-user",
+      displayName: "Demo User",
+      email: "admin@example.com",
+    },
+  );
 });

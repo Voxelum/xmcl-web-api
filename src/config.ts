@@ -29,6 +29,8 @@ export interface AppConfig {
   TURNS?: string;
   MONGO_CONNECION_STRING?: string;
   MONGODB_NAME?: string;
+  XMCL_DEPLOYMENT_ENVIRONMENT?: "staging" | "production";
+  XMCL_HOME_RELEASE_ENABLED?: "true" | "false";
   /**
    * Base URL of the community content i18n repo served as raw files, laid out
    * as `<base>/<locale>/<id>.json`. Checked before the Mongo caches. Defaults
@@ -92,6 +94,7 @@ export interface AppConfig {
    * operations console. Configure it as a Worker secret, never as a plain var.
    */
   XMCL_STAGING_ADMIN_ACCESS_TOKEN?: string;
+  XMCL_STAGING_ADMIN_SESSION_SECRET?: string;
   /** Comma-separated verified OAuth emails allowed to mint staging admin sessions. */
   XMCL_STAGING_ADMIN_EMAILS?: string;
   /**

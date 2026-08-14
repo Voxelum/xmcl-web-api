@@ -97,6 +97,7 @@ export function createAccountRoutes(
       codeChallenge: String(body.codeChallenge ?? ""),
       redirectPolicy: createOAuthRedirectPolicy(
         adapter.declaration.redirectUris,
+        { includeProductionDefaults: false },
       ),
     });
     return c.json({

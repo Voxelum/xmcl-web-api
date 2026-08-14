@@ -30,6 +30,7 @@ export function createDiscordOAuth(options: {
       subject: body.id,
       displayName: body.global_name ?? body.username,
       email: body.email,
+      emailVerified: body.verified === true,
     }),
   });
 }

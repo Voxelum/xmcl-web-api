@@ -17,34 +17,38 @@ Deno.test("production composition leaves commercial routes unmounted by default"
     paths.some((path) => path.startsWith("/v1/shared-hosting")),
     false,
   );
-  assert.equal(paths.includes("/v1/xmcl-plus/offer"), true);
+  assert.equal(paths.includes("/v1/xmcl-plus/offer"), false);
   assert.equal(paths.some((path) => path.startsWith("/v1/ai")), false);
-  assert.equal(paths.includes("/v1/chat/completions"), true);
+  assert.equal(paths.includes("/v1/chat/completions"), false);
   assert.equal(paths.some((path) => path.startsWith("/v1/modpack")), false);
   assert.equal(paths.some((path) => path.startsWith("/v1/sessions")), true);
 });
 
-Deno.test("production composition mounts Waffo checkout and webhook routes only with complete settings", () => {
+Deno.test("production composition mounts Home routes only behind the release gate", () => {
   const config = {
+    XMCL_HOME_RELEASE_ENABLED: "true" as const,
     WAFFO_MERCHANT_ID: "merchant",
     WAFFO_PRIVATE_KEY: "private-key",
     WAFFO_STORE_ID: "store",
     WAFFO_PRODUCT_ID: "product",
-    WAFFO_ENVIRONMENT: "test" as const,
+    WAFFO_ENVIRONMENT: "prod" as const,
   };
   const paths = createProductionApp(undefined, config).routes.map((route) =>
     route.path
   );
   assert.equal(paths.includes("/v1/billing/waffo/orders"), true);
   assert.equal(paths.includes("/v1/webhooks/waffo"), true);
+  assert.equal(paths.includes("/v1/xmcl-plus/offer"), true);
+  assert.equal(paths.includes("/v1/chat/completions"), true);
 });
 
 Deno.test("production composition always disables routes without durable adapters", () => {
   assert.deepEqual(productionAppOptions(), {
     commercialRoutes: false,
     billingRoutes: true,
-    xmclPlusRoutes: true,
+    xmclPlusRoutes: false,
     paymentRoutes: false,
+    chatCompletionsRoutes: false,
     sharedNodeTransportRoutes: false,
   });
 });

@@ -38,8 +38,16 @@ jobs:
         with:
           node-version: 22
 
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - name: Install application dependencies
         run: npm ci --omit=optional
+
+      - name: Verify Together Home release contracts
+        run: npm run test:home-release
 
       - name: Type-check Workers
         run: npm run typecheck:workers

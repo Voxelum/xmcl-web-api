@@ -92,6 +92,7 @@ export function createSessionRoutes(
       codeChallenge: c.req.query("codeChallenge") ?? "",
       redirectPolicy: createOAuthRedirectPolicy(
         adapter.declaration.redirectUris,
+        { includeProductionDefaults: false },
       ),
     });
     return c.json({
@@ -128,6 +129,7 @@ export function createSessionRoutes(
       binding.account.accountId,
       undefined,
       dpopJkt,
+      { method: "browser_oauth" },
     );
     return c.json({
       account: publicAccount(binding.account),
@@ -163,6 +165,7 @@ export function createSessionRoutes(
         binding.account.accountId,
         undefined,
         dpopJkt,
+        { method: "launcher" },
       );
       return c.json({
         account: publicAccount(binding.account),

@@ -39,7 +39,7 @@ type AiEntitlementResolver = (
 ) => Promise<boolean>;
 type AiAllowanceMeter = Pick<
   AllowanceMeter,
-  "reserveAi" | "releaseAi" | "settleAi"
+  "reserveAi" | "releaseAi" | "recordAiDelivery" | "settleAi"
 >;
 type AiAllowanceMeterResolver = (
   c: Context<AppEnv>,
@@ -379,6 +379,7 @@ export function createChatCompletionsRoutes(
         await meter.releaseAi(authorizationId);
       } else {
         const usageResponse = upstream.clone();
+        let deliveryRecorded = false;
         const settle = async () => {
           const measured = parseAiUsage(
             usageResponse.headers.get("content-type"),
@@ -388,24 +389,65 @@ export function createChatCompletionsRoutes(
             await meter.releaseAi(authorizationId);
             throw new Error("Agnes response did not include token usage");
           }
-          await meter.settleAi(
-            authorizationId,
-            measured.usageId ?? authorizationId,
-            measured.usage,
-          );
+          const usageId = measured.usageId ?? authorizationId;
+          let lastError: unknown;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              await meter.recordAiDelivery(
+                authorizationId,
+                usageId,
+                measured.usage,
+              );
+              deliveryRecorded = true;
+              break;
+            } catch (error) {
+              lastError = error;
+              if (attempt < 2) {
+                await new Promise((resolve) =>
+                  setTimeout(resolve, 100 * 2 ** attempt)
+                );
+              }
+            }
+          }
+          if (!deliveryRecorded) throw lastError;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              await meter.settleAi(
+                authorizationId,
+                usageId,
+                measured.usage,
+              );
+              return;
+            } catch (error) {
+              lastError = error;
+              if (attempt < 2) {
+                await new Promise((resolve) =>
+                  setTimeout(resolve, 100 * 2 ** attempt)
+                );
+              }
+            }
+          }
+          throw lastError;
         };
+        const work = settle().catch((error) => {
+          if (!deliveryRecorded) throw error;
+          console.error("AI usage settlement deferred", {
+            requestId: authorizationId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
         if (parsed.stream) {
-          const work = settle().catch((error) => {
+          const backgroundWork = work.catch((error) => {
             console.error("AI usage settlement failed", {
               requestId: authorizationId,
               error: error instanceof Error ? error.message : String(error),
             });
           });
           const waitUntil = c.get("waitUntil");
-          if (waitUntil) waitUntil(work);
-          else await work;
+          if (waitUntil) waitUntil(backgroundWork);
+          else await backgroundWork;
         } else {
-          await settle();
+          await work;
         }
       }
       const response = proxyResponse(upstream);

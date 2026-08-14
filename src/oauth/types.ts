@@ -22,6 +22,7 @@ export interface VerifiedIdentity {
   subject: string;
   displayName?: string;
   email?: string;
+  emailVerified?: true;
 }
 
 export interface BrowserExchange {
@@ -78,7 +79,12 @@ export interface RemoteOAuthOptions {
   tokenRequestHeaders?: (input: BrowserExchange) => HeadersInit;
   mapUser(
     body: Record<string, unknown>,
-  ): { subject?: unknown; displayName?: unknown; email?: unknown };
+  ): {
+    subject?: unknown;
+    displayName?: unknown;
+    email?: unknown;
+    emailVerified?: unknown;
+  };
 }
 
 export class RemoteOAuthAdapter implements OAuthProviderAdapter {
@@ -167,7 +173,9 @@ export class RemoteOAuthAdapter implements OAuthProviderAdapter {
     if (!this.declaration.launcherAvailable) {
       throw new OAuthProviderError("provider_not_configured");
     }
-    return await this.verifyAccessToken(input.accessToken);
+    const identity = await this.verifyAccessToken(input.accessToken);
+    delete identity.emailVerified;
+    return identity;
   }
 
   private async verifyAccessToken(
@@ -214,6 +222,9 @@ export class RemoteOAuthAdapter implements OAuthProviderAdapter {
         ? mapped.displayName
         : undefined,
       ...(email ? { email } : {}),
+      ...(email && mapped.emailVerified === true
+        ? { emailVerified: true as const }
+        : {}),
     };
   }
 }
