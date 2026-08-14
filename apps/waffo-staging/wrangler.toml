@@ -25,9 +25,6 @@ enabled = true
 [observability.logs]
 invocation_logs = true
 
-[triggers]
-crons = ["*/5 * * * *"]
-
 [[routes]]
 pattern = "api-staging.xmcl.app"
 custom_domain = true
