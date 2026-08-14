@@ -11,7 +11,7 @@ BILLING_RATES_JSON = "[]"
 WAFFO_ENVIRONMENT = "test"
 WAFFO_STORE_ID = "STO_43NzeqTrCZj6Z1Dvqd76Di"
 WAFFO_PRODUCT_ID = "PROD_3jywaliubkyhIgeYSGXx5s"
-XMCL_STAGING_BILLING_CORS_ORIGINS = "https://staging.xmcl.app,http://localhost:9000,http://127.0.0.1:9000"
+XMCL_STAGING_BILLING_CORS_ORIGINS = "https://staging.xmcl.app,https://staging.xmcl-page.pages.dev,http://localhost:9000,http://127.0.0.1:9000"
 VULTR_SHARED_NODE_REGION_IDS = "ams,atl,blr,ewr,lax,lhr,nrt,ord,sea,sgp,syd"
 
 [observability]
