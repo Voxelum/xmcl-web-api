@@ -4,6 +4,9 @@ main = "worker.ts"
 compatibility_date = "2025-03-20"
 compatibility_flags = ["nodejs_compat_v2"]
 
+[vars]
+XMCL_HOME_RELEASE_ENABLED = "true"
+
 [observability]
 enabled = true
 head_sampling_rate = 1
