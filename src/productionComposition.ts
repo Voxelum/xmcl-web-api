@@ -40,6 +40,8 @@ export function productionAppOptions(
     xmclPlusRoutes: homeEnabled,
     paymentRoutes: homeEnabled && hasWaffoSettings(config),
     chatCompletionsRoutes: homeEnabled,
+    adminRoutes: !!config?.XMCL_ADMIN_SESSION_SECRET &&
+      !!config.XMCL_ADMIN_EMAILS,
     sharedNodeTransportRoutes: config
       ? hasSharedNodeRuntimeSettings(config, bindings)
       : false,

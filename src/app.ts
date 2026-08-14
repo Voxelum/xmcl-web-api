@@ -18,6 +18,7 @@ import releases from "./routes/releases.ts";
 import rtc from "./routes/rtc.ts";
 import translation from "./routes/translation.ts";
 import operations from "./routes/operations.ts";
+import adminSession from "./routes/adminSession.ts";
 import zulu from "./routes/zulu.ts";
 import account from "./routes/account.ts";
 import session from "./routes/session.ts";
@@ -76,6 +77,8 @@ export interface CreateAppOptions {
   accountSessionRoutes?: boolean;
   /** Local demo disables the real provider-backed chat proxy. */
   chatCompletionsRoutes?: boolean;
+  /** Mounts the separately authenticated production operations console. */
+  adminRoutes?: boolean;
 }
 
 export function createApp(
@@ -147,6 +150,9 @@ export function createApp(
       app.route("/", sharedHostingServices);
       app.route("/", sharedModdedRuntime);
       app.route("/", sharedWorldSeeds);
+    } else if (options.adminRoutes === true) {
+      app.route("/", adminSession);
+      app.route("/", operations);
     }
     if (
       !enableCommercialRoutes &&

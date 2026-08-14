@@ -49,8 +49,19 @@ Deno.test("production composition always disables routes without durable adapter
     xmclPlusRoutes: false,
     paymentRoutes: false,
     chatCompletionsRoutes: false,
+    adminRoutes: false,
     sharedNodeTransportRoutes: false,
   });
+});
+
+Deno.test("production composition mounts admin routes only with complete auth settings", () => {
+  const app = createProductionApp(undefined, {
+    XMCL_ADMIN_SESSION_SECRET: "production-admin-secret",
+    XMCL_ADMIN_EMAILS: "admin@example.com",
+  });
+  const paths = app.routes.map((route) => route.path);
+  assert.equal(paths.includes("/v1/admin/session"), true);
+  assert.equal(paths.includes("/v1/admin/billing/overview"), true);
 });
 
 Deno.test("production composition mounts only the authenticated node transport for complete settings", () => {

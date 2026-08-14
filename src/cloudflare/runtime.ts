@@ -1,5 +1,12 @@
 // deno-lint-ignore-file no-explicit-any
 import { createMiddleware } from "hono/factory";
+import type { Account } from "../account.ts";
+import {
+  adminSessionAuthenticator,
+  billingOnlyAdminAccount,
+  publicAdminAccount,
+} from "../adminSession.ts";
+import { getBillingRuntime } from "../billingRuntime.ts";
 import type { AppConfig } from "../config.ts";
 import type { DbFactory } from "../db.ts";
 import { createProductionApp } from "../productionComposition.ts";
@@ -52,6 +59,82 @@ const platformMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   await next();
 });
 
+const productionAdminMiddleware = createMiddleware<AppEnv>(async (c, next) => {
+  const config = c.env as AppConfig;
+  const authenticator = adminSessionAuthenticator(
+    config.XMCL_ADMIN_SESSION_SECRET,
+  );
+  if (authenticator) c.set("adminOperationAuthenticator", authenticator);
+  await getBillingRuntime(c);
+  c.set("adminOperationAccountReader", {
+    read: async (accountId) => {
+      const db = await c.get("getDb")();
+      const [account] = await db.collection("xmcl_accounts").find({
+        _id: accountId,
+      }).toArray();
+      if (account) return publicAdminAccount(account as Account);
+      const billingAccount = billingOnlyAdminAccount(
+        accountId,
+        await c.var.billingService!.adminOverview(),
+      );
+      if (billingAccount) return billingAccount;
+      throw new Error("account_not_found");
+    },
+  });
+  c.set("adminOperationAccountSearch", {
+    search: async (query) => {
+      const value = query.trim();
+      if (!value) return { items: [] };
+      const db = await c.get("getDb")();
+      const accounts = await db.collection("xmcl_accounts").find({
+        $or: [
+          { _id: value },
+          { "identities.email": value.toLowerCase() },
+          { "identities.displayName": value },
+        ],
+      }).toArray();
+      const items: Array<
+        | ReturnType<typeof publicAdminAccount>
+        | NonNullable<ReturnType<typeof billingOnlyAdminAccount>>
+      > = accounts.slice(0, 20).map((account) =>
+        publicAdminAccount(account as Account)
+      );
+      if (items.length === 0) {
+        const billingAccount = billingOnlyAdminAccount(
+          value,
+          await c.var.billingService!.adminOverview(),
+        );
+        if (billingAccount) items.push(billingAccount);
+      }
+      return { items };
+    },
+  });
+  c.set("adminOperationAuditEvents", async () => {
+    const db = await c.get("getDb")();
+    const records = await db.collection("xmcl_audit").find({}).toArray();
+    return {
+      items: records
+        .sort((left, right) =>
+          String(right.occurredAt).localeCompare(String(left.occurredAt))
+        )
+        .slice(0, 100)
+        .map((record) => ({
+          eventId: String(record.auditId ?? record._id),
+          schemaVersion: 1 as const,
+          actor: { type: "account", id: String(record.accountId) },
+          action: String(record.action),
+          resourceType: "account",
+          resourceId: String(record.accountId),
+          correlationId: String(
+            record.requestId ?? record.auditId ?? record._id,
+          ),
+          occurredAt: String(record.occurredAt),
+        })),
+    };
+  });
+  await next();
+});
+
 export function createCloudflareApp(
   env: AppConfig,
   routeSurface: CloudflareRouteSurface,
@@ -67,6 +150,9 @@ export function createCloudflareApp(
     (app) => {
       app.use("*", createDbMiddleware(getCloudflareDb));
       app.use("*", platformMiddleware);
+      if (routeSurface === "api") {
+        app.use("/v1/admin/*", productionAdminMiddleware);
+      }
     },
     env,
     { SHARED_NODE_WORKSPACE_SIGNER: signer },

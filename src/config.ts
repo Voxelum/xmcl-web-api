@@ -101,6 +101,10 @@ export interface AppConfig {
   XMCL_STAGING_ADMIN_SESSION_SECRET?: string;
   /** Comma-separated verified OAuth emails allowed to mint staging admin sessions. */
   XMCL_STAGING_ADMIN_EMAILS?: string;
+  /** High-entropy HMAC secret for short-lived production admin sessions. */
+  XMCL_ADMIN_SESSION_SECRET?: string;
+  /** Comma-separated verified OAuth emails allowed to access production admin. */
+  XMCL_ADMIN_EMAILS?: string;
   /**
    * Optional comma-separated exact HTTPS callbacks for website OAuth.
    * Launcher loopback callbacks are code-owned and require no configuration.
