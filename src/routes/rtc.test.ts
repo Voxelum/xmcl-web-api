@@ -84,7 +84,7 @@ Deno.test("active Together subscribers receive metered Cloudflare TURN servers",
   const fetcher = async (input: string | URL | Request, init?: RequestInit) => {
     assert.equal(
       String(input),
-      "https://rtc.live.cloudflare.com/v1/turn/keys/turn-key/credentials/generate",
+      "https://rtc.live.cloudflare.com/v1/turn/keys/turn-key/credentials/generate-ice-servers",
     );
     const requestBody = JSON.parse(String(init?.body));
     assert.equal(requestBody.ttl, 86_400);

@@ -64,7 +64,7 @@ async function getCloudflareTurnServers(
   const response = await fetcher(
     `https://rtc.live.cloudflare.com/v1/turn/keys/${
       encodeURIComponent(keyId)
-    }/credentials/generate`,
+    }/credentials/generate-ice-servers`,
     {
       method: "POST",
       headers: {
