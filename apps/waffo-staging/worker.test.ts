@@ -1,10 +1,54 @@
 import assert from "node:assert/strict";
 import {
+  billingOnlyAdminAccount,
   isStagingAccountRequest,
   isStagingAdminRequest,
   issueStagingAdminSession,
   stagingAdminAuthenticator,
 } from "./worker.ts";
+
+Deno.test("staging exposes billing-only accounts to Admin support", () => {
+  const account = billingOnlyAdminAccount("acct_billing_only", {
+    generatedAt: "2026-08-14T10:00:00.000Z",
+    accounts: [{
+      accountId: "acct_billing_only",
+      balance: {
+        accountId: "acct_billing_only",
+        available: { currency: "USD", amountMinor: 201 },
+        reserved: { currency: "USD", amountMinor: 0 },
+      },
+      paidCashMinor: 500,
+      refundedCashMinor: 0,
+    }],
+    orders: [{
+      orderId: "order_1",
+      accountId: "acct_billing_only",
+      provider: "waffo",
+      status: "completed",
+      cashAmount: { currency: "USD", amountMinor: 500 },
+      refundedCashMinor: 0,
+      createdAt: "2026-08-10T10:00:00.000Z",
+      updatedAt: "2026-08-10T10:00:00.000Z",
+    }],
+    ledger: [],
+  });
+
+  assert.deepEqual(account, {
+    accountId: "acct_billing_only",
+    status: "billing_only",
+    createdAt: "2026-08-10T10:00:00.000Z",
+    identities: [],
+  });
+  assert.equal(
+    billingOnlyAdminAccount("acct_missing", {
+      generatedAt: "2026-08-14T10:00:00.000Z",
+      accounts: [],
+      orders: [],
+      ledger: [],
+    }),
+    undefined,
+  );
+});
 
 Deno.test("staging exposes the reviewed account and OAuth surface", () => {
   for (

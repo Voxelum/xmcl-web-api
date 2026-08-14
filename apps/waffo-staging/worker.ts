@@ -22,6 +22,7 @@ import { createAccountRoutes } from "../../src/routes/account.ts";
 import operations from "../../src/routes/operations.ts";
 import { authenticateXmclRequest } from "../../src/middleware/xmclAuth.ts";
 import type { Account } from "../../src/account.ts";
+import type { AdminBillingOverview } from "../../src/billing.ts";
 import type {
   AdminPrincipal,
   AdminPrincipalAuthenticator,
@@ -99,9 +100,17 @@ app.use("/v1/admin/*", async (c, next) => {
   if (authenticator) c.set("adminOperationAuthenticator", authenticator);
   c.set("adminOperationAccountReader", {
     read: async (accountId) => {
-      const account = await (await getAccountRuntime(c)).accounts
-        .requireAccount(accountId);
-      return publicAdminAccount(account);
+      const db = await c.get("getDb")();
+      const account = await db.collection("xmcl_accounts").findOne({
+        _id: accountId,
+      });
+      if (account) return publicAdminAccount(account as Account);
+      const billingAccount = billingOnlyAdminAccount(
+        accountId,
+        await c.var.billingService!.adminOverview(),
+      );
+      if (billingAccount) return billingAccount;
+      throw new Error("account_not_found");
     },
   });
   c.set("adminOperationAccountSearch", {
@@ -116,10 +125,21 @@ app.use("/v1/admin/*", async (c, next) => {
           { "identities.displayName": value },
         ],
       }).toArray();
+      const items: Array<
+        | ReturnType<typeof publicAdminAccount>
+        | NonNullable<ReturnType<typeof billingOnlyAdminAccount>>
+      > = accounts.slice(0, 20).map((account) =>
+        publicAdminAccount(account as Account)
+      );
+      if (items.length === 0) {
+        const billingAccount = billingOnlyAdminAccount(
+          value,
+          await c.var.billingService!.adminOverview(),
+        );
+        if (billingAccount) items.push(billingAccount);
+      }
       return {
-        items: accounts.slice(0, 20).map((account) =>
-          publicAdminAccount(account as Account)
-        ),
+        items,
       };
     },
   });
@@ -335,6 +355,31 @@ function publicAdminAccount(account: Account) {
       linkedBy: identity.linkedBy,
       linkedAt: identity.linkedAt,
     })),
+  };
+}
+
+export function billingOnlyAdminAccount(
+  accountId: string,
+  overview: AdminBillingOverview,
+) {
+  const exists =
+    overview.accounts.some((account) => account.accountId === accountId) ||
+    overview.orders.some((order) => order.accountId === accountId) ||
+    overview.ledger.some((entry) => entry.accountId === accountId);
+  if (!exists) return undefined;
+  const activityDates = [
+    ...overview.orders
+      .filter((order) => order.accountId === accountId)
+      .map((order) => order.createdAt),
+    ...overview.ledger
+      .filter((entry) => entry.accountId === accountId)
+      .map((entry) => entry.occurredAt),
+  ].sort();
+  return {
+    accountId,
+    status: "billing_only",
+    createdAt: activityDates[0] ?? overview.generatedAt,
+    identities: [],
   };
 }
 
