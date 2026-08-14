@@ -152,6 +152,7 @@ export interface AppBindings {
   SHARED_NODE_WORKSPACE_SIGNER?: unknown;
   TRANSLATION_CACHE?: unknown;
   DPOP_REPLAY?: DurableObjectNamespace;
+  ALERT_COOLDOWN?: DurableObjectNamespace;
   [key: string]: unknown;
 }
 

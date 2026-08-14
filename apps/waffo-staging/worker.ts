@@ -40,6 +40,17 @@ import type {
 } from "../../src/operations.ts";
 import type { AppEnv } from "../../src/types.ts";
 import { observeWorkerRequest } from "../../src/cloudflare/observability.ts";
+import {
+  type DiscordAlert,
+  sendDiscordAlert,
+} from "../../src/discordAlerting.ts";
+import {
+  AlertCooldownObject,
+  claimAlertCooldown,
+  releaseAlertCooldown,
+} from "../../src/cloudflare/alertCooldown.ts";
+
+export { AlertCooldownObject };
 
 const webhookPath = "/v1/webhooks/waffo";
 const checkoutPath = "/v1/billing/waffo/orders";
@@ -67,6 +78,57 @@ const adminReadPaths = new Set([
 ]);
 const app = new Hono<AppEnv>();
 type StagingBindings = AppConfig & AppEnv["Bindings"];
+const ALERT_COOLDOWN_MS = 15 * 60_000;
+
+async function alertStaging(
+  env: StagingBindings,
+  alert: Omit<DiscordAlert, "environment" | "occurredAt"> & {
+    occurredAt?: string;
+  },
+) {
+  const webhookUrl = env.XMCL_STAGING_DISCORD_ALERT_WEBHOOK_URL;
+  if (!webhookUrl) return;
+  if (!env.ALERT_COOLDOWN) {
+    console.error({
+      event: "alert.cooldown_not_configured",
+      alertEvent: alert.event,
+    });
+    return;
+  }
+  const now = Date.now();
+  let claimed: boolean;
+  try {
+    claimed = await claimAlertCooldown(
+      env.ALERT_COOLDOWN,
+      alert.event,
+      now,
+      ALERT_COOLDOWN_MS,
+    );
+  } catch (error) {
+    console.error({
+      event: "alert.cooldown_failed",
+      alertEvent: alert.event,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+    return;
+  }
+  if (!claimed) return;
+  try {
+    await sendDiscordAlert(webhookUrl, {
+      ...alert,
+      environment: "staging",
+      occurredAt: alert.occurredAt ?? new Date(now).toISOString(),
+    });
+  } catch (error) {
+    await releaseAlertCooldown(env.ALERT_COOLDOWN, alert.event).catch(() => {});
+    console.error({
+      event: "alert.discord_delivery_failed",
+      alertEvent: alert.event,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+    return;
+  }
+}
 
 app.use("*", createDbMiddleware(getCloudflareDb));
 const stagingCors = () =>
@@ -496,6 +558,14 @@ export default {
               ? String(error.code)
               : undefined,
           });
+          ctx.waitUntil(alertStaging(env, {
+            severity: "critical",
+            event: "waffo_staging.readiness_failed",
+            summary: "Together staging readiness could not reach its database.",
+            fields: {
+              errorName: error instanceof Error ? error.name : "UnknownError",
+            },
+          }));
           return Response.json({ status: "unavailable" }, { status: 503 });
         }
       }
@@ -545,7 +615,35 @@ export default {
       ) {
         return new Response("Not Found", { status: 404 });
       }
-      return app.fetch(request, env, ctx);
+      let response: Response;
+      try {
+        response = await app.fetch(request, env, ctx);
+      } catch (error) {
+        if (isWebhook) {
+          ctx.waitUntil(alertStaging(env, {
+            severity: "critical",
+            event: "waffo_staging.webhook_failed",
+            summary: "A Waffo webhook request failed before it could be reconciled.",
+            fields: {
+              status: 500,
+              cfRay: request.headers.get("cf-ray") ?? "unavailable",
+            },
+          }));
+        }
+        throw error;
+      }
+      if (isWebhook && response.status >= 500) {
+        ctx.waitUntil(alertStaging(env, {
+          severity: "critical",
+          event: "waffo_staging.webhook_failed",
+          summary: "A Waffo webhook request failed before it could be reconciled.",
+          fields: {
+            status: response.status,
+            cfRay: request.headers.get("cf-ray") ?? "unavailable",
+          },
+        }));
+      }
+      return response;
     });
   },
 
@@ -557,7 +655,15 @@ export default {
     ctx.waitUntil(
       (async () => {
         const environmentError = runtimeEnvironmentError(env, "staging");
-        if (environmentError) throw new Error(environmentError);
+        if (environmentError) {
+          await alertStaging(env, {
+            severity: "critical",
+            event: "waffo_staging.environment_invalid",
+            summary: "Together staging failed its deployment isolation guard.",
+            fields: { reason: environmentError },
+          });
+          throw new Error(environmentError);
+        }
         const scheduledAt = new Date(controller.scheduledTime);
         try {
           const aiResult = await new AllowanceMeter(
@@ -567,15 +673,41 @@ export default {
           console.log({
             event: "ai.staging_settlement.completed",
             scheduledAt: scheduledAt.toISOString(),
-            ...aiResult,
+            settledCount: aiResult.settled.length,
+            failedCount: aiResult.failed.length,
           });
           if (aiResult.failed.length > 0) {
             console.warn({
               event: "ai.staging_settlement.pending",
               scheduledAt: scheduledAt.toISOString(),
-              failures: aiResult.failed,
+              failedCount: aiResult.failed.length,
+            });
+            await alertStaging(env, {
+              severity: "warning",
+              event: "ai.staging_settlement.pending",
+              summary: "AI usage settlement is still pending after a scheduled retry.",
+              occurredAt: scheduledAt.toISOString(),
+              fields: { failedCount: aiResult.failed.length },
             });
           }
+        } catch (error) {
+          console.error({
+            event: "ai.staging_settlement.failed",
+            scheduledAt: scheduledAt.toISOString(),
+            errorName: error instanceof Error ? error.name : "UnknownError",
+          });
+          await alertStaging(env, {
+            severity: "critical",
+            event: "ai.staging_settlement.failed",
+            summary: "The scheduled AI usage settlement sweep failed.",
+            occurredAt: scheduledAt.toISOString(),
+            fields: {
+              errorName: error instanceof Error ? error.name : "UnknownError",
+            },
+          });
+          throw error;
+        }
+        try {
           const result = await new XmclPlusService(
             new MongoBillingStore(await getCloudflareDb(env)),
             { currency: env.BILLING_CURRENCY ?? "USD" },
@@ -597,7 +729,15 @@ export default {
             event: "xmcl_plus.staging_renewal.failed",
             scheduledAt: scheduledAt.toISOString(),
             errorName: error instanceof Error ? error.name : "UnknownError",
-            errorMessage: error instanceof Error ? error.message : String(error),
+          });
+          await alertStaging(env, {
+            severity: "critical",
+            event: "xmcl_plus.staging_renewal.failed",
+            summary: "The scheduled Together Home renewal sweep failed.",
+            occurredAt: scheduledAt.toISOString(),
+            fields: {
+              errorName: error instanceof Error ? error.name : "UnknownError",
+            },
           });
           throw error;
         }
@@ -625,14 +765,26 @@ export default {
               event: "turn.staging_metering.failed",
               scheduledAt: scheduledAt.toISOString(),
               errorName: error instanceof Error ? error.name : "UnknownError",
-              errorMessage: error instanceof Error
-                ? error.message
-                : String(error),
+            });
+            await alertStaging(env, {
+              severity: "critical",
+              event: "turn.staging_metering.failed",
+              summary: "The scheduled TURN Analytics settlement sweep failed.",
+              occurredAt: scheduledAt.toISOString(),
+              fields: {
+                errorName: error instanceof Error ? error.name : "UnknownError",
+              },
             });
             throw error;
           }
         } else {
           console.warn({ event: "turn.staging_metering.not_configured" });
+          await alertStaging(env, {
+            severity: "critical",
+            event: "turn.staging_metering.not_configured",
+            summary: "TURN metering configuration is incomplete.",
+            occurredAt: scheduledAt.toISOString(),
+          });
         }
       })(),
     );
