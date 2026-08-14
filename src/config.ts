@@ -79,6 +79,11 @@ export interface AppConfig {
   /** Exact browser origins allowed to use the isolated staging billing API. */
   XMCL_STAGING_BILLING_CORS_ORIGINS?: string;
   /**
+   * High-entropy bearer credential for the isolated, read-only staging
+   * operations console. Configure it as a Worker secret, never as a plain var.
+   */
+  XMCL_STAGING_ADMIN_ACCESS_TOKEN?: string;
+  /**
    * Optional comma-separated exact HTTPS callbacks for website OAuth.
    * Launcher loopback callbacks are code-owned and require no configuration.
    */

@@ -86,6 +86,14 @@ configured independently for each Worker. The website selects only the API
 origin and never receives payment-provider secrets. Missing or inconsistent
 payment configuration fails closed.
 
+The staging Worker also owns the website OAuth, session, account, and read-only
+operations-console routes. Configure provider secrets such as
+`XMCL_GOOGLE_CLIENT_SECRET`, `XMCL_DISCORD_CLIENT_SECRET`, and
+`XMCL_MODRINTH_CLIENT_SECRET` with `wrangler secret put`; never place them in
+`wrangler.toml`. Configure `XMCL_STAGING_ADMIN_ACCESS_TOKEN` as a separate
+high-entropy Worker secret. This bearer is accepted only by staging read routes;
+admin mutations remain outside the staging public allowlist.
+
 Multiplayer clients use only `/v1/multiplayer/*` on `signaling.xmcl.app`. Rooms
 use `master`/`member` roles and revisioned room-state snapshots; no legacy
 signaling paths or incremental room events are retained.
