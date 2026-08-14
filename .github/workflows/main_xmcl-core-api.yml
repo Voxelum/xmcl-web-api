@@ -25,9 +25,8 @@ jobs:
     permissions:
       contents: read
     env:
-      # Wrangler requires this process variable name. The stored GitHub secret
-      # is named by purpose so it cannot be confused with runtime TURN tokens.
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_WORKERS_DEPLOY_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+      # Each GitHub Environment owns an independently scoped Cloudflare token.
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_WORKERS_DEPLOY_API_TOKEN }}
 
     steps:
       - name: Checkout
