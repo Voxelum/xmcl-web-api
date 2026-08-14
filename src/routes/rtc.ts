@@ -58,6 +58,7 @@ async function getCloudflareTurnServers(
   keyId: string,
   apiToken: string,
   customIdentifier: string,
+  ttlSeconds: number,
   fetcher: typeof fetch,
 ): Promise<IceServer[]> {
   const response = await fetcher(
@@ -71,7 +72,7 @@ async function getCloudflareTurnServers(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        ttl: CREDENTIAL_TTL_SECONDS,
+        ttl: ttlSeconds,
         customIdentifier,
       }),
     },
@@ -157,23 +158,24 @@ export function createRtcRoutes(options: RtcRouteOptions = {}) {
           crypto.randomUUID().replaceAll("-", "")
         }`;
         const meter = await resolveTurnMeter(c);
-        const authorized = await meter.authorize(
+        const authorization = await meter.authorize(
           accountId,
           customIdentifier,
           CREDENTIAL_TTL_SECONDS,
         );
-        if (!authorized) {
+        if (!authorization) {
           return c.json({ stuns: STUNS, uris: [], servers: [] });
         }
         try {
           const cloudflare = await getCloudflareTurnServers(
             cloudflareTurnKeyId!,
             cloudflareTurnToken!,
-            customIdentifier,
+            authorization.customIdentifier,
+            authorization.ttlSeconds,
             fetcher,
           );
-          if (cloudflare.length === 0) {
-            await meter.release(customIdentifier);
+          if (cloudflare.length === 0 && authorization.created) {
+            await meter.release(authorization.customIdentifier);
           }
           return c.json({
             stuns: STUNS,
@@ -181,7 +183,9 @@ export function createRtcRoutes(options: RtcRouteOptions = {}) {
             servers: cloudflare,
           });
         } catch (error) {
-          await meter.release(customIdentifier);
+          if (authorization.created) {
+            await meter.release(authorization.customIdentifier);
+          }
           console.error({
             event: "rtc.cloudflare_api_error",
             errorName: error instanceof Error ? error.name : "UnknownError",

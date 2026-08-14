@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import { MemoryBillingStore } from "./ledger.ts";
-import {
-  runTurnMeteringSweep,
-  TurnCredentialMeter,
-} from "./turnMetering.ts";
+import { runTurnMeteringSweep, TurnCredentialMeter } from "./turnMetering.ts";
 import { XmclPlusService } from "./xmclPlus.ts";
 
 const issuedAt = new Date("2026-08-12T00:00:00.000Z");
@@ -22,6 +19,7 @@ async function fixture() {
     });
   });
   return {
+    store,
     meter: new TurnCredentialMeter(store, () => issuedAt),
     plus: new XmclPlusService(store, { now: () => issuedAt }),
   };
@@ -29,9 +27,13 @@ async function fixture() {
 
 Deno.test("TURN analytics settles cumulative egress exactly once", async () => {
   const { meter, plus } = await fixture();
-  assert.equal(
+  assert.deepEqual(
     await meter.authorize("account", "credential_1", 3_600),
-    true,
+    {
+      customIdentifier: "credential_1",
+      created: true,
+      ttlSeconds: 3_600,
+    },
   );
   const fetcher: typeof fetch = async (_input, init) => {
     const body = JSON.parse(String(init?.body));
@@ -71,13 +73,84 @@ Deno.test("TURN analytics settles cumulative egress exactly once", async () => {
 
 Deno.test("TURN credentials require remaining Together allowance", async () => {
   const { meter } = await fixture();
-  assert.equal(await meter.authorize("other", "credential_2", 300), false);
+  assert.equal(await meter.authorize("other", "credential_2", 300), undefined);
 });
 
-Deno.test("TURN credentials allow only one active issuance per account", async () => {
-  const { meter } = await fixture();
-  assert.equal(await meter.authorize("account", "credential_1", 300), true);
-  assert.equal(await meter.authorize("account", "credential_2", 300), false);
+Deno.test("TURN credentials reuse one active metering identifier per account", async () => {
+  const { store, meter } = await fixture();
+  assert.deepEqual(await meter.authorize("account", "credential_1", 300), {
+    customIdentifier: "credential_1",
+    created: true,
+    ttlSeconds: 300,
+  });
+
+  assert.deepEqual(await meter.authorize("account", "credential_2", 300), {
+    customIdentifier: "credential_1",
+    created: false,
+    ttlSeconds: 300,
+  });
+  const nearExpiry = new TurnCredentialMeter(
+    store,
+    () => new Date("2026-08-12T00:04:00.000Z"),
+  );
+  assert.deepEqual(
+    await nearExpiry.authorize("account", "credential_3", 86_400),
+    {
+      customIdentifier: "credential_1",
+      created: false,
+      ttlSeconds: 86_400,
+    },
+  );
+  assert.equal(
+    await store.read((state) =>
+      state.turnCredentialIssuances.get("credential_1")?.expiresAt
+    ),
+    "2026-08-13T00:04:00.000Z",
+  );
   await meter.release("credential_1");
-  assert.equal(await meter.authorize("account", "credential_2", 300), true);
+  assert.deepEqual(await meter.authorize("account", "credential_2", 300), {
+    customIdentifier: "credential_2",
+    created: true,
+    ttlSeconds: 300,
+  });
+});
+
+Deno.test("TURN credentials stop at the allowance period boundary", async () => {
+  const { store } = await fixture();
+  const beforeRenewal = new TurnCredentialMeter(
+    store,
+    () => new Date("2026-08-31T23:59:00.000Z"),
+  );
+  assert.deepEqual(
+    await beforeRenewal.authorize("account", "credential_period_a", 86_400),
+    {
+      customIdentifier: "credential_period_a",
+      created: true,
+      ttlSeconds: 60,
+    },
+  );
+
+  await store.transaction((state) => {
+    state.plusSubscriptions.set("plus_1", {
+      subscriptionId: "plus_1",
+      accountId: "account",
+      status: "active",
+      currentPeriodStartedAt: "2026-09-01T00:00:00.000Z",
+      currentPeriodEndsAt: "2026-10-01T00:00:00.000Z",
+      createdAt: "2026-08-01T00:00:00.000Z",
+      updatedAt: "2026-09-01T00:00:00.000Z",
+    });
+  });
+  const afterRenewal = new TurnCredentialMeter(
+    store,
+    () => new Date("2026-09-01T00:00:00.000Z"),
+  );
+  assert.deepEqual(
+    await afterRenewal.authorize("account", "credential_period_b", 86_400),
+    {
+      customIdentifier: "credential_period_b",
+      created: true,
+      ttlSeconds: 86_400,
+    },
+  );
 });

@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
-import {
-  AllowanceMeter,
-  weightedAiUnits,
-} from "./allowanceMetering.ts";
-import { MemoryBillingStore } from "./ledger.ts";
+import { AllowanceMeter, weightedAiUnits } from "./allowanceMetering.ts";
+import { type BillingStore, MemoryBillingStore } from "./ledger.ts";
 import { XMCL_PLUS_OFFER, XmclPlusService } from "./xmclPlus.ts";
 
 const now = new Date("2026-08-12T00:00:00.000Z");
@@ -29,11 +26,14 @@ async function plusFixture() {
 }
 
 Deno.test("weighted AI usage applies cache and output multipliers", () => {
-  assert.equal(weightedAiUnits({
-    promptTokens: 100,
-    cachedPromptTokens: 40,
-    completionTokens: 20,
-  }), 144);
+  assert.equal(
+    weightedAiUnits({
+      promptTokens: 100,
+      cachedPromptTokens: 40,
+      completionTokens: 20,
+    }),
+    144,
+  );
 });
 
 Deno.test("AI allowance reservations are atomic, settled, and idempotent", async () => {
@@ -112,4 +112,48 @@ Deno.test("stale undelivered AI reservations are reclaimed", async () => {
     ),
     false,
   );
+});
+
+Deno.test("scheduled AI settlement recovers after a transient store failure", async () => {
+  const { store, meter, plus } = await plusFixture();
+  const usage = {
+    promptTokens: 20,
+    cachedPromptTokens: 0,
+    completionTokens: 5,
+  };
+  assert.equal(await meter.reserveAi("account", "auth_retry", 100), true);
+  await meter.recordAiDelivery("auth_retry", "usage_retry", usage);
+
+  let failNextTransaction = true;
+  const flakyStore: BillingStore = {
+    transaction: async (callback) => {
+      if (failNextTransaction) {
+        failNextTransaction = false;
+        throw new Error("transient store outage");
+      }
+      return await store.transaction(callback);
+    },
+    read: (callback) => store.read(callback),
+  };
+  const flakyMeter = new AllowanceMeter(flakyStore, () => now);
+  await assert.rejects(
+    () => flakyMeter.settleAi("auth_retry", "usage_retry", usage),
+    /transient store outage/,
+  );
+  assert.equal(
+    await store.read((state) =>
+      state.aiAllowanceReservations.get("auth_retry")?.pendingSettlement
+        ?.usageId
+    ),
+    "usage_retry",
+  );
+
+  assert.deepEqual(
+    await new AllowanceMeter(store, () => now).settlePendingAi(),
+    {
+      settled: ["auth_retry"],
+      failed: [],
+    },
+  );
+  assert.equal((await plus.allowances("account")).aiUnits.consumed, 40);
 });

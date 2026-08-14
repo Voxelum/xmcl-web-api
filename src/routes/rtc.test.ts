@@ -35,7 +35,16 @@ function app(
     resolveTurnEntitlement: () => Promise.resolve(status === "active"),
     resolveTurnMeter: () =>
       Promise.resolve({
-        authorize: () => Promise.resolve(meterAuthorized),
+        authorize: (_accountId, customIdentifier) =>
+          Promise.resolve(
+            meterAuthorized
+              ? {
+                customIdentifier,
+                created: true,
+                ttlSeconds: 86_400,
+              }
+              : undefined,
+          ),
         release: () => Promise.resolve(),
       }),
     fetch: fetcher,

@@ -39,6 +39,7 @@ import type {
   AdminPrincipalAuthenticator,
 } from "../../src/operations.ts";
 import type { AppEnv } from "../../src/types.ts";
+import { observeWorkerRequest } from "../../src/cloudflare/observability.ts";
 
 const webhookPath = "/v1/webhooks/waffo";
 const checkoutPath = "/v1/billing/waffo/orders";
@@ -470,80 +471,82 @@ export default {
     env: StagingBindings,
     ctx: ExecutionContext,
   ): Promise<Response> {
-    const environmentError = runtimeEnvironmentError(env, "staging");
-    if (environmentError) {
-      return Response.json(
-        { status: "unavailable", error: environmentError },
-        { status: 503 },
-      );
-    }
-    const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === "/health") {
-      return Response.json({ status: "ok", environment: "staging" });
-    }
-    if (request.method === "GET" && url.pathname === "/health/ready") {
-      try {
-        await getCloudflareDb(env);
-        return Response.json({ status: "ready", environment: "staging" });
-      } catch (error) {
-        console.error({
-          event: "waffo_staging.readiness_failed",
-          errorName: error instanceof Error ? error.name : "UnknownError",
-          errorCode: typeof error === "object" && error !== null &&
-              "code" in error
-            ? String(error.code)
-            : undefined,
-        });
-        return Response.json({ status: "unavailable" }, { status: 503 });
+    return await observeWorkerRequest(request, async () => {
+      const environmentError = runtimeEnvironmentError(env, "staging");
+      if (environmentError) {
+        return Response.json(
+          { status: "unavailable", error: environmentError },
+          { status: 503 },
+        );
       }
-    }
-    const isBillingRead = request.method === "GET" &&
-      (billingReadPaths.has(url.pathname) ||
-        /^\/v1\/billing\/orders\/[^/]+$/.test(url.pathname));
-    const isBillingMutation = request.method === "POST" &&
-      url.pathname === checkoutPath;
-    const isBillingPreflight = request.method === "OPTIONS" &&
-      url.pathname.startsWith("/v1/billing/");
-    const isSharedHostingRead = request.method === "GET" &&
-      (sharedHostingReadPaths.has(url.pathname) ||
-        url.pathname === "/v1/shared-hosting/services" ||
-        /^\/v1\/shared-hosting\/services\/[^/]+\/export$/.test(url.pathname));
-    const isSharedHostingPreflight = request.method === "OPTIONS" &&
-      url.pathname.startsWith("/v1/shared-hosting/");
-    const isPlusRead = request.method === "GET" &&
-      plusReadPaths.has(url.pathname);
-    const isPlusMutation = request.method === "POST" &&
-      (url.pathname === "/v1/xmcl-plus/subscribe" ||
-        url.pathname === "/v1/xmcl-plus/cancel");
-    const isPlusPreflight = request.method === "OPTIONS" &&
-      url.pathname.startsWith("/v1/xmcl-plus/");
-    const isAccountSurface = isStagingAccountRequest(
-      request.method,
-      url.pathname,
-    );
-    const isAdminSurface = isStagingAdminRequest(
-      request.method,
-      url.pathname,
-    );
-    const isUsageSurface = isStagingUsageRequest(
-      request.method,
-      url.pathname,
-    );
-    const isWebhook = request.method === "POST" &&
-      url.pathname === webhookPath;
-    const isSharedNodeTransport = url.pathname.startsWith(
-      "/v1/internal/shared-nodes/",
-    );
-    if (
-      !isBillingRead && !isBillingMutation && !isBillingPreflight &&
-      !isSharedHostingRead && !isSharedHostingPreflight &&
-      !isPlusRead && !isPlusMutation &&
-      !isPlusPreflight && !isAccountSurface && !isAdminSurface &&
-      !isUsageSurface && !isWebhook && !isSharedNodeTransport
-    ) {
-      return new Response("Not Found", { status: 404 });
-    }
-    return app.fetch(request, env, ctx);
+      const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/health") {
+        return Response.json({ status: "ok", environment: "staging" });
+      }
+      if (request.method === "GET" && url.pathname === "/health/ready") {
+        try {
+          await getCloudflareDb(env);
+          return Response.json({ status: "ready", environment: "staging" });
+        } catch (error) {
+          console.error({
+            event: "waffo_staging.readiness_failed",
+            errorName: error instanceof Error ? error.name : "UnknownError",
+            errorCode: typeof error === "object" && error !== null &&
+                "code" in error
+              ? String(error.code)
+              : undefined,
+          });
+          return Response.json({ status: "unavailable" }, { status: 503 });
+        }
+      }
+      const isBillingRead = request.method === "GET" &&
+        (billingReadPaths.has(url.pathname) ||
+          /^\/v1\/billing\/orders\/[^/]+$/.test(url.pathname));
+      const isBillingMutation = request.method === "POST" &&
+        url.pathname === checkoutPath;
+      const isBillingPreflight = request.method === "OPTIONS" &&
+        url.pathname.startsWith("/v1/billing/");
+      const isSharedHostingRead = request.method === "GET" &&
+        (sharedHostingReadPaths.has(url.pathname) ||
+          url.pathname === "/v1/shared-hosting/services" ||
+          /^\/v1\/shared-hosting\/services\/[^/]+\/export$/.test(url.pathname));
+      const isSharedHostingPreflight = request.method === "OPTIONS" &&
+        url.pathname.startsWith("/v1/shared-hosting/");
+      const isPlusRead = request.method === "GET" &&
+        plusReadPaths.has(url.pathname);
+      const isPlusMutation = request.method === "POST" &&
+        (url.pathname === "/v1/xmcl-plus/subscribe" ||
+          url.pathname === "/v1/xmcl-plus/cancel");
+      const isPlusPreflight = request.method === "OPTIONS" &&
+        url.pathname.startsWith("/v1/xmcl-plus/");
+      const isAccountSurface = isStagingAccountRequest(
+        request.method,
+        url.pathname,
+      );
+      const isAdminSurface = isStagingAdminRequest(
+        request.method,
+        url.pathname,
+      );
+      const isUsageSurface = isStagingUsageRequest(
+        request.method,
+        url.pathname,
+      );
+      const isWebhook = request.method === "POST" &&
+        url.pathname === webhookPath;
+      const isSharedNodeTransport = url.pathname.startsWith(
+        "/v1/internal/shared-nodes/",
+      );
+      if (
+        !isBillingRead && !isBillingMutation && !isBillingPreflight &&
+        !isSharedHostingRead && !isSharedHostingPreflight &&
+        !isPlusRead && !isPlusMutation &&
+        !isPlusPreflight && !isAccountSurface && !isAdminSurface &&
+        !isUsageSurface && !isWebhook && !isSharedNodeTransport
+      ) {
+        return new Response("Not Found", { status: 404 });
+      }
+      return app.fetch(request, env, ctx);
+    });
   },
 
   scheduled(

@@ -19,6 +19,12 @@ export interface TurnMeteringSweepResult {
   settledEgressBytes: number;
 }
 
+export interface TurnCredentialAuthorization {
+  customIdentifier: string;
+  created: boolean;
+  ttlSeconds: number;
+}
+
 export class TurnCredentialMeter {
   constructor(
     private readonly store: BillingStore,
@@ -29,7 +35,7 @@ export class TurnCredentialMeter {
     accountId: string,
     customIdentifier: string,
     ttlSeconds: number,
-  ): Promise<boolean> {
+  ): Promise<TurnCredentialAuthorization | undefined> {
     const now = this.now();
     return await this.store.transaction((state) => {
       const subscription = [
@@ -40,13 +46,7 @@ export class TurnCredentialMeter {
         Date.parse(value.currentPeriodStartedAt) <= now.getTime() &&
         Date.parse(value.currentPeriodEndsAt) > now.getTime()
       );
-      if (!subscription) return false;
-      const hasActiveCredential = [...state.turnCredentialIssuances.values()]
-        .some((issuance) =>
-          issuance.accountId === accountId &&
-          Date.parse(issuance.expiresAt) > now.getTime()
-        );
-      if (hasActiveCredential) return false;
+      if (!subscription) return undefined;
       const source = {
         source: "plus" as const,
         referenceId: subscription.subscriptionId,
@@ -56,20 +56,55 @@ export class TurnCredentialMeter {
         periodEndsAt: subscription.currentPeriodEndsAt,
       };
       const key = allowanceSourceKey(source);
+      const expiresAt = new Date(
+        Math.min(
+          now.getTime() + ttlSeconds * 1_000,
+          Date.parse(subscription.currentPeriodEndsAt),
+        ),
+      );
+      const effectiveTtlSeconds = Math.max(
+        1,
+        Math.ceil((expiresAt.getTime() - now.getTime()) / 1_000),
+      );
+      const activeCredential = [...state.turnCredentialIssuances.values()]
+        .find((issuance) =>
+          issuance.accountId === accountId &&
+          issuance.sourceKey === key &&
+          Date.parse(issuance.expiresAt) > now.getTime()
+        );
+      if (activeCredential) {
+        const renewedExpiry = expiresAt.toISOString();
+        if (renewedExpiry > activeCredential.expiresAt) {
+          activeCredential.expiresAt = renewedExpiry;
+          state.turnCredentialIssuances.set(
+            activeCredential.customIdentifier,
+            activeCredential,
+          );
+        }
+        return {
+          customIdentifier: activeCredential.customIdentifier,
+          created: false,
+          ttlSeconds: effectiveTtlSeconds,
+        };
+      }
       if (
         (state.allowanceUsage.get(key)?.turnEgressBytes ?? 0) >=
           source.turnEgressBytes
-      ) return false;
+      ) return undefined;
       state.turnCredentialIssuances.set(customIdentifier, {
         customIdentifier,
         accountId,
         sourceKey: key,
         issuedAt: now.toISOString(),
-        expiresAt: new Date(now.getTime() + ttlSeconds * 1_000).toISOString(),
+        expiresAt: expiresAt.toISOString(),
         observedEgressBytes: 0,
       });
       state.turnMeteringEnabled = true;
-      return true;
+      return {
+        customIdentifier,
+        created: true,
+        ttlSeconds: effectiveTtlSeconds,
+      };
     });
   }
 
@@ -140,7 +175,8 @@ async function queryCredentialEgress(
   const end = new Date(
     Math.min(at.getTime() - ANALYTICS_DELAY_MS, Date.parse(issuance.expiresAt)),
   );
-  const query = `query TurnUsage($accountId: String!, $start: Time!, $end: Time!, $identifier: String!) {
+  const query =
+    `query TurnUsage($accountId: String!, $start: Time!, $end: Time!, $identifier: String!) {
     viewer {
       accounts(filter: { accountTag: $accountId }) {
         usage: callsTurnUsageAdaptiveGroups(
@@ -156,22 +192,25 @@ async function queryCredentialEgress(
       }
     }
   }`;
-  const response = await fetcher("https://api.cloudflare.com/client/v4/graphql", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.apiToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      query,
-      variables: {
-        accountId: config.accountId,
-        start: issuance.issuedAt,
-        end: end.toISOString(),
-        identifier: issuance.customIdentifier,
+  const response = await fetcher(
+    "https://api.cloudflare.com/client/v4/graphql",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.apiToken}`,
+        "Content-Type": "application/json",
       },
-    }),
-  });
+      body: JSON.stringify({
+        query,
+        variables: {
+          accountId: config.accountId,
+          start: issuance.issuedAt,
+          end: end.toISOString(),
+          identifier: issuance.customIdentifier,
+        },
+      }),
+    },
+  );
   if (!response.ok) {
     throw new Error(`Cloudflare TURN Analytics returned ${response.status}`);
   }
@@ -188,8 +227,9 @@ async function queryCredentialEgress(
   if (body.errors?.length) {
     throw new Error("Cloudflare TURN Analytics rejected the query");
   }
-  const value = body.data?.viewer?.accounts?.[0]?.usage?.[0]?.sum?.egressBytes ??
-    0;
+  const value =
+    body.data?.viewer?.accounts?.[0]?.usage?.[0]?.sum?.egressBytes ??
+      0;
   const bytes = Number(value);
   if (!Number.isSafeInteger(bytes) || bytes < 0) {
     throw new Error("Cloudflare TURN Analytics returned invalid egress");
