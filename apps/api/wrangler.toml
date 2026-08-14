@@ -13,7 +13,7 @@ XMCL_HOME_RELEASE_ENABLED = "true"
 WAFFO_ENVIRONMENT = "prod"
 WAFFO_STORE_ID = "STO_43NzeqTrCZj6Z1Dvqd76Di"
 WAFFO_PRODUCT_ID = "PROD_3jywaliubkyhIgeYSGXx5s"
-WAFFO_SUCCESS_URL = "https://xmcl.app/together"
+WAFFO_SUCCESS_URL = "https://www.xmcl.app/en/together/billing"
 
 [observability]
 enabled = true
