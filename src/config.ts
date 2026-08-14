@@ -50,6 +50,8 @@ export interface AppConfig {
   XMCL_MICROSOFT_CLIENT_SECRET?: string;
   XMCL_MODRINTH_CLIENT_ID?: string;
   XMCL_MODRINTH_CLIENT_SECRET?: string;
+  /** Legacy complete Authorization value used by the launcher Modrinth exchange. */
+  MODRINTH_SECRET?: string;
   XMCL_GOOGLE_CLIENT_ID?: string;
   XMCL_GOOGLE_CLIENT_SECRET?: string;
   XMCL_DISCORD_CLIENT_ID?: string;

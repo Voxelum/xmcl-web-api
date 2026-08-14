@@ -184,5 +184,8 @@ Deno.test("Plus cancellation and insufficient renewal preserve monthly billing s
   assert.equal((await f.plus.allowances("account_due")).aiUnits.included, 0);
   await f.credit("account_due", 299);
   assert.equal((await f.plus.recoverPaymentDue("account_due")).length, 1);
-  assert.equal((await f.plus.status("account_due"))?.status, "active");
+  const recovered = await f.plus.status("account_due");
+  assert.equal(recovered?.status, "active");
+  assert.equal(recovered?.currentPeriodStartedAt, "2026-09-12T00:00:00.000Z");
+  assert.equal(recovered?.currentPeriodEndsAt, "2026-10-12T00:00:00.000Z");
 });

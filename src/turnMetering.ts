@@ -41,6 +41,12 @@ export class TurnCredentialMeter {
         Date.parse(value.currentPeriodEndsAt) > now.getTime()
       );
       if (!subscription) return false;
+      const hasActiveCredential = [...state.turnCredentialIssuances.values()]
+        .some((issuance) =>
+          issuance.accountId === accountId &&
+          Date.parse(issuance.expiresAt) > now.getTime()
+        );
+      if (hasActiveCredential) return false;
       const source = {
         source: "plus" as const,
         referenceId: subscription.subscriptionId,

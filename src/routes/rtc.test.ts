@@ -25,13 +25,14 @@ function app(
     CLOUDFLARE_ACCOUNT_ID?: string;
     CLOUDFLARE_ANALYTICS_API_TOKEN?: string;
   } = {},
+  meterAuthorized = true,
 ) {
   return createRtcRoutes({
     resolveAccountRuntime: () => Promise.resolve(runtime),
     resolveTurnEntitlement: () => Promise.resolve(status === "active"),
     resolveTurnMeter: () =>
       Promise.resolve({
-        authorize: () => Promise.resolve(true),
+        authorize: () => Promise.resolve(meterAuthorized),
         release: () => Promise.resolve(),
       }),
     fetch: fetcher,
@@ -67,7 +68,7 @@ Deno.test("RTC returns only STUN servers without an active Together subscription
   assert.equal(cloudflareCalls, 0);
 });
 
-Deno.test("active Together subscribers receive built-in and Cloudflare TURN servers", async () => {
+Deno.test("active Together subscribers receive metered Cloudflare TURN servers", async () => {
   const fetcher = async (input: string | URL | Request, init?: RequestInit) => {
     assert.equal(
       String(input),
@@ -107,13 +108,29 @@ Deno.test("active Together subscribers receive built-in and Cloudflare TURN serv
   );
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.ok(body.uris.includes("turn:20.239.69.131"));
-  assert.ok(body.uris.includes("turn:203.0.113.10"));
-  assert.equal(body.meta["203.0.113.10"], "sg");
+  assert.deepEqual(body.uris, []);
   assert.ok(
     body.servers.some((server: { urls: string | string[] }) =>
       Array.isArray(server.urls) &&
       server.urls.includes("turn:turn.cloudflare.com:3478?transport=udp")
     ),
   );
+});
+
+Deno.test("exhausted Together allowance returns no TURN credentials", async () => {
+  const response = await app("active", () => {
+    throw new Error("must not call Cloudflare");
+  }, {
+    RTC_SECRET: "rtc-secret",
+    CLOUDFLARE_APP_ID: "turn-key",
+    CLOUDFLARE_API_TOKEN: "turn-token",
+    CLOUDFLARE_ACCOUNT_ID: "account-tag",
+    CLOUDFLARE_ANALYTICS_API_TOKEN: "analytics-token",
+  }, false).request("/v1/rtc/official", {
+    method: "POST",
+    headers: authorization,
+  });
+  const body = await response.json();
+  assert.deepEqual(body.uris, []);
+  assert.deepEqual(body.servers, []);
 });

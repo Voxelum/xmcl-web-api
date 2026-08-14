@@ -339,7 +339,7 @@ export function createChatCompletionsRoutes(
     }
 
     const accountId = c.get("xmclPrincipal")!.accountId;
-    const authorizationId = requestId(c);
+    const authorizationId = `ai_${crypto.randomUUID().replaceAll("-", "")}`;
     const meter = await resolveMeter(c);
     if (
       !(await meter.reserveAi(
@@ -371,7 +371,10 @@ export function createChatCompletionsRoutes(
         );
         clientConfiguration = configuration;
       }
-      const upstream = await client.chatCompletions(parsed.body);
+      const upstream = await client.chatCompletions(
+        parsed.body,
+        c.req.raw.signal,
+      );
       if (!upstream.ok) {
         await meter.releaseAi(authorizationId);
       } else {

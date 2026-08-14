@@ -146,6 +146,24 @@ Deno.test("chat completions requires a paid AI entitlement", async () => {
   assert.equal(calls, 0);
 });
 
+Deno.test("AI reservations ignore a reused client request ID", async () => {
+  const f = fixture(async () =>
+    Response.json({
+      id: "chatcmpl_usage",
+      choices: [],
+      usage: { prompt_tokens: 10, completion_tokens: 2 },
+    }));
+  const body = { messages: [{ role: "user", content: "hello" }] };
+  const headers = { "x-request-id": "client-controlled-id" };
+  assert.equal((await f.request(body, { headers })).status, 200);
+  assert.equal((await f.request(body, { headers })).status, 200);
+  assert.equal(f.settlements.length, 2);
+  assert.notEqual(
+    f.settlements[0].authorizationId,
+    f.settlements[1].authorizationId,
+  );
+});
+
 Deno.test("Launcher envelope reaches mocked Agnes with a server-owned prompt and model", async () => {
   let upstreamBody: Record<string, unknown> | undefined;
   let upstreamHeaders: Headers | undefined;

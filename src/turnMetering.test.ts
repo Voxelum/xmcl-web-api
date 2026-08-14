@@ -73,3 +73,11 @@ Deno.test("TURN credentials require remaining Together allowance", async () => {
   const { meter } = await fixture();
   assert.equal(await meter.authorize("other", "credential_2", 300), false);
 });
+
+Deno.test("TURN credentials allow only one active issuance per account", async () => {
+  const { meter } = await fixture();
+  assert.equal(await meter.authorize("account", "credential_1", 300), true);
+  assert.equal(await meter.authorize("account", "credential_2", 300), false);
+  await meter.release("credential_1");
+  assert.equal(await meter.authorize("account", "credential_2", 300), true);
+});

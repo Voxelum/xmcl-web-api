@@ -9,6 +9,7 @@ export function createModrinthOAuth(options: {
   fetch?: typeof globalThis.fetch;
 }) {
   const clientId = options.clientId || DEFAULT_MODRINTH_CLIENT_ID;
+  const clientSecret = options.clientSecret;
   return new RemoteOAuthAdapter({
     declaration: {
       provider: "modrinth",
@@ -24,7 +25,11 @@ export function createModrinthOAuth(options: {
       credentialVerification: "provider_userinfo",
       launcherAvailable: true,
     },
-    clientSecret: options.clientSecret,
+    tokenRequestHeaders: clientSecret
+      ? () => ({
+        Authorization: clientSecret,
+      })
+      : undefined,
     fetch: options.fetch,
     mapUser: (body) => ({ subject: body.id, displayName: body.username }),
   });

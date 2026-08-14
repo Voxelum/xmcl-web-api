@@ -200,19 +200,12 @@ export function createRtcRoutes(options: RtcRouteOptions = {}) {
       }
 
       const config = resolveConfig(c);
-      const builtin = config.RTC_SECRET
-        ? await getBuiltinTurnCredentials(
-          accountId,
-          config.RTC_SECRET,
-          parseTurns(config.TURNS),
-        )
-        : undefined;
-      let cloudflare: IceServer[] = [];
-      if (
+      const meteredCloudflareTurn = !!(
         config.CLOUDFLARE_API_TOKEN && config.CLOUDFLARE_APP_ID &&
         config.CLOUDFLARE_ACCOUNT_ID &&
         config.CLOUDFLARE_ANALYTICS_API_TOKEN
-      ) {
+      );
+      if (meteredCloudflareTurn) {
         const customIdentifier = `xmcl_${
           crypto.randomUUID().replaceAll("-", "")
         }`;
@@ -223,35 +216,44 @@ export function createRtcRoutes(options: RtcRouteOptions = {}) {
           CREDENTIAL_TTL_SECONDS,
         );
         if (!authorized) {
-          return c.json({
-            stuns: STUNS,
-            ...(builtin ?? { uris: [] }),
-            servers: builtin?.servers ?? [],
-          });
+          return c.json({ stuns: STUNS, uris: [], servers: [] });
         }
         try {
-          cloudflare = await getCloudflareTurnServers(
-            config.CLOUDFLARE_APP_ID,
-            config.CLOUDFLARE_API_TOKEN,
+          const cloudflare = await getCloudflareTurnServers(
+            config.CLOUDFLARE_APP_ID!,
+            config.CLOUDFLARE_API_TOKEN!,
             customIdentifier,
             fetcher,
           );
           if (cloudflare.length === 0) {
             await meter.release(customIdentifier);
           }
+          return c.json({
+            stuns: STUNS,
+            uris: [],
+            servers: cloudflare,
+          });
         } catch (error) {
           await meter.release(customIdentifier);
           console.error({
             event: "rtc.cloudflare_api_error",
             errorName: error instanceof Error ? error.name : "UnknownError",
           });
+          return c.json({ stuns: STUNS, uris: [], servers: [] });
         }
       }
 
+      const builtin = config.RTC_SECRET
+        ? await getBuiltinTurnCredentials(
+          accountId,
+          config.RTC_SECRET,
+          parseTurns(config.TURNS),
+        )
+        : undefined;
       return c.json({
         stuns: STUNS,
         ...(builtin ?? { uris: [] }),
-        servers: [...(builtin?.servers ?? []), ...cloudflare],
+        servers: builtin?.servers ?? [],
       });
     },
   );

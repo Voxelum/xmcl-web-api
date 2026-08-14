@@ -17,6 +17,7 @@ Deno.test("production composition leaves commercial routes unmounted by default"
     paths.some((path) => path.startsWith("/v1/shared-hosting")),
     false,
   );
+  assert.equal(paths.includes("/v1/xmcl-plus/offer"), true);
   assert.equal(paths.some((path) => path.startsWith("/v1/ai")), false);
   assert.equal(paths.includes("/v1/chat/completions"), true);
   assert.equal(paths.some((path) => path.startsWith("/v1/modpack")), false);
@@ -42,6 +43,7 @@ Deno.test("production composition always disables routes without durable adapter
   assert.deepEqual(productionAppOptions(), {
     commercialRoutes: false,
     billingRoutes: true,
+    xmclPlusRoutes: true,
     paymentRoutes: false,
     sharedNodeTransportRoutes: false,
   });

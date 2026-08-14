@@ -346,10 +346,8 @@ export class XmclPlusService {
         reservedMinor: 0,
       };
       if (balance.availableMinor < XMCL_PLUS_OFFER.monthlyPriceMinor) return [];
-      subscription.currentPeriodStartedAt = subscription.currentPeriodEndsAt;
-      subscription.currentPeriodEndsAt = addCalendarMonth(
-        new Date(subscription.currentPeriodEndsAt),
-      ).toISOString();
+      subscription.currentPeriodStartedAt = at.toISOString();
+      subscription.currentPeriodEndsAt = addCalendarMonth(at).toISOString();
       subscription.status = "active";
       subscription.updatedAt = at.toISOString();
       this.charge(state, subscription);

@@ -28,7 +28,9 @@ export function requiresSharedDpopReplay(method: string, requestUrl: string) {
 }
 
 export function createMongoDpopReplayStore(db: Db): DpopReplayStore {
-  const collection = db.collection("xmcl_dpop_replays");
+  const collection = db.collection("xmcl_dpop_replays") as MongoCollection & {
+    insertOne(document: Record<string, unknown>): Promise<unknown>;
+  };
   return {
     async consume(key, expiresAt) {
       await ensureMongoTtlIndex(collection);
