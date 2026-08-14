@@ -48,7 +48,8 @@ export default {
     ctx.waitUntil((async () => {
       if (
         !env.CLOUDFLARE_ACCOUNT_ID ||
-        !env.CLOUDFLARE_ANALYTICS_API_TOKEN
+        !(env.CLOUDFLARE_TURN_ANALYTICS_API_TOKEN ??
+          env.CLOUDFLARE_ANALYTICS_API_TOKEN)
       ) {
         console.warn({ event: "turn.metering.not_configured" });
         return;
@@ -58,7 +59,8 @@ export default {
         new TurnCredentialMeter(new MongoBillingStore(db)),
         {
           accountId: env.CLOUDFLARE_ACCOUNT_ID,
-          apiToken: env.CLOUDFLARE_ANALYTICS_API_TOKEN,
+          apiToken: env.CLOUDFLARE_TURN_ANALYTICS_API_TOKEN ??
+            env.CLOUDFLARE_ANALYTICS_API_TOKEN,
         },
         new Date(controller.scheduledTime),
       );

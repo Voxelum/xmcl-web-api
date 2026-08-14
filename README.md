@@ -94,6 +94,19 @@ operations-console routes. Configure provider secrets such as
 high-entropy Worker secret. This bearer is accepted only by staging read routes;
 admin mutations remain outside the staging public allowlist.
 
+Each Cloudflare Worker keeps its ignored local runtime configuration beside its
+entry point:
+
+- `apps/api/.dev.vars`
+- `apps/ai/.dev.vars`
+- `apps/signaling/.dev.vars`
+- `apps/waffo-staging/.dev.vars`
+
+Do not use a shared `apps/.dev.vars`: it makes credentials available to Workers
+that do not need them. Wrangler's required deployment credential remains a
+shell or CI value named `CLOUDFLARE_API_TOKEN`; the stored secret should be
+named `CLOUDFLARE_WORKERS_DEPLOY_API_TOKEN` and mapped explicitly by CI.
+
 Multiplayer clients use only `/v1/multiplayer/*` on `signaling.xmcl.app`. Rooms
 use `master`/`member` roles and revisioned room-state snapshots; no legacy
 signaling paths or incremental room events are retained.
@@ -466,9 +479,12 @@ The same variables are used across every runtime (read via `hono/adapter`:
   client rollout and for browsers that cannot persist a device key; enforcement
   can become mandatory after those clients have drained.
 - `TURNS` - TURN server configuration (format: "realm:ip,realm:ip")
-- `CLOUDFLARE_API_TOKEN` - Cloudflare TURN API token (optional,
+- `CLOUDFLARE_TURN_API_TOKEN` - credential restricted to issuing Cloudflare
+  Calls TURN credentials (optional,
   `/rtc?type=cloudflare`)
-- `CLOUDFLARE_APP_ID` - Cloudflare TURN app id (optional)
+- `CLOUDFLARE_TURN_KEY_ID` - Cloudflare Calls TURN key id (optional)
+- `CLOUDFLARE_TURN_ANALYTICS_API_TOKEN` - read-only Cloudflare Calls TURN
+  analytics token (optional)
 - Shared-hosting and other commercial routes remain unmounted in the production
   entry points until their complete durable adapter composition is implemented
   in code. The public balance/rate ledger routes are independently enabled.
@@ -582,7 +598,8 @@ npx wrangler secret put GITHUB_PAT --config apps/api/wrangler.toml
 # ...RTC_SECRET, CURSEFORGE_KEY, AGNES_API_KEYS,
 #    AZURE_TRANSLATION_TABLE_URL,
 #    XMCL_MODRINTH_CLIENT_ID, XMCL_MODRINTH_CLIENT_SECRET,
-#    CLOUDFLARE_API_TOKEN, CLOUDFLARE_APP_ID
+#    CLOUDFLARE_TURN_API_TOKEN, CLOUDFLARE_TURN_KEY_ID,
+#    CLOUDFLARE_TURN_ANALYTICS_API_TOKEN
 
 npm run deploy:workers
 ```

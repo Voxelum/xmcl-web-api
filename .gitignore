@@ -4,5 +4,6 @@ node_modules
 *.js
 *.js.map
 apps/.dev.vars
+apps/**/.dev.vars
 data/*
 .translation-azure-migration-state.json

@@ -12,9 +12,18 @@ import { env } from "hono/adapter";
 export interface AppConfig {
   GITHUB_PAT?: string;
   RTC_SECRET?: string;
-  CLOUDFLARE_API_TOKEN?: string;
-  CLOUDFLARE_APP_ID?: string;
+  /** Cloudflare Calls TURN key identifier used to issue ICE credentials. */
+  CLOUDFLARE_TURN_KEY_ID?: string;
+  /** Token restricted to issuing Cloudflare Calls TURN credentials. */
+  CLOUDFLARE_TURN_API_TOKEN?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
+  /** Read-only token restricted to Cloudflare Calls TURN analytics. */
+  CLOUDFLARE_TURN_ANALYTICS_API_TOKEN?: string;
+  /** @deprecated Use CLOUDFLARE_TURN_API_TOKEN. */
+  CLOUDFLARE_API_TOKEN?: string;
+  /** @deprecated Use CLOUDFLARE_TURN_KEY_ID. */
+  CLOUDFLARE_APP_ID?: string;
+  /** @deprecated Use CLOUDFLARE_TURN_ANALYTICS_API_TOKEN. */
   CLOUDFLARE_ANALYTICS_API_TOKEN?: string;
   CURSEFORGE_KEY?: string;
   TURNS?: string;

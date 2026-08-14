@@ -51,6 +51,9 @@ interface RtcRouteOptions {
     AppConfig,
     | "RTC_SECRET"
     | "TURNS"
+    | "CLOUDFLARE_TURN_API_TOKEN"
+    | "CLOUDFLARE_TURN_KEY_ID"
+    | "CLOUDFLARE_TURN_ANALYTICS_API_TOKEN"
     | "CLOUDFLARE_API_TOKEN"
     | "CLOUDFLARE_APP_ID"
     | "CLOUDFLARE_ACCOUNT_ID"
@@ -200,10 +203,17 @@ export function createRtcRoutes(options: RtcRouteOptions = {}) {
       }
 
       const config = resolveConfig(c);
+      const cloudflareTurnToken = config.CLOUDFLARE_TURN_API_TOKEN ??
+        config.CLOUDFLARE_API_TOKEN;
+      const cloudflareTurnKeyId = config.CLOUDFLARE_TURN_KEY_ID ??
+        config.CLOUDFLARE_APP_ID;
+      const cloudflareTurnAnalyticsToken =
+        config.CLOUDFLARE_TURN_ANALYTICS_API_TOKEN ??
+          config.CLOUDFLARE_ANALYTICS_API_TOKEN;
       const meteredCloudflareTurn = !!(
-        config.CLOUDFLARE_API_TOKEN && config.CLOUDFLARE_APP_ID &&
+        cloudflareTurnToken && cloudflareTurnKeyId &&
         config.CLOUDFLARE_ACCOUNT_ID &&
-        config.CLOUDFLARE_ANALYTICS_API_TOKEN
+        cloudflareTurnAnalyticsToken
       );
       if (meteredCloudflareTurn) {
         const customIdentifier = `xmcl_${
@@ -220,8 +230,8 @@ export function createRtcRoutes(options: RtcRouteOptions = {}) {
         }
         try {
           const cloudflare = await getCloudflareTurnServers(
-            config.CLOUDFLARE_APP_ID!,
-            config.CLOUDFLARE_API_TOKEN!,
+            cloudflareTurnKeyId!,
+            cloudflareTurnToken!,
             customIdentifier,
             fetcher,
           );

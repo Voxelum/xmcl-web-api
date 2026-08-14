@@ -20,6 +20,9 @@ function app(
   config: {
     RTC_SECRET?: string;
     TURNS?: string;
+    CLOUDFLARE_TURN_KEY_ID?: string;
+    CLOUDFLARE_TURN_API_TOKEN?: string;
+    CLOUDFLARE_TURN_ANALYTICS_API_TOKEN?: string;
     CLOUDFLARE_APP_ID?: string;
     CLOUDFLARE_API_TOKEN?: string;
     CLOUDFLARE_ACCOUNT_ID?: string;
@@ -98,10 +101,10 @@ Deno.test("active Together subscribers receive metered Cloudflare TURN servers",
   const response = await app("active", fetcher, {
     RTC_SECRET: "rtc-secret",
     TURNS: "sg:203.0.113.10",
-    CLOUDFLARE_APP_ID: "turn-key",
-    CLOUDFLARE_API_TOKEN: "turn-token",
+    CLOUDFLARE_TURN_KEY_ID: "turn-key",
+    CLOUDFLARE_TURN_API_TOKEN: "turn-token",
     CLOUDFLARE_ACCOUNT_ID: "account-tag",
-    CLOUDFLARE_ANALYTICS_API_TOKEN: "analytics-token",
+    CLOUDFLARE_TURN_ANALYTICS_API_TOKEN: "analytics-token",
   }).request(
     "/v1/rtc/official",
     { method: "POST", headers: authorization },

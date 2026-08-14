@@ -7,9 +7,10 @@
   ],
   "scripts": {
     "build:azure": "node apps/azure/build.mjs",
-    "dev:api": "wrangler dev --config apps/api/wrangler.toml --env-file apps/.dev.vars",
-    "dev:ai": "wrangler dev --config apps/ai/wrangler.toml --env-file apps/.dev.vars",
-    "dev:signaling": "wrangler dev --config apps/signaling/wrangler.toml --env-file apps/.dev.vars",
+    "dev:api": "wrangler dev --config apps/api/wrangler.toml --env-file apps/api/.dev.vars",
+    "dev:ai": "wrangler dev --config apps/ai/wrangler.toml --env-file apps/ai/.dev.vars",
+    "dev:signaling": "wrangler dev --config apps/signaling/wrangler.toml --env-file apps/signaling/.dev.vars",
+    "dev:waffo-staging": "wrangler dev --config apps/waffo-staging/wrangler.toml --env-file apps/waffo-staging/.dev.vars",
     "deploy:api": "wrangler deploy --config apps/api/wrangler.toml",
     "deploy:ai": "wrangler deploy --config apps/ai/wrangler.toml",
     "deploy:signaling": "wrangler deploy --config apps/signaling/wrangler.toml",
