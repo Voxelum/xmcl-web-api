@@ -10,6 +10,8 @@ import type {
   BillingAdminOperationCommandAdapter,
   ServerControlAdminOperationCommandAdapter,
 } from "../operations.ts";
+import { BillingService } from "../billing.ts";
+import { MemoryBillingStore } from "../ledger.ts";
 
 class MemoryOperations implements AdminOperationRepository {
   readonly values = new Map<string, AdminOperation>();
@@ -85,8 +87,17 @@ function principal(
   };
 }
 
+function billingService() {
+  return new BillingService(new MemoryBillingStore(), {
+    currency: "USD",
+    rates: [],
+    now: () => new Date("2026-07-22T14:00:00.000Z"),
+  });
+}
+
 function createHarness(options: {
   billing?: BillingAdminOperationCommandAdapter;
+  billingService?: BillingService;
   serverControl?: ServerControlAdminOperationCommandAdapter;
   authenticator?: AdminPrincipalAuthenticator;
 } = {}) {
@@ -110,6 +121,9 @@ function createHarness(options: {
       c.set("adminOperationAuthenticator", authenticator);
       c.set("adminOperationRepository", repository);
       c.set("adminOperationAuditLog", audit);
+      if (options.billingService) {
+        c.set("billingService", options.billingService);
+      }
       c.set("billingAdminOperationAdapter", options.billing);
       c.set("serverControlAdminOperationAdapter", options.serverControl);
       c.set("adminOperationNow", () => "2026-07-22T14:00:00.000Z");
@@ -119,6 +133,39 @@ function createHarness(options: {
 
   return { app, repository, audit };
 }
+
+Deno.test("billing operators can read the sanitized billing overview", async () => {
+  const { app } = createHarness({
+    billingService: billingService(),
+  });
+
+  const response = await app.request("/v1/admin/billing/overview", {
+    headers: { Authorization: ["Bearer", "billing"].join(" ") },
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    generatedAt: "2026-07-22T14:00:00.000Z",
+    accounts: [],
+    orders: [],
+    ledger: [],
+    plusSubscriptions: [],
+    sharedHostingSubscriptions: [],
+    allowances: [],
+  });
+});
+
+Deno.test("support principals cannot enumerate billing activity", async () => {
+  const { app } = createHarness({
+    billingService: billingService(),
+  });
+
+  const response = await app.request("/v1/admin/billing/overview", {
+    headers: { Authorization: ["Bearer", "support"].join(" ") },
+  });
+
+  assert.equal(response.status, 403);
+});
 
 function post(
   app: ReturnType<typeof createApp>,

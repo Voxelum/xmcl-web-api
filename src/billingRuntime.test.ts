@@ -26,6 +26,19 @@ Deno.test("billing runtime defaults its settlement currency to USD", () => {
   assert.equal(runtime.billing.settlementCurrency, "USD");
 });
 
+Deno.test("billing runtime publishes vendor-neutral configured regions", () => {
+  const runtime = createBillingRuntime(db, {
+    BILLING_RATES_JSON: rate,
+    XMCL_SHARED_NODE_REGION_IDS: "mow,tpe",
+    VULTR_SHARED_NODE_REGION_IDS: "sgp,nrt",
+  });
+
+  assert.deepEqual(
+    runtime.sharedHosting.listRegions().map((region) => region.regionId),
+    ["mow", "tpe"],
+  );
+});
+
 Deno.test("hourly billing work includes bounded payment reconciliation", async () => {
   const calls: string[] = [];
   const work = createSharedRuntimeSettlementWork(

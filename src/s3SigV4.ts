@@ -45,6 +45,36 @@ export class S3SigV4Presigner {
     expiresInSeconds: number,
     requiredHeaders?: Record<string, string>,
   ): Promise<S3PresignedObject> {
+    return await this.presignObject(
+      key,
+      method,
+      expiresInSeconds,
+      requiredHeaders,
+    );
+  }
+
+  async deleteExact(keys: readonly string[]) {
+    for (const key of keys) {
+      const signed = await this.presignObject(key, "DELETE", 60);
+      const response = await fetch(signed.url, {
+        method: "DELETE",
+        redirect: "error",
+        credentials: "omit",
+        referrerPolicy: "no-referrer",
+        cache: "no-store",
+      });
+      if (!response.ok && response.status !== 404) {
+        throw new S3SigV4Error("exact S3 object deletion failed");
+      }
+    }
+  }
+
+  private async presignObject<M extends "GET" | "PUT" | "DELETE">(
+    key: string,
+    method: M,
+    expiresInSeconds: number,
+    requiredHeaders?: Record<string, string>,
+  ) {
     if (!validObjectKey(key)) throw new S3SigV4Error("invalid S3 object key");
     if (
       !Number.isSafeInteger(expiresInSeconds) ||
@@ -59,7 +89,8 @@ export class S3SigV4Presigner {
     const dateStamp = amzDate.slice(0, 8);
     const scope = `${dateStamp}/${this.config.region}/${service}/aws4_request`;
     const headers = normalizedHeaders(
-      requiredHeaders ?? (method === "PUT" ? { "if-none-match": "*" } : undefined),
+      requiredHeaders ??
+        (method === "PUT" ? { "if-none-match": "*" } : undefined),
     );
     if (method === "GET" && headers) {
       throw new S3SigV4Error("GET grants cannot require request headers");
@@ -106,7 +137,8 @@ export class S3SigV4Presigner {
       key,
       method,
       url: url.toString(),
-      expiresAt: new Date(now.getTime() + expiresInSeconds * 1_000).toISOString(),
+      expiresAt: new Date(now.getTime() + expiresInSeconds * 1_000)
+        .toISOString(),
       ...(headers ? { headers } : {}),
     };
   }
@@ -180,8 +212,9 @@ function canonicalQuery(values: Record<string, string>) {
 }
 
 function rfc3986(value: string) {
-  return encodeURIComponent(value).replace(/[!'()*]/g, (character) =>
-    `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
   );
 }
 
@@ -211,7 +244,9 @@ async function hmacHex(key: Uint8Array, value: string) {
 async function hmacBytes(key: string | Uint8Array, value: string) {
   const imported = await crypto.subtle.importKey(
     "raw",
-    (typeof key === "string" ? encoder.encode(key) : key) as unknown as BufferSource,
+    (typeof key === "string"
+      ? encoder.encode(key)
+      : key) as unknown as BufferSource,
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],

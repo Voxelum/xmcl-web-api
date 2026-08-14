@@ -4,7 +4,13 @@ import {
   HttpResponseInit,
   InvocationContext,
 } from "@azure/functions";
-import { createAzureHttpApp } from "./httpApp.ts";
+import {
+  createAzureHttpApp,
+  createAzureWorkspaceSigner,
+} from "./httpApp.ts";
+import { getDb } from "../../src/db_npm.ts";
+import { createSharedHostingRuntime } from "../../src/sharedHostingRuntime.ts";
+import type { AppConfig } from "../../src/config.ts";
 
 // Azure Functions cold-backup entry point for the API surface:
 //  - geo is resolved from the proxy-forwarded IP via geoip-country.
@@ -13,6 +19,7 @@ import { createAzureHttpApp } from "./httpApp.ts";
 // AI, signaling, Durable Objects, and scheduled work remain Cloudflare-owned.
 const environment = process.env as Record<string, string | undefined>;
 const hono = createAzureHttpApp(environment);
+const workspaceSigner = createAzureWorkspaceSigner(environment);
 const maximumAzureRequestBytes = 4 * 1024 * 1024;
 
 class AzureRequestBodyTooLargeError extends Error {}
@@ -109,5 +116,19 @@ azureApp.http("api", {
       ctx.error(e);
       return { status: 500, jsonBody: { error: "Internal Server Error" } };
     }
+  },
+});
+
+azureApp.timer("sharedHostingCapacity", {
+  schedule: "0 */1 * * * *",
+  useMonitor: true,
+  handler: async (_timer, ctx) => {
+    const runtime = createSharedHostingRuntime(
+      await getDb(),
+      environment as AppConfig,
+      workspaceSigner,
+    );
+    const result = await runtime.scheduler.processCapacityRequests();
+    ctx.log("Processed shared-hosting capacity requests", result);
   },
 });

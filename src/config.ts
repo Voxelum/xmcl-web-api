@@ -14,6 +14,8 @@ export interface AppConfig {
   RTC_SECRET?: string;
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_APP_ID?: string;
+  CLOUDFLARE_ACCOUNT_ID?: string;
+  CLOUDFLARE_ANALYTICS_API_TOKEN?: string;
   CURSEFORGE_KEY?: string;
   TURNS?: string;
   MONGO_CONNECION_STRING?: string;
@@ -36,9 +38,13 @@ export interface AppConfig {
    * OpenAI-compatible chat proxy.
    */
   AGNES_API_KEYS?: string;
+  DEEPSEEK_API_KEYS?: string;
+  DEEPSEEK_DEFAULT_MODEL?: string;
   /** Default model when a chat-completions request omits `model`. */
   AGNES_DEFAULT_MODEL?: string;
   XMCL_SESSION_SECRET?: string;
+  /** New signing key during a zero-downtime session-key rotation. */
+  XMCL_SESSION_SECRET_PRIMARY?: string;
   XMCL_MULTIPLAYER_TICKET_SECRET?: string;
   XMCL_MICROSOFT_CLIENT_ID?: string;
   XMCL_MICROSOFT_CLIENT_SECRET?: string;
@@ -68,13 +74,24 @@ export interface AppConfig {
   WAFFO_API_BASE_URL?: string;
   /** Optional explicit Waffo webhook key; otherwise the SDK's built-in keys are used. */
   WAFFO_WEBHOOK_PUBLIC_KEY?: string;
+  /** Exact browser origins allowed to use the isolated staging billing API. */
+  XMCL_STAGING_BILLING_CORS_ORIGINS?: string;
   /**
    * Optional comma-separated exact HTTPS callbacks for website OAuth.
    * Launcher loopback callbacks are code-owned and require no configuration.
    */
   XMCL_OAUTH_REDIRECT_URIS?: string;
   VULTR_API_TOKEN?: string;
+  /** Vendor-neutral logical regions enabled for shared hosting. */
+  XMCL_SHARED_NODE_REGION_IDS?: string;
+  /**
+   * `vultr` provisions capacity dynamically; `preprovisioned` accepts only
+   * nodes enrolled by operators.
+   */
+  XMCL_SHARED_NODE_CAPACITY_MODE?: "vultr" | "preprovisioned";
   VULTR_SHARED_NODE_REGION_ID?: string;
+  /** Optional comma-separated regional pools; defaults to REGION_ID only. */
+  VULTR_SHARED_NODE_REGION_IDS?: string;
   VULTR_SHARED_NODE_PLAN?: string;
   VULTR_SHARED_NODE_IMAGE_ID?: string;
   VULTR_SHARED_NODE_TOTAL_MEMORY_MIB?: string;
@@ -99,6 +116,9 @@ export interface AppConfig {
   VULTR_SHARED_NODE_BLOCK_STORAGE_GIB?: string;
   VULTR_SHARED_NODE_BLOCK_STORAGE_TYPE?: string;
   VULTR_SHARED_NODE_FIREWALL_GROUP_ID?: string;
+  /** LightNode OpenAPI credential used by operator tooling and discovery. */
+  LIGHTNODE_API_TOKEN?: string;
+  LIGHTNODE_API_BASE_URL?: string;
   XMCL_SHARED_NODE_INGRESS_PORT_MIN?: string;
   XMCL_SHARED_NODE_INGRESS_PORT_MAX?: string;
   /**

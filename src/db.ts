@@ -8,6 +8,9 @@ export interface MongoCollection {
     options?: { expireAfterSeconds?: number; name?: string },
   ): Promise<unknown>;
   findOne(filter: Record<string, unknown>): Promise<any>;
+  find(filter: Record<string, unknown>): {
+    toArray(): Promise<any[]>;
+  };
   findOneAndUpdate(
     filter: Record<string, unknown>,
     update: Record<string, unknown>,
@@ -21,6 +24,7 @@ export interface MongoCollection {
     update: Record<string, unknown>,
     options?: { upsert?: boolean },
   ): Promise<unknown>;
+  insertOne(document: Record<string, unknown>): Promise<unknown>;
   replaceOne(
     filter: Record<string, unknown>,
     replacement: Record<string, unknown>,

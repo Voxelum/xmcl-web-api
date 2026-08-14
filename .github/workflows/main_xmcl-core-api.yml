@@ -4,10 +4,12 @@ on:
   push:
     branches:
       - main
+      - staging
     paths:
       - "apps/api/**"
       - "apps/ai/**"
       - "apps/signaling/**"
+      - "apps/waffo-staging/**"
       - "src/**"
       - "deno.json"
       - "deno.lock"
@@ -19,6 +21,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'staging' && 'staging' || 'production' }}
     permissions:
       contents: read
     env:
@@ -40,9 +43,21 @@ jobs:
         run: npm run typecheck:workers
 
       - name: Deploy Workers
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        if: ${{ github.ref_name == 'main' && env.CLOUDFLARE_API_TOKEN != '' }}
         run: npm run deploy:workers
 
-      - name: Report manual deployment requirement
-        if: ${{ env.CLOUDFLARE_API_TOKEN == '' }}
-        run: echo "::notice::CLOUDFLARE_API_TOKEN is not configured; Worker deployments were skipped."
+      - name: Validate staging Worker
+        if: github.ref_name == 'staging'
+        run: npm run check:waffo-staging
+
+      - name: Deploy staging Worker
+        if: ${{ github.ref_name == 'staging' && env.CLOUDFLARE_API_TOKEN != '' }}
+        run: npm run deploy:waffo-staging
+
+      - name: Report manual production deployment requirement
+        if: ${{ github.ref_name == 'main' && env.CLOUDFLARE_API_TOKEN == '' }}
+        run: echo "::notice::CLOUDFLARE_API_TOKEN is not configured; production Worker deployments were skipped."
+
+      - name: Report manual staging deployment requirement
+        if: ${{ github.ref_name == 'staging' && env.CLOUDFLARE_API_TOKEN == '' }}
+        run: echo "::notice::CLOUDFLARE_API_TOKEN is not configured; staging Worker deployment was skipped."

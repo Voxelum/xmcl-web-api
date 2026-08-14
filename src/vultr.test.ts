@@ -79,6 +79,7 @@ Deno.test("Vultr v2 adapter validates configured region allowlists and reconcile
   const body = await createRequest.clone().json();
   assert.equal(body.label, "server_fixture");
   assert.deepEqual(body.tags, ["xmcl-server:server_fixture"]);
+  assert.equal(body.user_data, "I2Nsb3VkLWNvbmZpZw==");
   assert.equal(body.firewall_group_id, "firewall-group-1");
   assert.equal(body.enable_ipv6, false);
 });
@@ -137,6 +138,27 @@ Deno.test("Vultr errors are sanitized and definitive create failures are not ret
   assert.equal(listCalls, 0);
 });
 
+Deno.test("Vultr authorization failures remain recoverable after provider configuration changes", async () => {
+  const adapter = new VultrV2Adapter({
+    token: "token",
+    regionId: "sgp",
+    allowedPlans: ["vc2-2c-4gb"],
+    imageId: "1743",
+    fetch: () => Promise.resolve(response({}, 403)),
+  });
+
+  await assert.rejects(
+    () => adapter.validateCapacity("vc2-2c-4gb"),
+    (error) => {
+      assert.ok(error instanceof VultrError);
+      assert.equal(error.code, "provider_unavailable");
+      assert.equal(error.outcome, "unknown");
+      assert.equal(error.status, 403);
+      return true;
+    },
+  );
+});
+
 Deno.test("Vultr plan allowlist rejects before any provider request", async () => {
   let calls = 0;
   const adapter = new VultrV2Adapter({
@@ -178,20 +200,19 @@ Deno.test("Vultr Block Storage uses the documented lifecycle endpoints and paylo
       const request = new Request(input, init);
       requests.push(request);
       const url = new URL(request.url);
-      if (request.method === "POST" && url.pathname.endsWith("/block-storage")) {
-        return Promise.resolve(response({ block_storage: blockStorage }));
+      if (request.method === "POST" && url.pathname.endsWith("/blocks")) {
+        return Promise.resolve(response({ block: blockStorage }));
       }
       if (
         request.method === "GET" &&
-        url.pathname.endsWith("/block-storage/volume_1")
+        url.pathname.endsWith("/blocks/volume_1")
       ) {
-        return Promise.resolve(response({ block_storage: blockStorage }));
+        return Promise.resolve(response({ block: blockStorage }));
       }
       if (
-        request.method === "GET" && url.pathname.endsWith("/block-storage") &&
-        url.searchParams.get("label") === blockStorage.label
+        request.method === "GET" && url.pathname.endsWith("/blocks")
       ) {
-        return Promise.resolve(response({ block_storages: [blockStorage] }));
+        return Promise.resolve(response({ blocks: [blockStorage] }));
       }
       if (
         request.method === "POST" &&
@@ -214,14 +235,17 @@ Deno.test("Vultr Block Storage uses the documented lifecycle endpoints and paylo
   });
   assert.equal(created.id, "volume_1");
   assert.equal((await adapter.getVolume("volume_1"))?.sizeGiB, 192);
-  assert.equal((await adapter.reconcileVolume(blockStorage.label))?.label, blockStorage.label);
+  assert.equal(
+    (await adapter.reconcileVolume(blockStorage.label))?.label,
+    blockStorage.label,
+  );
   await adapter.attachVolume("volume_1", "instance_1");
   await adapter.detachVolume("volume_1");
   await adapter.deleteVolume("volume_1");
 
   const createRequest = requests.find((request) =>
     request.method === "POST" &&
-    new URL(request.url).pathname.endsWith("/block-storage")
+    new URL(request.url).pathname.endsWith("/blocks")
   );
   assert.deepEqual(await createRequest?.clone().json(), {
     region: "sgp",
@@ -230,12 +254,13 @@ Deno.test("Vultr Block Storage uses the documented lifecycle endpoints and paylo
     block_type: "high_perf",
   });
   await assert.rejects(
-    () => adapter.createVolume({
-      region: "ewr",
-      sizeGiB: 192,
-      label: blockStorage.label,
-      blockType: "high_perf",
-    }),
+    () =>
+      adapter.createVolume({
+        region: "ewr",
+        sizeGiB: 192,
+        label: blockStorage.label,
+        blockType: "high_perf",
+      }),
     (error) =>
       error instanceof VultrError &&
       error.code === "provider_rejected" &&
@@ -260,16 +285,17 @@ Deno.test("Vultr Block Storage malformed responses fail closed", async () => {
     regionId: "sgp",
     allowedPlans: ["vc2-2c-4gb"],
     imageId: "1743",
-    fetch: () => Promise.resolve(response({
-      block_storage: {
-        id: "volume_1",
-        region: "sgp",
-        size_gb: 192,
-        label: "xmcl-shared-volume-request_1",
-        block_type: "high_perf",
-        status: "active",
-      },
-    })),
+    fetch: () =>
+      Promise.resolve(response({
+        block: {
+          id: "volume_1",
+          region: "sgp",
+          size_gb: 192,
+          label: "xmcl-shared-volume-request_1",
+          block_type: "high_perf",
+          status: "active",
+        },
+      })),
   });
 
   await assert.rejects(
@@ -286,4 +312,29 @@ Deno.test("Vultr Block Storage malformed responses fail closed", async () => {
       error.code === "invalid_provider_response" &&
       error.outcome === "unknown",
   );
+});
+
+Deno.test("Vultr Block Storage accepts an empty unattached instance ID", async () => {
+  const adapter = new VultrV2Adapter({
+    token: "token",
+    regionId: "nrt",
+    allowedPlans: ["vc2-6c-16gb"],
+    imageId: "1743",
+    fetch: () =>
+      Promise.resolve(response({
+        block: {
+          id: "volume-1",
+          region: "nrt",
+          size_gb: 192,
+          label: "shared-volume",
+          block_type: "high_perf",
+          status: "active",
+          attached_to_instance: "",
+        },
+      })),
+  });
+
+  const volume = await adapter.getVolume("volume-1");
+
+  assert.equal(volume?.attachedToInstance, undefined);
 });

@@ -22,10 +22,11 @@ import type { BillingRuntime } from "./billingRuntime.ts";
 import type { WaffoService } from "./waffo.ts";
 import type { UsageSettlementService } from "./usageSettlement.ts";
 import type { SharedHostingService } from "./sharedHosting.ts";
+import type { XmclPlusService } from "./xmclPlus.ts";
 import type { SharedHostingScheduler } from "./sharedHostingScheduler.ts";
 import type { SharedHostingBillingScheduledWork } from "./sharedHostingScheduling.ts";
 import type { SharedNodeTransportService } from "./sharedNodeTransport.ts";
-import type { VultrSharedNodeProvisioner } from "./sharedNodeProvisioner.ts";
+import type { SharedNodeProvisioner } from "./sharedHostingScheduler.ts";
 import type { AiServiceDependencies } from "./ai/service.ts";
 import type { ServerControlRuntime } from "./serverControlRuntime.ts";
 import type {
@@ -106,13 +107,15 @@ export interface AppVariables {
   usageSettlementService?: UsageSettlementService;
   /** Shared-hosting plan subscriptions and renewal billing. */
   sharedHostingService?: SharedHostingService;
+  /** XMCL Plus subscription and allowance projection. */
+  xmclPlusService?: XmclPlusService;
   /** Global shared-node scheduler; Docker and direct grant transfers remain node-agent owned. */
   sharedHostingScheduler?: SharedHostingScheduler;
   /** Trusted UTC renewal sweep; never supplied by a browser request. */
   sharedHostingBillingScheduledWork?: SharedHostingBillingScheduledWork;
   /** Authenticated internal transport for shared-node agents. */
   sharedNodeTransport?: SharedNodeTransportService;
-  sharedNodeProvisioner?: VultrSharedNodeProvisioner;
+  sharedNodeProvisioner?: SharedNodeProvisioner;
   /** Compiler-owned shared modpack deployment composition; never browser supplied. */
   sharedModdedRuntime?: SharedModdedRuntimeService;
   /** Service-owned local world seed lifecycle; no browser storage credentials. */

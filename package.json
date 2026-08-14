@@ -17,6 +17,8 @@
     "typecheck:workers": "tsc --noEmit -p tsconfig.workers.json && npm run check:workers",
     "check:workers": "npm run check:api && npm run check:ai && npm run check:signaling",
     "check:api": "wrangler deploy --dry-run --config apps/api/wrangler.toml",
+    "check:waffo-staging": "wrangler deploy --dry-run --config apps/waffo-staging/wrangler.toml",
+    "deploy:waffo-staging": "wrangler deploy --config apps/waffo-staging/wrangler.toml",
     "check:ai": "wrangler deploy --dry-run --config apps/ai/wrangler.toml",
     "check:signaling": "wrangler deploy --dry-run --config apps/signaling/wrangler.toml"
   },

@@ -117,6 +117,20 @@ class MemoryCollection implements MongoCollection {
     return found && clone(found);
   }
 
+  find(filter: Document) {
+    return {
+      toArray: async () =>
+        [...this.documents.values()]
+          .filter((document) => matches(document, filter))
+          .map(clone),
+    };
+  }
+
+  async insertOne(document: Document) {
+    this.documents.set(String(document._id), clone(document));
+    return { insertedId: document._id };
+  }
+
   async findOneAndUpdate(
     filter: Document,
     update: Document,

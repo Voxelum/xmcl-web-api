@@ -145,6 +145,51 @@ operations.get("/v1/admin/reconciliation", async (c) => {
   }
 });
 
+operations.get("/v1/admin/billing/overview", async (c) => {
+  try {
+    assertAdminPermission(
+      c.var.adminPrincipal,
+      "read_billing",
+      new Date().toISOString(),
+    );
+    const billing = c.var.billingService;
+    if (!billing) throw new Error("unavailable");
+    const [overview, plusSubscriptions, sharedHostingSubscriptions] =
+      await Promise.all([
+        billing.adminOverview(),
+        c.var.xmclPlusService?.adminSubscriptions() ?? Promise.resolve([]),
+        c.var.sharedHostingService?.adminSubscriptions() ??
+          Promise.resolve([]),
+      ]);
+    const allowanceAccountIds = [
+      ...new Set([
+        ...overview.accounts.map((account) => account.accountId),
+        ...plusSubscriptions.map((subscription) => subscription.accountId),
+        ...sharedHostingSubscriptions.map((subscription) =>
+          subscription.accountId
+        ),
+      ]),
+    ];
+    const plus = c.var.xmclPlusService;
+    const allowances = plus
+      ? await Promise.all(
+        allowanceAccountIds.map(async (accountId) => ({
+          accountId,
+          ...(await plus.allowances(accountId)),
+        })),
+      )
+      : [];
+    return c.json({
+      ...overview,
+      plusSubscriptions,
+      sharedHostingSubscriptions,
+      allowances,
+    });
+  } catch (cause) {
+    return error(c, cause);
+  }
+});
+
 operations.get("/v1/admin/shared-hosting/reconciliation", async (c) => {
   try {
     assertAdminPermission(

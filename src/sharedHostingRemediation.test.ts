@@ -151,6 +151,45 @@ Deno.test("renewal payment failure enqueues one stop/sync command", async () => 
   assert.equal(f.commands.length, 2);
 });
 
+Deno.test("period-end cancellation syncs a running service into 30-day cold retention", async () => {
+  const f = await runningFixture(800);
+  await f.shared.cancel(
+    "account_1",
+    f.subscription.subscriptionId,
+    "cancel-at-period-end",
+  );
+  f.setNow("2026-08-24T00:00:00.000Z");
+  const result = await sharedHostingBillingWork(f.shared, f.scheduler).renewDue(
+    new Date("2026-08-24T00:00:00.000Z"),
+  );
+  assert.deepEqual(result.cancelled, [f.subscription.subscriptionId]);
+  const stopping = (await f.scheduler.listServices("account_1"))[0];
+  assert.equal(stopping.status, "stopping");
+  assert.equal(stopping.statusReason, "cancellation_sync");
+  assert.equal(stopping.retentionStartedAt, "2026-08-24T00:00:00.000Z");
+  assert.equal(stopping.retentionEndsAt, "2026-09-23T00:00:00.000Z");
+  const stopCommand = f.commands.at(-1) as { assignmentId: string };
+  await f.scheduler.reportStoppedAndSynced({
+    nodeId: "node_1",
+    serviceId: f.serviceId,
+    assignmentId: stopCommand.assignmentId,
+    workspace: {
+      revision: 1,
+      sizeBytes: 1024,
+      physicalBytes: 1024,
+    },
+  });
+  const retained = (await f.scheduler.listServices("account_1"))[0];
+  assert.equal(retained.status, "retained");
+  assert.equal(retained.statusReason, "cancellation_retention");
+  await assert.rejects(
+    () => f.scheduler.start("account_1", f.serviceId, "restart-retained"),
+    (error: unknown) =>
+      error instanceof Error &&
+      error.message === "shared_subscription_not_active",
+  );
+});
+
 Deno.test("storage overage notifies, preserves data, and blocks only after grace", async () => {
   const notices: unknown[] = [];
   const f = await runningFixture(10_000, async (input) => {

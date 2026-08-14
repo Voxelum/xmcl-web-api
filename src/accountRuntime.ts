@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { getConfig } from "./config.ts";
+import { getConfig, type AppConfig } from "./config.ts";
 import type { AppEnv } from "./types.ts";
 import { AccountService, MongoAccountRepository } from "./account.ts";
 import { AccountMergeService } from "./accountMerge.ts";
@@ -22,10 +22,25 @@ export interface AccountRuntime {
   oauth: OAuthRegistry;
 }
 
+function configuredSessionSecrets(config: AppConfig) {
+  const previous = config.XMCL_SESSION_SECRET;
+  const primary = config.XMCL_SESSION_SECRET_PRIMARY ?? previous;
+  if (!primary) throw new Error("XMCL_SESSION_SECRET is not set");
+  return {
+    primary,
+    additionalVerificationSecrets: previous && previous !== primary
+      ? [previous]
+      : [],
+  };
+}
+
 export function getAccessTokenVerifier(c: Context<AppEnv>) {
-  const secret = getConfig(c).XMCL_SESSION_SECRET;
-  if (!secret) throw new Error("XMCL_SESSION_SECRET is not set");
-  return new AccessTokenVerifier(secret);
+  const secrets = configuredSessionSecrets(getConfig(c));
+  return new AccessTokenVerifier(
+    secrets.primary,
+    undefined,
+    secrets.additionalVerificationSecrets,
+  );
 }
 
 export async function verifyAccessToken(
@@ -75,11 +90,15 @@ export async function getAccountRuntime(
       redirectUris: redirects,
     }),
   };
-  const secret = config.XMCL_SESSION_SECRET;
-  if (!secret) throw new Error("XMCL_SESSION_SECRET is not set");
+  const secrets = configuredSessionSecrets(config);
   return {
     accounts: new AccountService(repository),
-    sessions: new SessionService(repository, secret),
+    sessions: new SessionService(
+      repository,
+      secrets.primary,
+      undefined,
+      secrets.additionalVerificationSecrets,
+    ),
     merges: new AccountMergeService(repository),
     oauth,
   };

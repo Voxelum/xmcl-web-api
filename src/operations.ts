@@ -245,6 +245,7 @@ export function assertAdminPermission(
   action:
     | AdminOperationAction
     | "read_audit"
+    | "read_billing"
     | "read_metrics"
     | "read_reconciliation",
   now: string,
@@ -255,7 +256,8 @@ export function assertAdminPermission(
   if (!Number.isFinite(mfaAge) || mfaAge < 0 || mfaAge > mfaMaxAgeMs) {
     throw new AdminOperationError("mfa_required");
   }
-  const permitted = action === "refund" || action === "balance_adjust"
+  const permitted = action === "refund" || action === "balance_adjust" ||
+      action === "read_billing"
     ? ["billing_operator", "admin"]
     : action === "server_suspend" || action === "server_restore"
     ? ["risk_operator", "admin"]

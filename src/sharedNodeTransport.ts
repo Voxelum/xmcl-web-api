@@ -1,9 +1,12 @@
+import { AccountError } from "./account.ts";
 import type { Db } from "./db.ts";
 import {
   isSharedNodeRegion,
   type SharedHostingScheduler,
+  type SharedHostingServiceRecord,
   type SharedNodeCommand,
   type SharedNodeCommandGateway,
+  type SharedNodeWorkloadClass,
   type SharedWorkspace,
 } from "./sharedHostingScheduler.ts";
 import type { S3PresignedObject } from "./s3SigV4.ts";
@@ -52,6 +55,7 @@ export interface SharedNodeSignedRequest {
 }
 
 export interface SharedNodeExpectedCapacity {
+  workloadClasses?: readonly SharedNodeWorkloadClass[];
   totalMemoryMiB: number;
   totalSharedCpu: number;
   totalWorkspaceGiB: number;
@@ -78,6 +82,15 @@ export interface SharedNodeEnrollmentRepository {
     expectedCapacity: SharedNodeExpectedCapacity;
     now: string;
   }): Promise<SharedNodeEnrollmentRecord | undefined>;
+}
+
+function sameExpectedCapacity(
+  expected: SharedNodeExpectedCapacity,
+  reported: SharedNodeExpectedCapacity,
+) {
+  return expected.totalMemoryMiB === reported.totalMemoryMiB &&
+    expected.totalSharedCpu === reported.totalSharedCpu &&
+    expected.totalWorkspaceGiB === reported.totalWorkspaceGiB;
 }
 
 export interface SharedWorkspaceBlobDescriptor {
@@ -136,6 +149,8 @@ export interface SharedNodeWorkspaceSigner {
     method: "GET" | "PUT",
     expiresInSeconds: number,
   ): Promise<S3PresignedObject>;
+  /** Server-side exact deletion; never returned as a client grant. */
+  deleteExact?(keys: readonly string[]): Promise<void>;
 }
 
 export interface SharedWorkspaceManifestRecord {
@@ -155,6 +170,7 @@ export interface SharedWorkspaceManifestRepository {
     serviceId: string,
     revision: number,
   ): Promise<SharedWorkspaceManifestRecord | undefined>;
+  listPublished(serviceId: string): Promise<SharedWorkspaceManifestRecord[]>;
   findPublishedContent(
     serviceId: string,
     key: string,
@@ -198,6 +214,13 @@ export interface SharedNodeHeartbeat {
     allocatableSharedCpu: number;
     activeContainerCount: number;
   };
+  services?: Array<{
+    serviceId: string;
+    assignmentId: string;
+    cpuPercent: number;
+    memoryUsageMiB: number;
+    memoryLimitMiB: number;
+  }>;
   agentVersion: string;
   ingress: {
     host: string;
@@ -929,8 +952,7 @@ export class MemorySharedNodeCredentialRepository
       record.consumedAt ||
       record.oneTimeTokenHash !== input.tokenHash ||
       Date.parse(record.expiresAt) <= Date.parse(input.now) ||
-      JSON.stringify(record.expectedCapacity) !==
-        JSON.stringify(input.expectedCapacity)
+      !sameExpectedCapacity(record.expectedCapacity, input.expectedCapacity)
     ) {
       return Promise.resolve(undefined);
     }
@@ -1013,7 +1035,12 @@ export class MongoSharedNodeCredentialRepository
           _id: input.nodeId,
           nodeId: input.nodeId,
           oneTimeTokenHash: input.tokenHash,
-          expectedCapacity: input.expectedCapacity,
+          "expectedCapacity.totalMemoryMiB":
+            input.expectedCapacity.totalMemoryMiB,
+          "expectedCapacity.totalSharedCpu":
+            input.expectedCapacity.totalSharedCpu,
+          "expectedCapacity.totalWorkspaceGiB":
+            input.expectedCapacity.totalWorkspaceGiB,
           expiresAt: { $gt: input.now },
           consumedAt: { $exists: false },
         },
@@ -1151,6 +1178,16 @@ export class MemorySharedWorkspaceManifestRepository
     );
   }
 
+  async listPublished(serviceId: string) {
+    await this.tail;
+    return [...this.records.values()]
+      .filter((record) =>
+        record.serviceId === serviceId && record.status === "published"
+      )
+      .sort((left, right) => left.revision - right.revision)
+      .map(clone);
+  }
+
   async findPublishedContent(serviceId: string, key: string) {
     await this.tail;
     for (const record of this.records.values()) {
@@ -1241,6 +1278,15 @@ export class MongoSharedWorkspaceManifestRepository
       _id: workspaceManifestRecordKey(serviceId, revision),
     }) as SharedWorkspaceManifestRecord | undefined;
     return record ? clone(record) : undefined;
+  }
+
+  async listPublished(serviceId: string) {
+    return (await this.collection().find({
+      serviceId,
+      status: "published",
+    }).toArray() as SharedWorkspaceManifestRecord[])
+      .sort((left, right) => left.revision - right.revision)
+      .map(clone);
   }
 
   async findPublishedContent(serviceId: string, key: string) {
@@ -1403,6 +1449,128 @@ export class SharedNodeTransportService {
     this.runtimeContentGrantAuthority = authority;
   }
 
+  async retainedWorkspaceExport(accountId: string, serviceId: string) {
+    const signer = this.options.workspaceSigner;
+    const manifests = this.options.workspaceManifestRepository;
+    if (!signer || !manifests) {
+      throw new AccountError(503, "shared_workspace_export_unavailable");
+    }
+
+    const service = await this.options.scheduler.getService(
+      accountId,
+      serviceId,
+    );
+    if (
+      service.status !== "retained" ||
+      !service.retentionEndsAt ||
+      Date.parse(service.retentionEndsAt) <= this.now().getTime() ||
+      service.workspace.revision < 1
+    ) {
+      throw new AccountError(409, "shared_workspace_export_unavailable");
+    }
+    const record = await manifests.find(
+      service.serviceId,
+      service.workspace.revision,
+    );
+    if (
+      !record ||
+      record.status !== "published" ||
+      record.accountId !== accountId ||
+      record.manifest.serviceId !== service.serviceId ||
+      record.manifest.revision !== service.workspace.revision
+    ) {
+      throw new AccountError(409, "shared_workspace_export_unavailable");
+    }
+    const files = [
+      {
+        kind: "manifest" as const,
+        key: manifestObjectKey(
+          service.workspace.objectPrefix,
+          service.workspace.revision,
+        ),
+      },
+      ...(record.manifest.content
+        ? [{ kind: "content" as const, key: record.manifest.content.key }]
+        : []),
+      ...(record.manifest.config
+        ? [{ kind: "config" as const, key: record.manifest.config.key }]
+        : []),
+      ...record.manifest.world.map((value) => ({
+        kind: "world" as const,
+        key: value.key,
+      })),
+    ];
+    const grants = await Promise.all(files.map(async (file) => ({
+      ...file,
+      ...(await signer.presign(file.key, "GET", this.workspaceGrantTtlMs)),
+    })));
+    return {
+      serviceId: service.serviceId,
+      revision: service.workspace.revision,
+      retentionEndsAt: service.retentionEndsAt,
+      grants,
+    };
+  }
+
+  async purgeRetainedWorkspace(service: SharedHostingServiceRecord) {
+    const deleter = this.options.workspaceSigner?.deleteExact;
+    const manifests = this.options.workspaceManifestRepository;
+    if (!deleter || !manifests) {
+      throw new Error("shared workspace retention deletion unavailable");
+    }
+
+    if (
+      service.status !== "retained" ||
+      !service.retentionEndsAt ||
+      Date.parse(service.retentionEndsAt) > this.now().getTime()
+    ) {
+      throw new Error("shared workspace retention has not expired");
+    }
+    const records = await manifests.listPublished(service.serviceId);
+    const blobKeys = new Set<string>();
+    const manifestKeys: string[] = [];
+    for (const record of records) {
+      if (
+        record.serviceId !== service.serviceId ||
+        record.accountId !== service.accountId ||
+        record.status !== "published" ||
+        record.manifest.serviceId !== service.serviceId ||
+        record.manifest.revision !== record.revision
+      ) {
+        throw new Error("invalid retained workspace manifest");
+      }
+      for (const descriptor of manifestBlobDescriptors(record.manifest)) {
+        blobKeys.add(descriptor.key);
+      }
+      manifestKeys.push(
+        manifestObjectKey(service.workspace.objectPrefix, record.revision),
+      );
+    }
+    await deleter([...blobKeys, ...manifestKeys]);
+  }
+
+  async sharedServiceMetrics(accountId: string, serviceId: string) {
+    const service = await this.options.scheduler.getService(
+      accountId,
+      serviceId,
+    );
+    if (!service.nodeId || !service.assignmentId) return undefined;
+    const heartbeat = await this.options.credentialRepository.findHeartbeat(
+      service.nodeId,
+    );
+    const metrics = heartbeat?.services?.find((value) =>
+      value.serviceId === service.serviceId &&
+      value.assignmentId === service.assignmentId
+    );
+    if (!heartbeat || !metrics) return undefined;
+    return {
+      cpuPercent: metrics.cpuPercent,
+      memoryUsageMiB: metrics.memoryUsageMiB,
+      memoryLimitMiB: metrics.memoryLimitMiB,
+      observedAt: heartbeat.receivedAt,
+    };
+  }
+
   async dispatch(command: SharedNodeCommand) {
     if (!command.connection) {
       throw new SharedNodeTransportError("invalid_request");
@@ -1448,6 +1616,9 @@ export class SharedNodeTransportService {
     if (!enrollment) throw new SharedNodeTransportError("unauthorized");
     await this.options.scheduler.registerNode({
       ...input,
+      ...(enrollment.expectedCapacity.workloadClasses
+        ? { workloadClasses: enrollment.expectedCapacity.workloadClasses }
+        : {}),
       status: "ready",
     });
     const issued = await issueSharedNodeCredential(
@@ -2036,6 +2207,25 @@ function validateHeartbeat(value: SharedNodeHeartbeat) {
   ) {
     throw new SharedNodeTransportError("invalid_request");
   }
+  const seen = new Set<string>();
+  for (const service of value.services ?? []) {
+    const key = `${service.serviceId}:${service.assignmentId}`;
+    if (
+      !validIdentifier(service.serviceId) ||
+      !validIdentifier(service.assignmentId) ||
+      !Number.isFinite(service.cpuPercent) ||
+      service.cpuPercent < 0 ||
+      service.cpuPercent > 10_000 ||
+      !nonNegativeSafeInteger(service.memoryUsageMiB) ||
+      !Number.isSafeInteger(service.memoryLimitMiB) ||
+      service.memoryLimitMiB < 1 ||
+      service.memoryUsageMiB > service.memoryLimitMiB ||
+      seen.has(key)
+    ) {
+      throw new SharedNodeTransportError("invalid_request");
+    }
+    seen.add(key);
+  }
   validateIngressEndpoint({ host: value.ingress.host }, true);
 }
 
@@ -2089,7 +2279,9 @@ function initialWorldObjectKey(command: SharedNodeCommand) {
   ) {
     return undefined;
   }
-  return `${validWorkspacePrefix(command.workspace.objectPrefix)}/world-seeds/${world.seedId}.xmcl-world-seed`;
+  return `${
+    validWorkspacePrefix(command.workspace.objectPrefix)
+  }/world-seeds/${world.seedId}.xmcl-world-seed`;
 }
 
 function validWorkspacePrefix(prefix: string) {

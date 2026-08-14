@@ -29,12 +29,14 @@ const config = {
   blockStorageSizeGiB: 192,
   blockStorageType: "high_perf",
   firewallGroupId: "firewall-group-1",
-  containerImage: "ghcr.io/voxelum/xmcl-shared-minecraft-runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  containerImage:
+    "ghcr.io/voxelum/xmcl-shared-minecraft-runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 };
 
 const capacityRequest = {
   requestId: "shared-capacity:service_1",
   region: "sgp",
+  workloadClass: "standard" as const,
   minimumMemoryMiB: 4096,
   minimumSharedCpu: 2,
   minimumWorkspaceGiB: 32,
@@ -234,6 +236,7 @@ Deno.test("configured shared-node capacity is required during agent enrollment",
       "shared-node-shared-capacity:service_1",
     ))?.expectedCapacity,
     {
+      workloadClasses: ["standard", "large"],
       totalMemoryMiB: 16384,
       totalSharedCpu: 6,
       totalWorkspaceGiB: 128,

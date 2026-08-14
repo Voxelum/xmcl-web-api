@@ -99,11 +99,20 @@ function encodeBytes(bytes: Uint8Array) {
 }
 
 export class AccessTokenVerifier {
+  private readonly verificationSecrets: string[];
+
   constructor(
     protected readonly secret: string,
     protected readonly now: () => Date = () => new Date(),
+    additionalVerificationSecrets: string[] = [],
   ) {
-    if (secret.length < 32) {
+    this.verificationSecrets = [
+      secret,
+      ...additionalVerificationSecrets.filter((candidate) =>
+        candidate !== secret
+      ),
+    ];
+    if (this.verificationSecrets.some((candidate) => candidate.length < 32)) {
       throw new Error("XMCL_SESSION_SECRET must be at least 32 characters");
     }
   }
@@ -114,18 +123,21 @@ export class AccessTokenVerifier {
     let validSignature = false;
     try {
       const supplied = decodeBase64Url(parts[2]);
-      validSignature = await crypto.subtle.verify(
-        "HMAC",
-        await crypto.subtle.importKey(
-          "raw",
-          new TextEncoder().encode(this.secret),
-          { name: "HMAC", hash: "SHA-256" },
-          false,
-          ["verify"],
-        ),
-        supplied,
-        new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
-      );
+      for (const secret of this.verificationSecrets) {
+        validSignature = await crypto.subtle.verify(
+          "HMAC",
+          await crypto.subtle.importKey(
+            "raw",
+            new TextEncoder().encode(secret),
+            { name: "HMAC", hash: "SHA-256" },
+            false,
+            ["verify"],
+          ),
+          supplied,
+          new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
+        );
+        if (validSignature) break;
+      }
     } catch {
       validSignature = false;
     }
@@ -179,8 +191,9 @@ export class SessionService extends AccessTokenVerifier {
     private readonly repository: AccountRepository,
     secret: string,
     now: () => Date = () => new Date(),
+    additionalVerificationSecrets: string[] = [],
   ) {
-    super(secret, now);
+    super(secret, now, additionalVerificationSecrets);
   }
 
   override async verify(accessToken: string): Promise<XmclPrincipal> {

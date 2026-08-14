@@ -67,7 +67,6 @@ function fixture(
           displayName: "Small",
           memoryMiB: 4096,
           sharedCpu: 2,
-          burstCpu: 4,
           persistentStorageGiB: 32,
           monthlyBaseMinor: 400,
           hourlyRateVersion: 1,

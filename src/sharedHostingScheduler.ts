@@ -1,6 +1,16 @@
 import { AccountError, randomId } from "./account.ts";
-import { VultrError } from "./vultr.ts";
 import type { Db } from "./db.ts";
+import {
+  InfrastructureError,
+  infrastructureErrorDiagnostic,
+  type SharedNodeProvisioner,
+  type SharedNodeWorkloadClass,
+} from "./sharedNodeInfrastructure.ts";
+export type {
+  SharedNodeCapacityDemand,
+  SharedNodeProvisioner,
+  SharedNodeWorkloadClass,
+} from "./sharedNodeInfrastructure.ts";
 import type {
   PublicSharedHostingSubscription,
   SharedHostingPlan,
@@ -19,6 +29,7 @@ export type SharedServiceStatus =
   | "starting"
   | "running"
   | "stopping"
+  | "retained"
   | "failed"
   | "deleted";
 
@@ -65,6 +76,7 @@ export interface SharedHostingNode {
   nodeId: string;
   region: string;
   status: SharedNodeStatus;
+  workloadClasses?: readonly SharedNodeWorkloadClass[];
   totalMemoryMiB: number;
   totalSharedCpu: number;
   totalWorkspaceGiB: number;
@@ -109,6 +121,7 @@ export interface SharedHostingServiceRecord {
   accountId: string;
   subscriptionId: string;
   planId: SharedHostingPlan["planId"];
+  regionId?: string;
   status: SharedServiceStatus;
   workspace: SharedWorkspace;
   /** Selected only while stopped; the node receives it on the next restore. */
@@ -126,6 +139,8 @@ export interface SharedHostingServiceRecord {
   storageOverageSince?: string;
   storageGraceEndsAt?: string;
   storageOverageNotifiedAt?: string;
+  retentionStartedAt?: string;
+  retentionEndsAt?: string;
   nodeId?: string;
   assignmentId?: string;
   capacityRequestedAt?: string;
@@ -152,6 +167,7 @@ export interface SharedHostingSchedulerState {
 export interface SharedCapacityRequest {
   requestId: string;
   region: string;
+  workloadClass: SharedNodeWorkloadClass;
   minimumMemoryMiB: number;
   minimumSharedCpu: number;
   minimumWorkspaceGiB: number;
@@ -210,20 +226,11 @@ export interface SharedNodeCommandGateway {
   dispatch(command: SharedNodeCommand): Promise<void>;
 }
 
-/** Optional platform adapter that asks infrastructure to add a shared node. */
-export interface SharedNodeProvisioner {
-  requestCapacity(input: {
-    requestId: string;
-    region: string;
-    minimumMemoryMiB: number;
-    minimumSharedCpu: number;
-    minimumWorkspaceGiB: number;
-  }): Promise<void>;
-}
-
 export interface SharedHostingSchedulerOptions {
-  /** The sole configured provider region for the current shared-node pool. */
+  /** Backward-compatible default region for records created before region selection. */
   region: string;
+  /** Every region this scheduler is allowed to place or provision into. */
+  regions?: readonly string[];
   now?: () => Date;
   createId?: (prefix: string) => string;
   nodeHeartbeatTimeoutMs?: number;
@@ -237,6 +244,10 @@ export interface SharedHostingSchedulerOptions {
     graceEndsAt: string;
   }) => Promise<void>;
 }
+
+export type SharedRetentionPurger = (
+  service: SharedHostingServiceRecord,
+) => Promise<void>;
 
 function emptyState(): SharedHostingSchedulerState {
   return {
@@ -256,6 +267,10 @@ function plan(planId: string) {
   const result = SHARED_HOSTING_PLANS.find((item) => item.planId === planId);
   if (!result) throw new AccountError(422, "shared_plan_not_available");
   return result;
+}
+
+function workloadClass(planId: SharedHostingPlan["planId"]) {
+  return planId === "shared-large" ? "large" : "standard";
 }
 
 function service(state: SharedHostingSchedulerState, serviceId: string) {
@@ -295,6 +310,10 @@ function selectNode(
 ) {
   return state.nodes
     .filter((node) => node.status === "ready" && node.region === region)
+    .filter((node) =>
+      !node.workloadClasses ||
+      node.workloadClasses.includes(workloadClass(selected.planId))
+    )
     .map((node) => ({ node, usage: nodeUsage(state, node.nodeId) }))
     .filter(({ node, usage }) =>
       node.totalMemoryMiB - usage.memoryMiB >= selected.memoryMiB &&
@@ -386,11 +405,18 @@ function persistedState(
   if (value) {
     return {
       ...value,
-      capacityRequests: (value.capacityRequests ?? []).map((item) =>
-        item.status === "processing" && !item.processingAt
-          ? { ...item, processingAt: item.updatedAt }
-          : item
-      ),
+      capacityRequests: (value.capacityRequests ?? []).map((item) => ({
+        ...item,
+        workloadClass: item.workloadClass ??
+          (item.minimumMemoryMiB >= 8 * 1024 &&
+              item.minimumSharedCpu >= 4 &&
+              item.minimumWorkspaceGiB >= 64
+            ? "large"
+            : "standard"),
+        ...(item.status === "processing" && !item.processingAt
+          ? { processingAt: item.updatedAt }
+          : {}),
+      })),
     };
   }
   return {
@@ -462,8 +488,10 @@ export class SharedHostingScheduler {
   private readonly createId: (prefix: string) => string;
   private readonly nodeHeartbeatTimeoutMs: number;
   private readonly capacityRequestTimeoutMs: number;
-  private readonly region: string;
+  private readonly defaultRegion: string;
+  private readonly regions: ReadonlySet<string>;
   private provisioner?: SharedNodeProvisioner;
+  private retentionPurger?: SharedRetentionPurger;
   private readonly notifyStorageOverage?: SharedHostingSchedulerOptions[
     "notifyStorageOverage"
   ];
@@ -482,7 +510,8 @@ export class SharedHostingScheduler {
     this.nodeHeartbeatTimeoutMs = options.nodeHeartbeatTimeoutMs ?? 90_000;
     this.capacityRequestTimeoutMs = options.capacityRequestTimeoutMs ??
       10 * 60_000;
-    this.region = options.region;
+    this.defaultRegion = options.region;
+    this.regions = new Set(options.regions ?? [options.region]);
     if (
       !Number.isSafeInteger(this.nodeHeartbeatTimeoutMs) ||
       this.nodeHeartbeatTimeoutMs <= 0 ||
@@ -491,8 +520,13 @@ export class SharedHostingScheduler {
     ) {
       throw new Error("SHARED_NODE_HEARTBEAT_TIMEOUT_MS is invalid");
     }
-    if (!isSharedNodeRegion(this.region)) {
-      throw new Error("VULTR_SHARED_NODE_REGION_ID is invalid");
+    if (
+      !isSharedNodeRegion(this.defaultRegion) ||
+      this.regions.size === 0 ||
+      !this.regions.has(this.defaultRegion) ||
+      [...this.regions].some((region) => !isSharedNodeRegion(region))
+    ) {
+      throw new Error("shared node region is invalid");
     }
   }
 
@@ -512,8 +546,14 @@ export class SharedHostingScheduler {
 
   async assertInitialWorldEligible(accountId: string, serviceId: string) {
     const value = await this.requireService(accountId, serviceId);
-    await this.subscriptions.activeSubscription(accountId, value.subscriptionId);
-    if (value.status !== "ready" || value.hasStarted || value.workspace.revision !== 0) {
+    await this.subscriptions.activeSubscription(
+      accountId,
+      value.subscriptionId,
+    );
+    if (
+      value.status !== "ready" || value.hasStarted ||
+      value.workspace.revision !== 0
+    ) {
       throw new AccountError(409, "shared_initial_world_not_selectable");
     }
     return value;
@@ -582,11 +622,17 @@ export class SharedHostingScheduler {
       if (!value || value.accountId !== input.accountId) {
         throw new AccountError(404, "shared_service_not_found");
       }
-      if (value.status !== "ready" || value.hasStarted || value.workspace.revision !== 0) {
+      if (
+        value.status !== "ready" || value.hasStarted ||
+        value.workspace.revision !== 0
+      ) {
         throw new AccountError(409, "shared_initial_world_not_selectable");
       }
       const key = `${input.accountId}:initial-world:${input.idempotencyKey}`;
-      const requestFingerprint = fingerprint({ serviceId: input.serviceId, world: input.world });
+      const requestFingerprint = fingerprint({
+        serviceId: input.serviceId,
+        world: input.world,
+      });
       const replay = state.idempotency.find((item) => item.key === key);
       if (replay) {
         if (replay.fingerprint !== requestFingerprint) {
@@ -609,6 +655,48 @@ export class SharedHostingScheduler {
 
   attachProvisioner(provisioner: SharedNodeProvisioner) {
     this.provisioner = provisioner;
+  }
+
+  attachRetentionPurger(purger: SharedRetentionPurger) {
+    this.retentionPurger = purger;
+  }
+
+  async purgeExpiredRetentions(at = this.now()) {
+    if (!this.retentionPurger) {
+      return { deleted: [] as string[], failed: [] as string[] };
+    }
+    const candidates = (await this.repository.read()).services
+      .filter((service) =>
+        service.status === "retained" &&
+        service.retentionEndsAt !== undefined &&
+        Date.parse(service.retentionEndsAt) <= at.getTime()
+      )
+      .sort((left, right) =>
+        left.retentionEndsAt!.localeCompare(right.retentionEndsAt!) ||
+        left.serviceId.localeCompare(right.serviceId)
+      );
+    const deleted: string[] = [];
+    const failed: string[] = [];
+    for (const candidate of candidates) {
+      try {
+        await this.retentionPurger(clone(candidate));
+        await this.repository.transact((state) => {
+          const current = service(state, candidate.serviceId);
+          if (
+            current?.status === "retained" &&
+            current.retentionEndsAt === candidate.retentionEndsAt
+          ) {
+            current.status = "deleted";
+            current.statusReason = "retention_expired";
+            current.updatedAt = at.toISOString();
+          }
+        });
+        deleted.push(candidate.serviceId);
+      } catch {
+        failed.push(candidate.serviceId);
+      }
+    }
+    return { deleted, failed };
   }
 
   async processCapacityRequests(limit = 4) {
@@ -659,11 +747,13 @@ export class SharedHostingScheduler {
             item.requestId === request.requestId
           );
           if (!current) return;
-          current.status = error instanceof VultrError &&
+          current.status = error instanceof InfrastructureError &&
               error.outcome === "definitive"
             ? "failed"
             : "queued";
-          current.lastError = error instanceof Error
+          current.lastError = error instanceof InfrastructureError
+            ? infrastructureErrorDiagnostic(error)
+            : error instanceof Error
             ? error.message
             : "unknown";
           current.processingAt = undefined;
@@ -694,6 +784,45 @@ export class SharedHostingScheduler {
         result.push(
           commandFor(value, plan(value.planId), "workspace.stop_and_sync"),
         );
+      }
+
+      return result;
+    });
+    await this.dispatch(commands);
+    return commands.map((command) => command.serviceId);
+  }
+
+  async beginCancellationRetention(
+    retentions: readonly {
+      subscriptionId: string;
+      retentionStartedAt: string;
+      retentionEndsAt: string;
+    }[],
+  ) {
+    const bySubscription = new Map(
+      retentions.map((retention) => [retention.subscriptionId, retention]),
+    );
+    const commands = await this.repository.transact((state) => {
+      const result: SharedNodeCommand[] = [];
+      for (const value of state.services) {
+        const retention = bySubscription.get(value.subscriptionId);
+        if (!retention || value.status === "deleted") continue;
+        value.retentionStartedAt = retention.retentionStartedAt;
+        value.retentionEndsAt = retention.retentionEndsAt;
+        value.updatedAt = this.now().toISOString();
+        if (["starting", "running"].includes(value.status)) {
+          value.status = "stopping";
+          value.statusReason = "cancellation_sync";
+          result.push(
+            commandFor(value, plan(value.planId), "workspace.stop_and_sync"),
+          );
+        } else if (value.status !== "stopping") {
+          value.nodeId = undefined;
+          value.assignmentId = undefined;
+          value.runtime = undefined;
+          value.status = "retained";
+          value.statusReason = "cancellation_retention";
+        }
       }
       return result;
     });
@@ -755,7 +884,7 @@ export class SharedHostingScheduler {
     await this.repository.transact((state) => {
       const existing = state.nodes.find((item) => item.nodeId === input.nodeId);
       if (existing) {
-        if (existing.region !== this.region) {
+        if (existing.region !== input.region) {
           throw new AccountError(422, "invalid_shared_node");
         }
         Object.assign(existing, input, { lastHeartbeatAt: now });
@@ -774,7 +903,7 @@ export class SharedHostingScheduler {
     await this.repository.transact((state) => {
       const node = state.nodes.find((item) => item.nodeId === nodeId);
       if (!node) throw new AccountError(404, "shared_node_not_found");
-      if (node.region !== this.region) {
+      if (!this.isPoolRegion(node.region)) {
         throw new AccountError(422, "invalid_shared_node");
       }
       node.lastHeartbeatAt = now;
@@ -789,13 +918,13 @@ export class SharedHostingScheduler {
   async hasNode(nodeId: string) {
     return Boolean(
       (await this.repository.read()).nodes.find((item) =>
-        item.nodeId === nodeId && item.region === this.region
+        item.nodeId === nodeId && this.isPoolRegion(item.region)
       ),
     );
   }
 
   isPoolRegion(region: string) {
-    return isSharedNodeRegion(region) && region === this.region;
+    return isSharedNodeRegion(region) && this.regions.has(region);
   }
 
   async markNodeDraining(nodeId: string) {
@@ -879,6 +1008,10 @@ export class SharedHostingScheduler {
       input.accountId,
       input.subscriptionId,
     );
+    const regionId = subscription.regionId ?? this.defaultRegion;
+    if (!this.isPoolRegion(regionId)) {
+      throw new AccountError(503, "shared_region_unavailable");
+    }
     const now = this.now().toISOString();
     return await this.repository.transact((state) => {
       const scope = `${input.accountId}:create:${input.idempotencyKey}`;
@@ -896,13 +1029,22 @@ export class SharedHostingScheduler {
         item.subscriptionId === subscription.subscriptionId &&
         item.status !== "deleted"
       );
-      if (existing) throw new AccountError(409, "shared_service_exists");
+      if (existing) {
+        state.idempotency.push({
+          accountId: input.accountId,
+          key: scope,
+          fingerprint: requestFingerprint,
+          serviceId: existing.serviceId,
+        });
+        return clone(existing);
+      }
       const serviceId = this.createId("shared_service");
       const created: SharedHostingServiceRecord = {
         serviceId,
         accountId: input.accountId,
         subscriptionId: subscription.subscriptionId,
         planId: subscription.planId,
+        regionId,
         status: "ready",
         workspace: {
           objectPrefix: workspacePrefix(input.accountId, serviceId),
@@ -1110,7 +1252,7 @@ export class SharedHostingScheduler {
       };
       value.nodeId = undefined;
       value.assignmentId = undefined;
-      value.status = "ready";
+      value.status = value.retentionEndsAt ? "retained" : "ready";
       value.runtime = undefined;
       const selected = plan(value.planId);
       const quotaBytes = selected.persistentStorageGiB * 1024 ** 3;
@@ -1125,7 +1267,9 @@ export class SharedHostingScheduler {
         value.storageGraceEndsAt = undefined;
         value.storageOverageNotifiedAt = undefined;
       }
-      value.statusReason = runtime?.status === "payment_due"
+      value.statusReason = value.retentionEndsAt
+        ? "cancellation_retention"
+        : runtime?.status === "payment_due"
         ? "runtime_payment_due"
         : value.storageGraceEndsAt
         ? "storage_overage_grace"
@@ -1212,7 +1356,11 @@ export class SharedHostingScheduler {
     now: string,
   ) {
     const selected = plan(value.planId);
-    const node = selectNode(state, selected, this.region);
+    const region = value.regionId ?? this.defaultRegion;
+    if (!this.isPoolRegion(region)) {
+      throw new AccountError(503, "shared_region_unavailable");
+    }
+    const node = selectNode(state, selected, region);
     if (!node) {
       const shouldRequestCapacity = !value.capacityRequestedAt;
       value.status = "queued";
@@ -1222,7 +1370,8 @@ export class SharedHostingScheduler {
       if (shouldRequestCapacity) {
         state.capacityRequests.push({
           requestId: `shared-capacity:${value.serviceId}`,
-          region: this.region,
+          region,
+          workloadClass: workloadClass(value.planId),
           minimumMemoryMiB: selected.memoryMiB,
           minimumSharedCpu: selected.sharedCpu,
           minimumWorkspaceGiB: selected.persistentStorageGiB,
@@ -1265,6 +1414,11 @@ export class SharedHostingScheduler {
     if (
       !node.nodeId || !this.isPoolRegion(node.region) ||
       !["ready", "draining", "offline"].includes(node.status) ||
+      node.workloadClasses !== undefined &&
+        (node.workloadClasses.length === 0 ||
+          node.workloadClasses.some((value) =>
+            value !== "standard" && value !== "large"
+          )) ||
       !Number.isSafeInteger(node.totalMemoryMiB) ||
       !Number.isSafeInteger(node.totalSharedCpu) ||
       !Number.isSafeInteger(node.totalWorkspaceGiB) ||

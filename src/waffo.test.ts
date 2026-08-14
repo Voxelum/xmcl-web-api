@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import {
   Environment,
   type WebhookEvent,
@@ -13,12 +14,44 @@ import { MemoryBillingStore } from "./ledger.ts";
 import {
   FakeWaffoProvider,
   FakeWaffoWebhookVerifier,
+  WaffoSdkProvider,
   WaffoService,
 } from "./waffo.ts";
 import { createWaffoRoutes } from "./routes/waffo.ts";
 import type { AppEnv } from "./types.ts";
 
 const now = "2026-08-06T08:00:00.000Z";
+
+Deno.test("Waffo checkout uses stable provider idempotency across recovery", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const idempotencyKeys: string[] = [];
+  const provider = new WaffoSdkProvider({
+    merchantId: "MER_0000000000000000000000",
+    privateKey: privateKey.export({ type: "pkcs8", format: "der" }).toString(
+      "base64",
+    ),
+    storeId: "STO_0000000000000000000000",
+    productId: "PROD_0000000000000000000000",
+    environment: "test",
+    fetchImpl: async (_input, init) => {
+      idempotencyKeys.push(new Headers(init?.headers).get("X-Idempotency-Key")!);
+      return Response.json({
+        data: {
+          sessionId: "checkout-session",
+          checkoutUrl: "https://pancake.waffo.ai/xmcl/checkout/session",
+        },
+      });
+    },
+  });
+  const input = {
+    orderId: "order-stable",
+    amount: { currency: "USD", amountMinor: 123 },
+  };
+  await provider.createCheckout(input);
+  await provider.createCheckout(input);
+  assert.equal(idempotencyKeys.length, 2);
+  assert.equal(idempotencyKeys[0], idempotencyKeys[1]);
+});
 
 function webhook(
   orderId: string,
@@ -50,9 +83,12 @@ function webhook(
   };
 }
 
-function fixture() {
+function fixture(
+  recoverPaymentDue?: (accountId: string, at: Date) => Promise<unknown>,
+) {
   let ids = 0;
-  const billing = new BillingService(new MemoryBillingStore(), {
+  const store = new MemoryBillingStore();
+  const billing = new BillingService(store, {
     currency: "USD",
     rates: [],
     now: () => new Date(now),
@@ -68,6 +104,8 @@ function fixture() {
   const waffo = new WaffoService(billing, provider, verifier, {
     storeId: "STO_xmcl",
     environment: "test",
+    recoverPaymentDue,
+    now: () => new Date(now),
   });
   const runtime = {
     sessions: {
@@ -90,6 +128,7 @@ function fixture() {
   return {
     app,
     billing,
+    store,
     provider,
     waffo,
     setEvent(event: WebhookEvent) {
@@ -204,4 +243,229 @@ Deno.test("Waffo rejects invalid signatures and mismatched payment facts", async
       error.code === "invalid_webhook_signature",
   );
   assert.equal((await f.billing.balance("account_1")).available.amountMinor, 0);
+});
+
+Deno.test("Waffo rejects the wrong environment and accepts non-credit events without crediting", async () => {
+  const f = fixture();
+  const order = await f.waffo.createOrder({
+    accountId: "account_1",
+    idempotencyKey: "non_credit_once",
+    amountMinor: 1000,
+  });
+  f.setEvent(webhook(order.orderId, { mode: Environment.Prod }));
+  await assert.rejects(
+    () => f.waffo.receiveWebhook("{}", { "x-waffo-signature": "valid" }),
+    (error: unknown) =>
+      error instanceof AccountError &&
+      error.code === "invalid_webhook_payload",
+  );
+
+  f.setEvent({
+    ...webhook(order.orderId, { id: "refund_delivery_1" }),
+    eventType: WebhookEventType.RefundFailed,
+  });
+  const accepted = await f.waffo.receiveWebhook("{}", {
+    "x-waffo-signature": "valid",
+  });
+  assert.deepEqual(accepted, { accepted: true, duplicate: false });
+  assert.equal((await f.billing.balance("account_1")).available.amountMinor, 0);
+  assert.deepEqual(await f.billing.adminLedger(), []);
+});
+
+Deno.test("Waffo credit invokes payment-due recovery with the credited account", async () => {
+  const calls: Array<{ accountId: string; at: string }> = [];
+  const f = fixture((accountId, at) => {
+    calls.push({ accountId, at: at.toISOString() });
+    return Promise.resolve();
+  });
+  const order = await f.waffo.createOrder({
+    accountId: "account_recovery",
+    idempotencyKey: "recover_after_credit",
+    amountMinor: 1000,
+  });
+  f.setEvent(webhook(order.orderId));
+  await f.waffo.receiveWebhook("{}", {
+    "x-waffo-signature": "valid",
+  });
+  assert.deepEqual(calls, [{
+    accountId: "account_recovery",
+    at: now,
+  }]);
+});
+
+Deno.test("Waffo refund succeeds once and debits the credited cash balance", async () => {
+  const f = fixture();
+  const order = await f.waffo.createOrder({
+    accountId: "account_refund",
+    idempotencyKey: "refund_credit",
+    amountMinor: 1000,
+  });
+  f.setEvent(webhook(order.orderId));
+  await f.waffo.receiveWebhook("credit", {
+    "x-waffo-signature": "valid",
+  });
+  f.setEvent({
+    ...webhook(order.orderId, {
+      id: "refund_delivery_1",
+      amount: "4.00",
+      refundStatus: "succeeded",
+    }),
+    eventType: WebhookEventType.RefundSucceeded,
+  });
+  const first = await f.waffo.receiveWebhook("refund", {
+    "x-waffo-signature": "valid",
+  });
+  const duplicate = await f.waffo.receiveWebhook("refund", {
+    "x-waffo-signature": "valid",
+  });
+  assert.deepEqual(first, { accepted: true, duplicate: false });
+  assert.deepEqual(duplicate, { accepted: true, duplicate: true });
+  assert.equal(
+    (await f.billing.balance("account_refund")).available.amountMinor,
+    600,
+  );
+  assert.equal(
+    (await f.billing.ledger("account_refund")).filter((entry) =>
+      entry.kind === "refund"
+    ).length,
+    1,
+  );
+});
+
+Deno.test("Waffo refund maps tax to cash and caps cumulative partial refunds", async () => {
+  const f = fixture();
+  const order = await f.waffo.createOrder({
+    accountId: "account_tax_refund",
+    idempotencyKey: "tax_refund_credit",
+    amountMinor: 1000,
+  });
+  f.setEvent(webhook(order.orderId, {
+    amount: "11.00",
+    subtotal: "10.00",
+    total: "11.00",
+    taxAmount: "1.00",
+  }));
+  await f.waffo.receiveWebhook("credit", {
+    "x-waffo-signature": "valid",
+  });
+  f.setEvent({
+    ...webhook(order.orderId, {
+      id: "partial_refund_1",
+      amount: "5.50",
+      subtotal: "10.00",
+      total: "11.00",
+      refundStatus: "succeeded",
+    }),
+    eventType: WebhookEventType.RefundSucceeded,
+  });
+  await f.waffo.receiveWebhook("refund-1", {
+    "x-waffo-signature": "valid",
+  });
+  f.setEvent({
+    ...webhook(order.orderId, {
+      id: "partial_refund_2",
+      amount: "6.60",
+      subtotal: "10.00",
+      total: "11.00",
+      refundStatus: "succeeded",
+    }),
+    eventType: WebhookEventType.RefundSucceeded,
+  });
+  await assert.rejects(
+    () =>
+      f.waffo.receiveWebhook("refund-2", {
+        "x-waffo-signature": "valid",
+      }),
+    (error: unknown) =>
+      error instanceof AccountError && error.code === "refund_amount_mismatch",
+  );
+  assert.equal(
+    (await f.billing.balance("account_tax_refund")).available.amountMinor,
+    500,
+  );
+
+  f.setEvent({
+    ...webhook(order.orderId, {
+      id: "partial_refund_without_totals",
+      amount: "5.50",
+      refundStatus: "succeeded",
+    }),
+    eventType: WebhookEventType.RefundSucceeded,
+  });
+  await f.waffo.receiveWebhook("refund-without-totals", {
+    "x-waffo-signature": "valid",
+  });
+  assert.equal(
+    (await f.billing.balance("account_tax_refund")).available.amountMinor,
+    0,
+  );
+});
+
+Deno.test("Waffo records a completed refund after credited cash was spent", async () => {
+  const f = fixture();
+  const order = await f.waffo.createOrder({
+    accountId: "account_spent_refund",
+    idempotencyKey: "spent_refund_credit",
+    amountMinor: 1000,
+  });
+  f.setEvent(webhook(order.orderId));
+  await f.waffo.receiveWebhook("credit", {
+    "x-waffo-signature": "valid",
+  });
+  await f.store.transaction((state) => {
+    state.balances.get("account_spent_refund")!.availableMinor = 200;
+  });
+  f.setEvent({
+    ...webhook(order.orderId, {
+      id: "spent_refund",
+      amount: "5.00",
+      refundStatus: "succeeded",
+    }),
+    eventType: WebhookEventType.RefundSucceeded,
+  });
+  await f.waffo.receiveWebhook("spent-refund", {
+    "x-waffo-signature": "valid",
+  });
+  assert.equal(
+    (await f.billing.balance("account_spent_refund")).available.amountMinor,
+    -300,
+  );
+});
+
+Deno.test("Waffo converts cumulative taxed refunds without rounding drift", async () => {
+  const f = fixture();
+  const order = await f.waffo.createOrder({
+    accountId: "account_rounding_refund",
+    idempotencyKey: "rounding_refund_credit",
+    amountMinor: 1000,
+  });
+  f.setEvent(webhook(order.orderId, {
+    amount: "11.00",
+    subtotal: "10.00",
+    total: "11.00",
+  }));
+  await f.waffo.receiveWebhook("credit", {
+    "x-waffo-signature": "valid",
+  });
+  for (const [id, amount] of [
+    ["rounding_refund_1", "3.67"],
+    ["rounding_refund_2", "3.67"],
+    ["rounding_refund_3", "3.66"],
+  ]) {
+    f.setEvent({
+      ...webhook(order.orderId, {
+        id,
+        amount,
+        refundStatus: "succeeded",
+      }),
+      eventType: WebhookEventType.RefundSucceeded,
+    });
+    await f.waffo.receiveWebhook(id, {
+      "x-waffo-signature": "valid",
+    });
+  }
+  assert.equal(
+    (await f.billing.balance("account_rounding_refund")).available.amountMinor,
+    0,
+  );
 });

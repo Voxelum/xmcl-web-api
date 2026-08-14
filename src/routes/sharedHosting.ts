@@ -3,6 +3,7 @@ import { AccountError } from "../account.ts";
 import { handleAccountError, jsonBody } from "../accountHttp.ts";
 import { getAccountRuntime } from "../accountRuntime.ts";
 import type { SharedHostingService } from "../sharedHosting.ts";
+import type { SharedHostingScheduler } from "../sharedHostingScheduler.ts";
 import type { AccountRuntimeResolver } from "../middleware/xmclAuth.ts";
 import { xmclAuth } from "../middleware/xmclAuth.ts";
 import type { AppEnv } from "../types.ts";
@@ -17,14 +18,23 @@ function requireAccountWrite(scopes: string[]) {
 export function createSharedHostingRoutes(
   sharedHosting?: SharedHostingService,
   resolve: AccountRuntimeResolver = getAccountRuntime,
+  scheduler?: SharedHostingScheduler,
 ) {
   const app = new Hono<AppEnv>();
   app.onError(handleAccountError);
-  app.use("/v1/shared-hosting/*", xmclAuth(["account:read"], resolve));
+  const authenticate = xmclAuth(["account:read"], resolve);
+  app.use("/v1/shared-hosting/plans", authenticate);
+  app.use("/v1/shared-hosting/regions", authenticate);
+  app.use("/v1/shared-hosting/subscriptions", authenticate);
+  app.use("/v1/shared-hosting/subscriptions/*", authenticate);
 
   app.get(
     "/v1/shared-hosting/plans",
     (c) => c.json(serviceFor(c, sharedHosting).listPlans()),
+  );
+  app.get(
+    "/v1/shared-hosting/regions",
+    (c) => c.json(serviceFor(c, sharedHosting).listRegions()),
   );
   app.get("/v1/shared-hosting/subscriptions", async (c) =>
     c.json(
@@ -36,12 +46,23 @@ export function createSharedHostingRoutes(
     const principal = c.get("xmclPrincipal")!;
     requireAccountWrite(principal.scopes);
     const body = await jsonBody(c);
-    return c.json(
-      await serviceFor(c, sharedHosting).subscribe({
+    const idempotencyKey = requireIdempotencyKey(c);
+    const subscription = await serviceFor(c, sharedHosting).subscribe({
+      accountId: principal.accountId,
+      planId: String(body.planId ?? ""),
+      regionId: String(body.regionId ?? ""),
+      idempotencyKey,
+    });
+    const activeScheduler = scheduler ?? c.var.sharedHostingScheduler;
+    if (activeScheduler) {
+      await activeScheduler.createService({
         accountId: principal.accountId,
-        planId: String(body.planId ?? ""),
-        idempotencyKey: requireIdempotencyKey(c),
-      }),
+        subscriptionId: subscription.subscriptionId,
+        idempotencyKey: `subscription:${idempotencyKey}`,
+      });
+    }
+    return c.json(
+      subscription,
       201,
     );
   });

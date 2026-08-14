@@ -18,6 +18,7 @@
     "apps/api/**/*.ts",
     "apps/ai/**/*.ts",
     "apps/signaling/**/*.ts",
+    "apps/waffo-staging/**/*.ts",
     "src/**/*.ts"
   ],
   "exclude": ["**/*.test.ts"]

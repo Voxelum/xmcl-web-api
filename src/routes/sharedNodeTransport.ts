@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../types.ts";
 import {
-  type SharedNodeSignedRequest,
   SHARED_NODE_TRANSPORT_CONTRACT_VERSION,
+  type SharedNodeSignedRequest,
   SharedNodeTransportError,
   type SharedNodeTransportService,
 } from "../sharedNodeTransport.ts";
@@ -211,7 +211,10 @@ export function createSharedNodeTransportRoutes(
         ? 503
         : 404;
       return c.json(
-        { contractVersion: SHARED_NODE_TRANSPORT_CONTRACT_VERSION, error: error.code },
+        {
+          contractVersion: SHARED_NODE_TRANSPORT_CONTRACT_VERSION,
+          error: error.code,
+        },
         status,
       );
     }
@@ -327,11 +330,9 @@ function workspaceGrant(value: Record<string, unknown>) {
     ...(typeof value.stage === "string"
       ? { stage: value.stage as "manifest" | "blobs" | "initial-world" }
       : {}),
-    ...(Array.isArray(value.keys)
-      ? { keys: value.keys.map(text) }
-      : {}),
+    ...(Array.isArray(value.keys) ? { keys: value.keys.map(text) } : {}),
     ...(value.manifest && typeof value.manifest === "object" &&
-          !Array.isArray(value.manifest)
+        !Array.isArray(value.manifest)
       ? {
         manifest: value.manifest as Parameters<
           SharedNodeTransportService["workspaceSyncGrant"]
@@ -361,6 +362,18 @@ function heartbeat(value: Record<string, unknown>) {
       activeContainerCount: (capacity as Record<string, unknown>)
         .activeContainerCount,
     },
+    services: Array.isArray(value.services)
+      ? value.services.map((item) => {
+        const service = item as Record<string, unknown>;
+        return {
+          serviceId: service.serviceId,
+          assignmentId: service.assignmentId,
+          cpuPercent: service.cpuPercent,
+          memoryUsageMiB: service.memoryUsageMiB,
+          memoryLimitMiB: service.memoryLimitMiB,
+        };
+      })
+      : undefined,
     agentVersion: value.agentVersion,
     ingress: value.ingress,
   } as Parameters<SharedNodeTransportService["heartbeat"]>[1];

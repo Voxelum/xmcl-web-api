@@ -36,3 +36,25 @@ Deno.test("Vultr SigV4 PUT signs immutable-write header and bounded expiry", asy
     () => signer.presign("shared-hosting/a", "GET", 16 * 60),
   );
 });
+
+Deno.test("Vultr SigV4 exact deletion accepts absent objects", async () => {
+  const requests: Array<{ method?: string; url: string }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (input, init) => {
+    requests.push({ method: init?.method, url: String(input) });
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+  try {
+    await signer.deleteExact([
+      "shared-hosting/account_1/service_1/content/a.tar.zst",
+      "shared-hosting/account_1/service_1/revisions/1/manifest.json",
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.deepEqual(
+    requests.map((request) => request.method),
+    ["DELETE", "DELETE"],
+  );
+  assert.match(requests[1].url, /manifest\.json/);
+});

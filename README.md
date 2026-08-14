@@ -71,6 +71,21 @@ surface; no Worker dispatches by hostname at runtime:
 The Azure Function mounts the same API surface as `api.xmcl.app` and serves only
 as a backup mirror. It does not host AI, signaling, Durable Objects, or cron.
 
+### Staging deployment
+
+The long-lived `staging` branch deploys only
+[`apps/waffo-staging`](apps/waffo-staging) to
+`https://api-staging.xmcl.app`. The `main` branch continues to deploy the
+production API, AI, and signaling Workers. Both workflow paths use matching
+GitHub Environments named `staging` and `production`.
+
+The staging Worker fixes `WAFFO_ENVIRONMENT` to `test`; production credentials
+must never be attached to that Worker. Waffo private keys, MongoDB connection
+strings, object-storage credentials, OAuth settings, and admin identities are
+configured independently for each Worker. The website selects only the API
+origin and never receives payment-provider secrets. Missing or inconsistent
+payment configuration fails closed.
+
 Multiplayer clients use only `/v1/multiplayer/*` on `signaling.xmcl.app`. Rooms
 use `master`/`member` roles and revisioned room-state snapshots; no legacy
 signaling paths or incremental room events are retained.
@@ -368,6 +383,20 @@ The same variables are used across every runtime (read via `hono/adapter`:
   over HTTPS and SHA-256 verified. The quota helper is installed root-owned at
   `/usr/local/libexec/xmcl-quota-helper`; its configuration is root-owned and
   non-writable by the agent.
+- `XMCL_SHARED_NODE_REGION_IDS` is the vendor-neutral comma-separated region
+  set advertised by Billing and accepted by the scheduler. It takes precedence
+  over the legacy Vultr-specific region settings. The first LightNode MVP uses
+  `mow,tpe`.
+- `XMCL_SHARED_NODE_CAPACITY_MODE=preprovisioned` runs a fixed operator-enrolled
+  pool without dynamic VM creation. This is required for the initial LightNode
+  nodes because its published OpenAPI has no cloud-init/user-data or data-disk
+  lifecycle endpoints. Capacity requests fail definitively when those nodes are
+  full; they do not silently fall through to another geography. Omit the setting
+  or use `vultr` to retain dynamic Vultr provisioning.
+- `LIGHTNODE_API_TOKEN` is an `x-open-token` credential for the official
+  LightNode OpenAPI. `scripts/lightnode_mvp_discovery.ts` uses it to verify the
+  Moscow/Taipei region, package, private-image, and firewall identifiers. The
+  token is not exposed to nodes or browsers.
 - `VULTR_SHARED_NODE_TOTAL_MEMORY_MIB`, `VULTR_SHARED_NODE_TOTAL_SHARED_CPU`,
   and `VULTR_SHARED_NODE_TOTAL_WORKSPACE_GIB` are required positive integers
   with no defaults. They must exactly describe the selected

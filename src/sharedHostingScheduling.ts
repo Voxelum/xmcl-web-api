@@ -7,6 +7,8 @@ export interface SharedHostingBillingSweepResult {
   cancelled: string[];
   runtimeSettled?: string[];
   runtimePaymentDue?: string[];
+  retentionDeleted?: string[];
+  retentionDeleteFailed?: string[];
   paymentReconciliation?: {
     attempted: string[];
     finalized: string[];
@@ -54,13 +56,23 @@ export function sharedHostingBillingWork(
     renewDue: async (at) => {
       const renewal = await service.renewDue(at);
       if (scheduler) await scheduler.enforcePaymentDue(renewal.paymentDue);
+      if (scheduler && renewal.cancelled.length > 0) {
+        await scheduler.beginCancellationRetention(
+          await service.cancellationRetentions(renewal.cancelled),
+        );
+      }
       const runtime = scheduler
         ? await scheduler.settleRunningRuntime(at)
+        : undefined;
+      const retention = scheduler
+        ? await scheduler.purgeExpiredRetentions(at)
         : undefined;
       return {
         ...renewal,
         runtimeSettled: runtime?.settled,
         runtimePaymentDue: runtime?.paymentDue,
+        retentionDeleted: retention?.deleted,
+        retentionDeleteFailed: retention?.failed,
       };
     },
   };

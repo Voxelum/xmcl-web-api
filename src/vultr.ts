@@ -65,18 +65,14 @@ export interface VultrAdapter {
   delete(instanceId: string): Promise<void>;
 }
 
-export class VultrError extends Error {
+export class VultrError extends InfrastructureError {
   constructor(
-    readonly code:
-      | "provider_rejected"
-      | "provider_unavailable"
-      | "provider_unknown"
-      | "invalid_provider_response"
-      | "capacity_unavailable",
-    readonly outcome: "definitive" | "unknown",
-    readonly status?: number,
+    code: InfrastructureErrorCode,
+    outcome: "definitive" | "unknown",
+    status?: number,
+    diagnostic?: "timeout" | "network",
   ) {
-    super(code);
+    super(code, outcome, "vultr", status, diagnostic);
   }
 }
 
@@ -128,7 +124,9 @@ function instance(value: VultrInstanceJson): VultrInstance {
     ? value.main_ip
     : undefined;
   let firewallGroupId: string | undefined;
-  if (value.firewall_group_id === null || value.firewall_group_id === undefined) {
+  if (
+    value.firewall_group_id === null || value.firewall_group_id === undefined
+  ) {
     firewallGroupId = undefined;
   } else if (
     typeof value.firewall_group_id === "string" &&
@@ -160,12 +158,25 @@ function positiveInteger(value: unknown): number {
   return value;
 }
 
+function base64(value: string) {
+  let binary = "";
+  for (const byte of new TextEncoder().encode(value)) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
 function volume(value: VultrVolumeJson): VultrVolume {
   let attachedToInstance: string | undefined;
-  if (value.attached_to_instance === null) {
+  if (
+    value.attached_to_instance === null ||
+    value.attached_to_instance === ""
+  ) {
     attachedToInstance = undefined;
-  } else if (typeof value.attached_to_instance === "string" &&
-    value.attached_to_instance.length > 0) {
+  } else if (
+    typeof value.attached_to_instance === "string" &&
+    value.attached_to_instance.length > 0
+  ) {
     attachedToInstance = value.attached_to_instance;
   } else {
     throw new VultrError("invalid_provider_response", "unknown");
@@ -181,8 +192,7 @@ function volume(value: VultrVolumeJson): VultrVolume {
   };
 }
 
-export class VultrV2Adapter
-  implements VultrAdapter, SharedNodeVolumeProvider {
+export class VultrV2Adapter implements VultrAdapter, SharedNodeVolumeProvider {
   private readonly fetcher: typeof fetch;
   private readonly timeoutMs: number;
   private readonly baseUrl: string;
@@ -251,13 +261,11 @@ export class VultrV2Adapter
             : { os_id: this.imageId }),
           label: input.label ?? input.serverId,
           tags: input.tags ?? [`xmcl-server:${input.serverId}`],
-          user_data: input.userData,
-          ...(input.firewallGroupId === undefined
-            ? {}
-            : {
-              firewall_group_id: input.firewallGroupId,
-              enable_ipv6: false,
-            }),
+          user_data: base64(input.userData),
+          ...(input.firewallGroupId === undefined ? {} : {
+            firewall_group_id: input.firewallGroupId,
+            enable_ipv6: false,
+          }),
         }),
       });
       if (!body.instance || typeof body.instance !== "object") {
@@ -364,7 +372,7 @@ export class VultrV2Adapter
     ) {
       throw new VultrError("provider_rejected", "definitive");
     }
-    const body = await this.json("/block-storage", {
+    const body = await this.json("/blocks", {
       method: "POST",
       body: JSON.stringify({
         region: this.options.regionId,
@@ -373,21 +381,21 @@ export class VultrV2Adapter
         block_type: input.blockType,
       }),
     });
-    if (!body.block_storage || typeof body.block_storage !== "object") {
+    if (!body.block || typeof body.block !== "object") {
       throw new VultrError("invalid_provider_response", "unknown");
     }
-    return volume(body.block_storage as VultrVolumeJson);
+    return volume(body.block as VultrVolumeJson);
   }
 
   async getVolume(volumeId: string): Promise<VultrVolume | undefined> {
     try {
       const body = await this.json(
-        `/block-storage/${encodeURIComponent(volumeId)}`,
+        `/blocks/${encodeURIComponent(volumeId)}`,
       );
-      if (!body.block_storage || typeof body.block_storage !== "object") {
+      if (!body.block || typeof body.block !== "object") {
         throw new VultrError("invalid_provider_response", "unknown");
       }
-      return volume(body.block_storage as VultrVolumeJson);
+      return volume(body.block as VultrVolumeJson);
     } catch (error) {
       if (error instanceof VultrError && error.status === 404) return undefined;
       throw error;
@@ -396,12 +404,12 @@ export class VultrV2Adapter
 
   async reconcileVolume(label: string): Promise<VultrVolume | undefined> {
     const body = await this.json(
-      `/block-storage?label=${encodeURIComponent(label)}&per_page=500`,
+      `/blocks?per_page=500`,
     );
-    if (!Array.isArray(body.block_storages)) {
+    if (!Array.isArray(body.blocks)) {
       throw new VultrError("invalid_provider_response", "unknown");
     }
-    const volumes = body.block_storages;
+    const volumes = body.blocks;
     const matches = volumes.filter((candidate) =>
       candidate && typeof candidate === "object" &&
       (candidate as { label?: unknown }).label === label
@@ -414,7 +422,7 @@ export class VultrV2Adapter
 
   attachVolume(volumeId: string, instanceId: string): Promise<void> {
     return this.empty(
-      `/block-storage/${encodeURIComponent(volumeId)}/attach`,
+      `/blocks/${encodeURIComponent(volumeId)}/attach`,
       {
         method: "POST",
         // The VM has already booted cloud-init and is waiting for this volume.
@@ -425,7 +433,7 @@ export class VultrV2Adapter
 
   detachVolume(volumeId: string): Promise<void> {
     return this.empty(
-      `/block-storage/${encodeURIComponent(volumeId)}/detach`,
+      `/blocks/${encodeURIComponent(volumeId)}/detach`,
       {
         method: "POST",
         body: JSON.stringify({ live: false }),
@@ -435,7 +443,7 @@ export class VultrV2Adapter
 
   async deleteVolume(volumeId: string): Promise<void> {
     try {
-      await this.empty(`/block-storage/${encodeURIComponent(volumeId)}`, {
+      await this.empty(`/blocks/${encodeURIComponent(volumeId)}`, {
         method: "DELETE",
       });
     } catch (error) {
@@ -478,7 +486,8 @@ export class VultrV2Adapter
         signal: controller.signal,
       });
       if (response.ok) return response;
-      const unknown = response.status === 408 || response.status === 429 ||
+      const unknown = response.status === 401 || response.status === 403 ||
+        response.status === 408 || response.status === 429 ||
         response.status >= 500;
       throw new VultrError(
         unknown ? "provider_unavailable" : "provider_rejected",
@@ -487,9 +496,18 @@ export class VultrV2Adapter
       );
     } catch (error) {
       if (error instanceof VultrError) throw error;
-      throw new VultrError("provider_unavailable", "unknown");
+      throw new VultrError(
+        "provider_unavailable",
+        "unknown",
+        undefined,
+        controller.signal.aborted ? "timeout" : "network",
+      );
     } finally {
       clearTimeout(timer);
     }
   }
 }
+import {
+  InfrastructureError,
+  type InfrastructureErrorCode,
+} from "./sharedNodeInfrastructure.ts";

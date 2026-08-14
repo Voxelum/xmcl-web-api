@@ -3,6 +3,7 @@ import {
   isSharedNodeRegion,
   type SharedHostingScheduler,
   type SharedNodeProvisioner as SharedNodeProvisionerContract,
+  type SharedNodeWorkloadClass,
 } from "./sharedHostingScheduler.ts";
 import type {
   SharedNodeVolumeProvider,
@@ -20,6 +21,7 @@ import {
 export interface SharedNodeVmProfile {
   profileId: string;
   providerPlan: string;
+  workloadClasses: readonly SharedNodeWorkloadClass[];
   totalMemoryMiB: number;
   totalSharedCpu: number;
   totalWorkspaceGiB: number;
@@ -28,6 +30,7 @@ export interface SharedNodeVmProfile {
 export const DEFAULT_SHARED_NODE_PROFILE: SharedNodeVmProfile = {
   profileId: "shared-standard",
   providerPlan: "vc2-4c-16gb",
+  workloadClasses: ["standard", "large"],
   totalMemoryMiB: 12 * 1024,
   totalSharedCpu: 8,
   totalWorkspaceGiB: 128,
@@ -301,6 +304,7 @@ export class VultrSharedNodeProvisioner
     input: Parameters<SharedNodeProvisionerContract["requestCapacity"]>[0],
   ) {
     const profile = this.profiles.find((candidate) =>
+      candidate.workloadClasses.includes(input.workloadClass) &&
       candidate.totalMemoryMiB >= input.minimumMemoryMiB &&
       candidate.totalSharedCpu >= input.minimumSharedCpu &&
       candidate.totalWorkspaceGiB >= input.minimumWorkspaceGiB
@@ -456,6 +460,7 @@ export class VultrSharedNodeProvisioner
     const enrollmentToken = crypto.randomUUID().replaceAll("-", "") +
       crypto.randomUUID().replaceAll("-", "");
     const expectedCapacity: SharedNodeExpectedCapacity = {
+      workloadClasses: profile.workloadClasses,
       totalMemoryMiB: profile.totalMemoryMiB,
       totalSharedCpu: profile.totalSharedCpu,
       totalWorkspaceGiB: profile.totalWorkspaceGiB,
@@ -1060,8 +1065,15 @@ export function hasValidSharedNodeFirewallSettings(
   portMin: string | undefined,
   portMax: string | undefined,
 ) {
+  return isSharedNodeFirewallGroupId(firewallGroupId) &&
+    hasValidSharedNodeIngressSettings(portMin, portMax);
+}
+
+export function hasValidSharedNodeIngressSettings(
+  portMin: string | undefined,
+  portMax: string | undefined,
+) {
   if (
-    !isSharedNodeFirewallGroupId(firewallGroupId) ||
     !portMin ||
     !portMax ||
     !/^(?:[1-9][0-9]{0,4})$/.test(portMin) ||

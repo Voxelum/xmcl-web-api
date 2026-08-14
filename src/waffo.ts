@@ -6,6 +6,7 @@ import {
   type WebhookEventData,
   WebhookEventType,
 } from "@waffo/pancake-ts";
+import { createHash, createSign } from "node:crypto";
 import { AccountError } from "./account.ts";
 import type {
   BillingService,
@@ -46,6 +47,24 @@ function displayAmount(amountMinor: number) {
   }`;
 }
 
+function normalizePrivateKey(raw: string) {
+  const normalized = raw.replaceAll("\\n", "\n").replaceAll("\r\n", "\n")
+    .trim();
+  if (
+    normalized.includes("-----BEGIN PRIVATE KEY-----") ||
+    normalized.includes("-----BEGIN RSA PRIVATE KEY-----")
+  ) {
+    return normalized;
+  }
+  const base64 = normalized.replace(/\s+/g, "");
+  if (!/^[A-Za-z0-9+/]+=*$/.test(base64)) {
+    throw new Error("Waffo private key is not valid PEM or base64");
+  }
+  const wrapped = base64.match(/.{1,64}/g)?.join("\n");
+  if (!wrapped) throw new Error("Waffo private key is empty");
+  return `-----BEGIN PRIVATE KEY-----\n${wrapped}\n-----END PRIVATE KEY-----`;
+}
+
 function paymentAmount(currency: unknown, amount: unknown): Money {
   if (
     typeof currency !== "string" || !/^[A-Z]{3}$/.test(currency) ||
@@ -53,6 +72,7 @@ function paymentAmount(currency: unknown, amount: unknown): Money {
   ) {
     throw new AccountError(422, "invalid_webhook_payload");
   }
+
   const match = /^([0-9]+)(?:\.([0-9]{1,2}))?$/.exec(amount);
   if (!match) throw new AccountError(422, "invalid_webhook_payload");
   const amountMinor = Number(match[1]) * 100 +
@@ -61,6 +81,33 @@ function paymentAmount(currency: unknown, amount: unknown): Money {
     throw new AccountError(422, "invalid_webhook_payload");
   }
   return { currency, amountMinor };
+}
+
+function refundAmounts(
+  data: WebhookEventData,
+): { providerRefunded: Money; cashRefunded?: Money } {
+  const refunded = paymentAmount(data.currency, data.amount);
+  if (data.subtotal === undefined || data.total === undefined) {
+    return { providerRefunded: refunded };
+  }
+  const subtotal = paymentAmount(data.currency, data.subtotal);
+  const total = paymentAmount(data.currency, data.total);
+  if (
+    subtotal.amountMinor > total.amountMinor ||
+    refunded.amountMinor > total.amountMinor
+  ) {
+    throw new AccountError(422, "invalid_webhook_payload");
+  }
+  const amountMinor = Math.round(
+    refunded.amountMinor * subtotal.amountMinor / total.amountMinor,
+  );
+  if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
+    throw new AccountError(422, "invalid_webhook_payload");
+  }
+  return {
+    providerRefunded: refunded,
+    cashRefunded: { currency: refunded.currency, amountMinor },
+  };
 }
 
 export class WaffoSdkProvider
@@ -87,7 +134,7 @@ export class WaffoSdkProvider
 
   async createCheckout(input: { orderId: string; amount: Money }) {
     try {
-      const session = await this.client.checkout.createSession({
+      const params = {
         productId: this.options.productId,
         currency: input.amount.currency,
         priceSnapshot: {
@@ -99,13 +146,54 @@ export class WaffoSdkProvider
         ...(this.options.successUrl
           ? { successUrl: this.options.successUrl }
           : {}),
-      });
+      };
+      const path = "/v1/actions/checkout/create-session";
+      const body = JSON.stringify(params);
+      const timestamp = Math.floor(Date.now() / 1000).toString();
+      const bodyHash = createHash("sha256").update(body).digest("base64");
+      const signer = createSign("sha256");
+      signer.update(`POST\n${path}\n${timestamp}\n${bodyHash}`);
+      const signature = signer.sign(
+        normalizePrivateKey(this.options.privateKey),
+        "base64",
+      );
+      const idempotencyKey = createHash("sha256").update(
+        `${this.options.merchantId}:${path}:${body}`,
+      ).digest("hex");
+      const response = await (this.options.fetchImpl ?? fetch)(
+        `${(this.options.apiBaseUrl ?? "https://api.waffo.ai").replace(/\/+$/, "")}${path}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Merchant-Id": this.options.merchantId,
+            "X-Timestamp": timestamp,
+            "X-Signature": signature,
+            "X-Idempotency-Key": idempotencyKey,
+          },
+          body,
+        },
+      );
+      const envelope = await response.json() as {
+        data?: { sessionId?: unknown; checkoutUrl?: unknown };
+        errors?: unknown[];
+      };
+      if (
+        !response.ok || envelope.errors?.length ||
+        typeof envelope.data?.sessionId !== "string" ||
+        typeof envelope.data.checkoutUrl !== "string"
+      ) {
+        throw new AccountError(503, "waffo_provider_unavailable");
+      }
       return {
-        providerOrderId: session.sessionId,
-        approvalUrl: session.checkoutUrl,
+        providerOrderId: envelope.data.sessionId,
+        approvalUrl: envelope.data.checkoutUrl,
       };
     } catch (error) {
-      if (error instanceof WaffoPancakeError || error instanceof TypeError) {
+      if (
+        error instanceof WaffoPancakeError || error instanceof TypeError ||
+        error instanceof SyntaxError
+      ) {
         throw new AccountError(503, "waffo_provider_unavailable");
       }
       throw error;
@@ -134,6 +222,8 @@ export class WaffoService {
     private readonly expected: {
       storeId: string;
       environment: "test" | "prod";
+      recoverPaymentDue?: (accountId: string, at: Date) => Promise<unknown>;
+      now?: () => Date;
     },
   ) {}
 
@@ -205,6 +295,23 @@ export class WaffoService {
     ) {
       throw new AccountError(422, "invalid_webhook_payload");
     }
+    if (event.eventType === WebhookEventType.RefundSucceeded) {
+      if (
+        !event.data?.orderMerchantExternalId ||
+        event.data.refundStatus !== "succeeded"
+      ) {
+        throw new AccountError(422, "invalid_webhook_payload");
+      }
+      const refund = refundAmounts(event.data);
+      const result = await this.billing.recordWaffoRefund(
+        event.data.orderMerchantExternalId,
+        event.id,
+        rawBody,
+        refund.providerRefunded,
+        refund.cashRefunded,
+      );
+      return { accepted: true, duplicate: result.duplicate };
+    }
     if (event.eventType !== WebhookEventType.OrderCompleted) {
       return {
         accepted: true,
@@ -225,7 +332,14 @@ export class WaffoService {
         event.data.currency,
         event.data.subtotal ?? event.data.amount,
       ),
+      paymentAmount(event.data.currency, event.data.amount),
     );
+    if (result.accountId && this.expected.recoverPaymentDue) {
+      await this.expected.recoverPaymentDue(
+        result.accountId,
+        this.expected.now?.() ?? new Date(),
+      );
+    }
     return { accepted: true, duplicate: result.duplicate };
   }
 }

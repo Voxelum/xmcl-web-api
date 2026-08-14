@@ -3,15 +3,15 @@ import { Hono } from "hono";
 import type { AppEnv } from "./types.ts";
 import { createSharedNodeTransportRoutes } from "./routes/sharedNodeTransport.ts";
 import {
-  hashSharedNodeToken,
   DurableSharedNodeCommandGateway,
+  hashSharedNodeToken,
   MemorySharedNodeCommandOutbox,
   MemorySharedNodeCredentialRepository,
   MemorySharedNodeIngressRepository,
   MemorySharedWorkspaceManifestRepository,
-  SharedNodeIngressAssignmentProvider,
   SHARED_NODE_TRANSPORT_CONTRACT_VERSION,
   SHARED_NODE_WORKSPACE_CONTRACT_VERSION,
+  SharedNodeIngressAssignmentProvider,
   SharedNodeTransportError,
   SharedNodeTransportService,
   signSharedNodeRequest,
@@ -102,8 +102,10 @@ async function fixture() {
   const ingress = new MemorySharedNodeIngressRepository();
   const outbox = new MemorySharedNodeCommandOutbox();
   const manifests = new MemorySharedWorkspaceManifestRepository();
+  const deletedKeys: string[][] = [];
+  const schedulerRepository = new MemorySharedHostingSchedulerRepository();
   const scheduler = new SharedHostingScheduler(
-    new MemorySharedHostingSchedulerRepository(),
+    schedulerRepository,
     {
       activeSubscription: async () => {
         throw new Error("unused");
@@ -130,12 +132,14 @@ async function fixture() {
       presign: async (key, method, expiresInSeconds) => ({
         key,
         method,
-        url: `https://sgp1.vultrobjects.com/xmcl-shared-hosting/${key}?grant=only`,
+        url:
+          `https://sgp1.vultrobjects.com/xmcl-shared-hosting/${key}?grant=only`,
         expiresAt: new Date(
           nowValue.value.getTime() + expiresInSeconds * 1_000,
         ).toISOString(),
         ...(method === "PUT" ? { headers: { "if-none-match": "*" } } : {}),
       }),
+      deleteExact: async (keys) => void deletedKeys.push([...keys]),
     },
   });
   const registrations = new Map<string, string>();
@@ -182,8 +186,168 @@ async function fixture() {
     ingress,
     outbox,
     manifests,
+    deletedKeys,
+    schedulerRepository,
   };
 }
+
+Deno.test("retained workspace export grants only the published canonical revision", async (t) => {
+  const f = await fixture();
+  const prefix = "shared-hosting/account_1/service_retained/";
+  const blob = {
+    key: `${prefix}revisions/2/world/part-1.tar.zst`,
+    sha256: "a".repeat(64),
+    compressedSize: 128,
+    logicalSize: 256,
+    paths: ["world/level.dat"],
+  };
+  await f.schedulerRepository.transact((state) => {
+    state.services.push({
+      serviceId: "service_retained",
+      accountId: "account_1",
+      subscriptionId: "subscription_retained",
+      planId: "shared-small",
+      regionId: "sgp",
+      status: "retained",
+      workspace: {
+        objectPrefix: prefix,
+        revision: 2,
+        sizeBytes: 256,
+        syncedAt: "2026-08-24T00:00:00.000Z",
+      },
+      retentionStartedAt: "2026-08-24T00:00:00.000Z",
+      retentionEndsAt: "2026-09-23T00:00:00.000Z",
+      createdAt: "2026-07-24T00:00:00.000Z",
+      updatedAt: "2026-08-24T00:00:00.000Z",
+    });
+  });
+  await f.manifests.prepare({
+    serviceId: "service_retained",
+    accountId: "account_1",
+    assignmentId: "assignment_retained",
+    commandId: "command_retained",
+    revision: 2,
+    manifest: {
+      schemaVersion: 2,
+      serviceId: "service_retained",
+      assignmentId: "assignment_retained",
+      revision: 2,
+      createdAt: "2026-08-24T00:00:00.000Z",
+      logicalSize: 256,
+      manifestHash: "b".repeat(64),
+      aggregateSha256: "c".repeat(64),
+      world: [blob],
+    },
+    manifestSha256: "b".repeat(64),
+    status: "draft",
+    createdAt: "2026-08-24T00:00:00.000Z",
+  });
+
+  await t.step(
+    "expired retention deletes exact blobs before manifests",
+    async () => {
+      const f = await fixture();
+      const prefix = "shared-hosting/account_1/service_expired/";
+      const blobKey = `${prefix}revisions/1/world/part-1.tar.zst`;
+      await f.schedulerRepository.transact((state) => {
+        state.services.push({
+          serviceId: "service_expired",
+          accountId: "account_1",
+          subscriptionId: "subscription_expired",
+          planId: "shared-small",
+          regionId: "sgp",
+          status: "retained",
+          workspace: {
+            objectPrefix: prefix,
+            revision: 1,
+            sizeBytes: 256,
+            syncedAt: "2026-08-24T00:00:00.000Z",
+          },
+          retentionStartedAt: "2026-08-24T00:00:00.000Z",
+          retentionEndsAt: "2026-09-23T00:00:00.000Z",
+          createdAt: "2026-07-24T00:00:00.000Z",
+          updatedAt: "2026-08-24T00:00:00.000Z",
+        });
+      });
+      await f.manifests.prepare({
+        serviceId: "service_expired",
+        accountId: "account_1",
+        assignmentId: "assignment_expired",
+        commandId: "command_expired",
+        revision: 1,
+        manifest: {
+          schemaVersion: 2,
+          serviceId: "service_expired",
+          assignmentId: "assignment_expired",
+          revision: 1,
+          createdAt: "2026-08-24T00:00:00.000Z",
+          logicalSize: 256,
+          manifestHash: "b".repeat(64),
+          aggregateSha256: "c".repeat(64),
+          world: [{
+            key: blobKey,
+            sha256: "a".repeat(64),
+            compressedSize: 128,
+            logicalSize: 256,
+            paths: ["world/level.dat"],
+          }],
+        },
+        manifestSha256: "b".repeat(64),
+        status: "draft",
+        createdAt: "2026-08-24T00:00:00.000Z",
+      });
+      await f.manifests.markPublished({
+        serviceId: "service_expired",
+        assignmentId: "assignment_expired",
+        revision: 1,
+      });
+      const previousNow = nowValue.value;
+      try {
+        nowValue.value = new Date("2026-09-24T00:00:00.000Z");
+        f.scheduler.attachRetentionPurger((service) =>
+          f.service.purgeRetainedWorkspace(service)
+        );
+        assert.deepEqual(await f.scheduler.purgeExpiredRetentions(), {
+          deleted: ["service_expired"],
+          failed: [],
+        });
+        assert.deepEqual(f.deletedKeys, [[
+          blobKey,
+          `${prefix}revisions/1/manifest.json`,
+        ]]);
+        assert.equal(
+          (await f.schedulerRepository.read()).services[0].status,
+          "deleted",
+        );
+      } finally {
+        nowValue.value = previousNow;
+      }
+    },
+  );
+  await f.manifests.markPublished({
+    serviceId: "service_retained",
+    assignmentId: "assignment_retained",
+    revision: 2,
+    manifestSha256: "b".repeat(64),
+  });
+
+  const exported = await f.service.retainedWorkspaceExport(
+    "account_1",
+    "service_retained",
+  );
+  assert.equal(exported.revision, 2);
+  assert.deepEqual(
+    exported.grants.map((grant) => [grant.kind, grant.method, grant.key]),
+    [
+      [
+        "manifest",
+        "GET",
+        `${prefix}revisions/2/manifest.json`,
+      ],
+      ["world", "GET", blob.key],
+    ],
+  );
+});
 
 Deno.test("shared node transport enforces node identity and replay protection", async () => {
   const f = await fixture();
@@ -243,20 +407,22 @@ Deno.test("shared node credentials rotate only through an authenticated node req
   assert.notEqual(rotated.credential, original);
   assert.ok(Date.parse(rotated.expiresAt) > nowValue.value.getTime());
   await assert.rejects(
-    async () => f.service.heartbeat(
-      "node_a",
-      heartbeat,
-      await signed(
-        original,
-        `SharedNode ${original}`,
-        "POST",
-        "/v1/internal/shared-nodes/node_a/heartbeat",
-        "",
-        "old-credential",
+    async () =>
+      f.service.heartbeat(
+        "node_a",
+        heartbeat,
+        await signed(
+          original,
+          `SharedNode ${original}`,
+          "POST",
+          "/v1/internal/shared-nodes/node_a/heartbeat",
+          "",
+          "old-credential",
+        ),
       ),
-    ),
     (error) =>
-      error instanceof SharedNodeTransportError && error.code === "unauthorized",
+      error instanceof SharedNodeTransportError &&
+      error.code === "unauthorized",
   );
 });
 
@@ -450,7 +616,8 @@ Deno.test("initial-world restore grants only the selected seed object", async ()
       "initial-world-next",
     ),
   );
-  const key = "shared-hosting/account_1/service_1/world-seeds/seed_1.xmcl-world-seed";
+  const key =
+    "shared-hosting/account_1/service_1/world-seeds/seed_1.xmcl-world-seed";
   const input = {
     contractVersion: SHARED_NODE_WORKSPACE_CONTRACT_VERSION as 2,
     commandId: leased!.command.commandId,
@@ -474,18 +641,29 @@ Deno.test("initial-world restore grants only the selected seed object", async ()
   );
   assert.deepEqual(grants.grants.map((grant) => grant.key), [key]);
   await assert.rejects(
-    async () => f.service.workspaceRestoreGrant(
-      "node_a",
-      { ...input, keys: ["shared-hosting/account_1/service_1/world-seeds/other.xmcl-world-seed"] },
-      await signed(
-        credential,
-        `SharedNode ${credential}`,
-        "POST",
-        "/v1/internal/shared-nodes/node_a/workspace-grants/restore",
-        JSON.stringify({ ...input, keys: ["shared-hosting/account_1/service_1/world-seeds/other.xmcl-world-seed"] }),
-        "initial-world-wrong-key",
+    async () =>
+      f.service.workspaceRestoreGrant(
+        "node_a",
+        {
+          ...input,
+          keys: [
+            "shared-hosting/account_1/service_1/world-seeds/other.xmcl-world-seed",
+          ],
+        },
+        await signed(
+          credential,
+          `SharedNode ${credential}`,
+          "POST",
+          "/v1/internal/shared-nodes/node_a/workspace-grants/restore",
+          JSON.stringify({
+            ...input,
+            keys: [
+              "shared-hosting/account_1/service_1/world-seeds/other.xmcl-world-seed",
+            ],
+          }),
+          "initial-world-wrong-key",
+        ),
       ),
-    ),
     SharedNodeTransportError,
   );
 });
@@ -710,7 +888,9 @@ Deno.test("workspace grants are lease-bound, exact, manifest-last, and credentia
     paths: ["mods/stable.jar"],
   };
   const aggregate = await digest(
-    `${descriptor.key}\0${descriptor.sha256}\0${descriptor.compressedSize}:${descriptor.logicalSize}\0${descriptor.paths[0]}\0\n`,
+    `${descriptor.key}\0${descriptor.sha256}\0${descriptor.compressedSize}:${descriptor.logicalSize}\0${
+      descriptor.paths[0]
+    }\0\n`,
   );
   const manifest = {
     schemaVersion: 2 as const,
@@ -762,33 +942,38 @@ Deno.test("workspace grants are lease-bound, exact, manifest-last, and credentia
   foreignContent.aggregateSha256 = "d".repeat(64);
   foreignContent.manifestHash = foreignContent.aggregateSha256;
   await assert.rejects(
-    async () => f.service.workspaceSyncGrant(
-      "node_a",
-      { ...syncInput, manifest: foreignContent },
-      await signed(
-        credential,
-        `SharedNode ${credential}`,
-        "POST",
-        "/v1/internal/shared-nodes/node_a/workspace-grants/sync",
-        JSON.stringify({ ...syncInput, manifest: foreignContent }),
-        "workspace-cross-prefix",
+    async () =>
+      f.service.workspaceSyncGrant(
+        "node_a",
+        { ...syncInput, manifest: foreignContent },
+        await signed(
+          credential,
+          `SharedNode ${credential}`,
+          "POST",
+          "/v1/internal/shared-nodes/node_a/workspace-grants/sync",
+          JSON.stringify({ ...syncInput, manifest: foreignContent }),
+          "workspace-cross-prefix",
+        ),
       ),
-    ),
     SharedNodeTransportError,
   );
   await assert.rejects(
-    async () => f.service.workspaceSyncGrant(
-      "node_a",
-      { ...syncInput, manifest: { ...manifest, revision: 2 } },
-      await signed(
-        credential,
-        `SharedNode ${credential}`,
-        "POST",
-        "/v1/internal/shared-nodes/node_a/workspace-grants/sync",
-        JSON.stringify({ ...syncInput, manifest: { ...manifest, revision: 2 } }),
-        "workspace-wrong-revision",
+    async () =>
+      f.service.workspaceSyncGrant(
+        "node_a",
+        { ...syncInput, manifest: { ...manifest, revision: 2 } },
+        await signed(
+          credential,
+          `SharedNode ${credential}`,
+          "POST",
+          "/v1/internal/shared-nodes/node_a/workspace-grants/sync",
+          JSON.stringify({
+            ...syncInput,
+            manifest: { ...manifest, revision: 2 },
+          }),
+          "workspace-wrong-revision",
+        ),
       ),
-    ),
     SharedNodeTransportError,
   );
 
@@ -817,67 +1002,71 @@ Deno.test("workspace grants are lease-bound, exact, manifest-last, and credentia
     manifestSha256: syncInput.manifestSha256,
   });
   await assert.rejects(
-    async () => await f.service.workspaceSyncGrant(
-      "node_a",
-      syncInput,
-      await signed(
-        credential,
-        `SharedNode ${credential}`,
-        "POST",
-        "/v1/internal/shared-nodes/node_a/workspace-grants/sync",
-        syncBody,
-        "workspace-overwrite-published",
+    async () =>
+      await f.service.workspaceSyncGrant(
+        "node_a",
+        syncInput,
+        await signed(
+          credential,
+          `SharedNode ${credential}`,
+          "POST",
+          "/v1/internal/shared-nodes/node_a/workspace-grants/sync",
+          syncBody,
+          "workspace-overwrite-published",
+        ),
       ),
-    ),
     SharedNodeTransportError,
   );
   await assert.rejects(
-    async () => f.service.workspaceSyncGrant(
-      "node_a",
-      { ...syncInput, assignmentId: "other_assignment" },
-      await signed(
-        credential,
-        `SharedNode ${credential}`,
-        "POST",
-        "/v1/internal/shared-nodes/node_a/workspace-grants/sync",
-        JSON.stringify({ ...syncInput, assignmentId: "other_assignment" }),
-        "workspace-wrong-assignment",
+    async () =>
+      f.service.workspaceSyncGrant(
+        "node_a",
+        { ...syncInput, assignmentId: "other_assignment" },
+        await signed(
+          credential,
+          `SharedNode ${credential}`,
+          "POST",
+          "/v1/internal/shared-nodes/node_a/workspace-grants/sync",
+          JSON.stringify({ ...syncInput, assignmentId: "other_assignment" }),
+          "workspace-wrong-assignment",
+        ),
       ),
-    ),
     SharedNodeTransportError,
   );
   await assert.rejects(
-    async () => await f.service.workspaceSyncGrant(
-      "node_a",
-      { ...syncInput, leaseGeneration: syncInput.leaseGeneration + 1 },
-      await signed(
-        credential,
-        `SharedNode ${credential}`,
-        "POST",
-        "/v1/internal/shared-nodes/node_a/workspace-grants/sync",
-        JSON.stringify({
-          ...syncInput,
-          leaseGeneration: syncInput.leaseGeneration + 1,
-        }),
-        "workspace-wrong-generation",
+    async () =>
+      await f.service.workspaceSyncGrant(
+        "node_a",
+        { ...syncInput, leaseGeneration: syncInput.leaseGeneration + 1 },
+        await signed(
+          credential,
+          `SharedNode ${credential}`,
+          "POST",
+          "/v1/internal/shared-nodes/node_a/workspace-grants/sync",
+          JSON.stringify({
+            ...syncInput,
+            leaseGeneration: syncInput.leaseGeneration + 1,
+          }),
+          "workspace-wrong-generation",
+        ),
       ),
-    ),
     SharedNodeTransportError,
   );
   const nodeB = f.registrations.get("node_b")!;
   await assert.rejects(
-    async () => await f.service.workspaceSyncGrant(
-      "node_b",
-      syncInput,
-      await signed(
-        nodeB,
-        `SharedNode ${nodeB}`,
-        "POST",
-        "/v1/internal/shared-nodes/node_b/workspace-grants/sync",
-        syncBody,
-        "workspace-wrong-node",
+    async () =>
+      await f.service.workspaceSyncGrant(
+        "node_b",
+        syncInput,
+        await signed(
+          nodeB,
+          `SharedNode ${nodeB}`,
+          "POST",
+          "/v1/internal/shared-nodes/node_b/workspace-grants/sync",
+          syncBody,
+          "workspace-wrong-node",
+        ),
       ),
-    ),
     SharedNodeTransportError,
   );
   await f.service.acknowledge(
@@ -898,18 +1087,19 @@ Deno.test("workspace grants are lease-bound, exact, manifest-last, and credentia
     ),
   );
   await assert.rejects(
-    async () => await f.service.workspacePublishGrant(
-      "node_a",
-      publishInput,
-      await signed(
-        credential,
-        `SharedNode ${credential}`,
-        "POST",
-        "/v1/internal/shared-nodes/node_a/workspace-grants/publish",
-        publishBody,
-        "workspace-acknowledged",
+    async () =>
+      await f.service.workspacePublishGrant(
+        "node_a",
+        publishInput,
+        await signed(
+          credential,
+          `SharedNode ${credential}`,
+          "POST",
+          "/v1/internal/shared-nodes/node_a/workspace-grants/publish",
+          publishBody,
+          "workspace-acknowledged",
+        ),
       ),
-    ),
     SharedNodeTransportError,
   );
   await f.service.dispatch({
@@ -954,7 +1144,11 @@ Deno.test("workspace grants are lease-bound, exact, manifest-last, and credentia
   assert.deepEqual(restoredManifest.grants.map((grant) => grant.key), [
     "shared-hosting/account_1/service_1/revisions/1/manifest.json",
   ]);
-  const blobInput = { ...restoreInput, stage: "blobs" as const, keys: [descriptor.key] };
+  const blobInput = {
+    ...restoreInput,
+    stage: "blobs" as const,
+    keys: [descriptor.key],
+  };
   const restoredBlob = await f.service.workspaceRestoreGrant(
     "node_a",
     blobInput,
@@ -967,23 +1161,29 @@ Deno.test("workspace grants are lease-bound, exact, manifest-last, and credentia
       "restore-published-blob",
     ),
   );
-  assert.deepEqual(restoredBlob.grants.map((grant) => grant.key), [descriptor.key]);
+  assert.deepEqual(restoredBlob.grants.map((grant) => grant.key), [
+    descriptor.key,
+  ]);
   await assert.rejects(
-    async () => await f.service.workspaceRestoreGrant(
-      "node_a",
-      { ...blobInput, keys: ["shared-hosting/other/service/content/x.tar.zst"] },
-      await signed(
-        credential,
-        `SharedNode ${credential}`,
-        "POST",
-        "/v1/internal/shared-nodes/node_a/workspace-grants/restore",
-        JSON.stringify({
+    async () =>
+      await f.service.workspaceRestoreGrant(
+        "node_a",
+        {
           ...blobInput,
           keys: ["shared-hosting/other/service/content/x.tar.zst"],
-        }),
-        "restore-cross-service",
+        },
+        await signed(
+          credential,
+          `SharedNode ${credential}`,
+          "POST",
+          "/v1/internal/shared-nodes/node_a/workspace-grants/restore",
+          JSON.stringify({
+            ...blobInput,
+            keys: ["shared-hosting/other/service/content/x.tar.zst"],
+          }),
+          "restore-cross-service",
+        ),
       ),
-    ),
     SharedNodeTransportError,
   );
 
@@ -1024,20 +1224,22 @@ Deno.test("workspace grant rejects an expired command lease before issuing URLs"
     leaseGeneration: leased!.leaseGeneration,
   };
   await assert.rejects(
-    async () => await f.service.workspaceSyncGrant(
-      "node_a",
-      input,
-      await signed(
-        credential,
-        `SharedNode ${credential}`,
-        "POST",
-        "/v1/internal/shared-nodes/node_a/workspace-grants/sync",
-        JSON.stringify(input),
-        "expired-workspace-grant",
+    async () =>
+      await f.service.workspaceSyncGrant(
+        "node_a",
+        input,
+        await signed(
+          credential,
+          `SharedNode ${credential}`,
+          "POST",
+          "/v1/internal/shared-nodes/node_a/workspace-grants/sync",
+          JSON.stringify(input),
+          "expired-workspace-grant",
+        ),
       ),
-    ),
     (error) =>
-      error instanceof SharedNodeTransportError && error.code === "lease_conflict",
+      error instanceof SharedNodeTransportError &&
+      error.code === "lease_conflict",
   );
 });
 
@@ -1054,7 +1256,8 @@ Deno.test("each workspace grant route verifies the exact signed request body", a
     leaseGeneration: 1,
   });
   for (const operation of ["restore", "sync", "publish"]) {
-    const path = `/v1/internal/shared-nodes/node_a/workspace-grants/${operation}`;
+    const path =
+      `/v1/internal/shared-nodes/node_a/workspace-grants/${operation}`;
     const signature = await signed(
       credential,
       `SharedNode ${credential}`,
@@ -1063,17 +1266,19 @@ Deno.test("each workspace grant route verifies the exact signed request body", a
       body,
       `tampered-${operation}`,
     );
-    const response = await app.fetch(new Request(`http://localhost${path}`, {
-      method: "POST",
-      body: body + " ",
-      headers: {
-        authorization: signature.authorization!,
-        "x-xmcl-timestamp": signature.timestamp!,
-        "x-xmcl-nonce": signature.nonce!,
-        "x-xmcl-body-sha256": signature.bodyHash!,
-        "x-xmcl-signature": signature.signature!,
-      },
-    }));
+    const response = await app.fetch(
+      new Request(`http://localhost${path}`, {
+        method: "POST",
+        body: body + " ",
+        headers: {
+          authorization: signature.authorization!,
+          "x-xmcl-timestamp": signature.timestamp!,
+          "x-xmcl-nonce": signature.nonce!,
+          "x-xmcl-body-sha256": signature.bodyHash!,
+          "x-xmcl-signature": signature.signature!,
+        },
+      }),
+    );
     assert.equal(response.status, 401, `${operation} accepted a modified body`);
   }
 });
@@ -1156,11 +1361,62 @@ Deno.test("control plane reserves command host ports and rejects missing ingress
     await f.service.endpointForService("service_1"),
     { host: "public-node.example", port: first.hostPort },
   );
-  await f.ingress.release("node_a", "assignment_1", nowValue.value.toISOString());
+  await f.ingress.release(
+    "node_a",
+    "assignment_1",
+    nowValue.value.toISOString(),
+  );
   const reused = await allocator.reserve({
     ...command("node_a", "assigned-port-3"),
     serviceId: "service_3",
     assignmentId: "assignment_3",
   });
   assert.equal(reused.hostPort, first.hostPort);
+});
+
+Deno.test("service metrics are bound to account and assignment", async () => {
+  const f = await fixture();
+  await f.schedulerRepository.transact((state) => {
+    state.services.push({
+      serviceId: "service_metrics",
+      accountId: "account_1",
+      subscriptionId: "subscription_metrics",
+      planId: "shared-small",
+      regionId: "sgp",
+      status: "running",
+      nodeId: "node_a",
+      assignmentId: "assignment_metrics",
+      workspace: {
+        objectPrefix: "shared-hosting/account_1/service_metrics/",
+        revision: 0,
+        sizeBytes: 0,
+      },
+      createdAt: nowValue.value.toISOString(),
+      updatedAt: nowValue.value.toISOString(),
+    });
+  });
+  await f.credentialRepository.saveHeartbeat({
+    ...heartbeat,
+    nodeId: "node_a",
+    services: [{
+      serviceId: "service_metrics",
+      assignmentId: "assignment_metrics",
+      cpuPercent: 37.5,
+      memoryUsageMiB: 1536,
+      memoryLimitMiB: 4096,
+    }],
+    receivedAt: nowValue.value.toISOString(),
+  });
+  assert.deepEqual(
+    await f.service.sharedServiceMetrics("account_1", "service_metrics"),
+    {
+      cpuPercent: 37.5,
+      memoryUsageMiB: 1536,
+      memoryLimitMiB: 4096,
+      observedAt: nowValue.value.toISOString(),
+    },
+  );
+  await assert.rejects(
+    () => f.service.sharedServiceMetrics("account_2", "service_metrics"),
+  );
 });

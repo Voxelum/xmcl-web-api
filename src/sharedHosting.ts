@@ -2,11 +2,17 @@ import { AccountError, randomId } from "./account.ts";
 import { requirePositiveSafeInteger, stableFingerprint } from "./billing.ts";
 import type {
   BillingResource,
+  BillingState,
   BillingStore,
   CashRate,
   LedgerEntry,
   MeterUnit,
 } from "./ledger.ts";
+import {
+  enabledSharedHostingRegions,
+  requireSharedHostingRegion,
+  type SharedHostingRegion,
+} from "./sharedHostingRegions.ts";
 
 const SHARED_HOSTING_RATE_RESOURCE: BillingResource = "server_time";
 const SHARED_HOSTING_RATE_UNIT: MeterUnit = "hour";
@@ -24,10 +30,12 @@ export interface SharedHostingPlan {
   currency?: string;
 }
 
+export type PublicSharedHostingPlan = Omit<SharedHostingPlan, "burstCpu">;
+
 export const SHARED_HOSTING_PLANS: readonly SharedHostingPlan[] = [
   {
     planId: "shared-small",
-    displayName: "Small",
+    displayName: "Together Camp",
     memoryMiB: 4 * 1024,
     sharedCpu: 2,
     burstCpu: 4,
@@ -38,7 +46,7 @@ export const SHARED_HOSTING_PLANS: readonly SharedHostingPlan[] = [
   },
   {
     planId: "shared-medium",
-    displayName: "Medium",
+    displayName: "Together Lodge",
     memoryMiB: 6 * 1024,
     sharedCpu: 3,
     burstCpu: 6,
@@ -49,7 +57,7 @@ export const SHARED_HOSTING_PLANS: readonly SharedHostingPlan[] = [
   },
   {
     planId: "shared-large",
-    displayName: "Large",
+    displayName: "Together Village",
     memoryMiB: 8 * 1024,
     sharedCpu: 4,
     burstCpu: 8,
@@ -78,17 +86,29 @@ export interface SharedHostingSubscription {
   subscriptionId: string;
   accountId: string;
   planId: SharedHostingPlan["planId"];
+  regionId?: string;
   status: SharedHostingSubscriptionStatus;
   currentPeriodStartedAt: string;
   currentPeriodEndsAt: string;
   createdAt: string;
   updatedAt: string;
   cancelAtPeriodEnd?: true;
+  cancelledAt?: string;
+  retentionEndsAt?: string;
+  pendingRuntimeCharge?: {
+    amountMinor: number;
+    serviceId: string;
+    assignmentId: string;
+    startedAt: string;
+    fromHour: number;
+    toHour: number;
+    occurredAt: string;
+  };
 }
 
 export interface PublicSharedHostingSubscription
   extends SharedHostingSubscription {
-  plan: SharedHostingPlan;
+  plan: PublicSharedHostingPlan;
 }
 
 export interface SharedHostingRuntimeRate {
@@ -100,6 +120,7 @@ export interface SharedHostingRuntimeRate {
 
 export interface SharedHostingServiceOptions {
   currency?: string;
+  enabledRegionIds?: readonly string[];
   now?: () => Date;
   createId?: (prefix: string) => string;
 }
@@ -123,11 +144,30 @@ export interface SharedHostingRuntimeSettlementInput {
 }
 
 export const SHARED_HOSTING_STORAGE_GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1_000;
+export const SHARED_HOSTING_CANCELLATION_RETENTION_MS = 30 * 24 * 60 * 60 *
+  1_000;
 
 function plan(planId: string): SharedHostingPlan {
   const value = SHARED_HOSTING_PLANS.find((item) => item.planId === planId);
   if (!value) throw new AccountError(422, "shared_plan_not_available");
   return value;
+}
+
+function publicPlan(
+  value: SharedHostingPlan,
+  currency: string,
+): PublicSharedHostingPlan {
+  return {
+    planId: value.planId,
+    displayName: value.displayName,
+    memoryMiB: value.memoryMiB,
+    sharedCpu: value.sharedCpu,
+    persistentStorageGiB: value.persistentStorageGiB,
+    monthlyBaseMinor: value.monthlyBaseMinor,
+    hourlyRateVersion: value.hourlyRateVersion,
+    hourlyAmountMinor: value.hourlyAmountMinor,
+    currency,
+  };
 }
 
 function publicSubscription(
@@ -136,10 +176,7 @@ function publicSubscription(
 ): PublicSharedHostingSubscription {
   return {
     ...structuredClone(subscription),
-    plan: {
-      ...plan(subscription.planId),
-      ...(currency ? { currency } : {}),
-    },
+    plan: publicPlan(plan(subscription.planId), currency ?? "USD"),
   };
 }
 
@@ -168,6 +205,7 @@ export class SharedHostingService {
   private readonly currency: string;
   private readonly now: () => Date;
   private readonly createId: (prefix: string) => string;
+  private readonly enabledRegions: readonly SharedHostingRegion[];
 
   constructor(
     private readonly store: BillingStore,
@@ -176,13 +214,17 @@ export class SharedHostingService {
     this.currency = options.currency ?? "USD";
     this.now = options.now ?? (() => new Date());
     this.createId = options.createId ?? randomId;
+    this.enabledRegions = enabledSharedHostingRegions(
+      options.enabledRegionIds ?? ["sgp"],
+    );
   }
 
   listPlans() {
-    return SHARED_HOSTING_PLANS.map((item) => ({
-      ...structuredClone(item),
-      currency: this.currency,
-    }));
+    return SHARED_HOSTING_PLANS.map((item) => publicPlan(item, this.currency));
+  }
+
+  listRegions() {
+    return structuredClone(this.enabledRegions);
   }
 
   runtimeRate(planId: string): SharedHostingRuntimeRate {
@@ -213,11 +255,150 @@ export class SharedHostingService {
       if (!subscription || subscription.accountId !== accountId) {
         throw new AccountError(404, "shared_subscription_not_found");
       }
+
       if (subscription.status !== "active") {
         throw new AccountError(409, "shared_subscription_not_active");
       }
       return publicSubscription(subscription, this.currency);
     });
+  }
+
+  async cancellationRetentions(subscriptionIds: readonly string[]) {
+    const wanted = new Set(subscriptionIds);
+    return await this.store.read((state) =>
+      [...state.sharedHostingSubscriptions.values()]
+        .map((item) => item as SharedHostingSubscription)
+        .filter((item) =>
+          wanted.has(item.subscriptionId) &&
+          item.status === "cancelled" &&
+          item.cancelledAt !== undefined &&
+          item.retentionEndsAt !== undefined
+        )
+        .map((item) => ({
+          subscriptionId: item.subscriptionId,
+          retentionStartedAt: item.cancelledAt!,
+          retentionEndsAt: item.retentionEndsAt!,
+        }))
+    );
+  }
+
+  async recoverPaymentDue(
+    accountId: string,
+    at = this.now(),
+  ): Promise<string[]> {
+    return await this.store.transaction((state) => {
+      const recovered: string[] = [];
+      for (
+        const subscription of [...state.sharedHostingSubscriptions.values()]
+          .map((item) => item as SharedHostingSubscription)
+          .filter((item) =>
+            item.accountId === accountId && item.status === "payment_due"
+          )
+      ) {
+        const selected = plan(subscription.planId);
+        const balance = state.balances.get(accountId) ?? {
+          availableMinor: 0,
+          reservedMinor: 0,
+        };
+        const periodExpired =
+          Date.parse(subscription.currentPeriodEndsAt) <= at.getTime();
+        if (periodExpired && subscription.cancelAtPeriodEnd) {
+          const pending = subscription.pendingRuntimeCharge;
+          if (pending && balance.availableMinor < pending.amountMinor) {
+            continue;
+          }
+          if (pending) {
+            this.chargePendingRuntime(state, subscription, pending, at);
+          }
+          this.markCancelled(subscription, at);
+          state.sharedHostingSubscriptions.set(
+            subscription.subscriptionId,
+            subscription,
+          );
+          continue;
+        }
+        const pending = subscription.pendingRuntimeCharge;
+        const totalDue = (periodExpired ? selected.monthlyBaseMinor : 0) +
+          (pending?.amountMinor ?? 0);
+        if (totalDue > 0 && balance.availableMinor < totalDue) continue;
+        if (periodExpired) {
+          subscription.currentPeriodStartedAt =
+            subscription.currentPeriodEndsAt;
+          subscription.currentPeriodEndsAt = addCalendarMonth(
+            new Date(subscription.currentPeriodEndsAt),
+          ).toISOString();
+          this.chargeBaseFee(
+            state,
+            subscription,
+            selected,
+            `subscription:${subscription.subscriptionId}:${subscription.currentPeriodStartedAt}`,
+          );
+        }
+        if (pending) {
+          this.chargePendingRuntime(state, subscription, pending, at);
+        } else if (
+          !periodExpired && balance.availableMinor < selected.hourlyAmountMinor
+        ) {
+          continue;
+        }
+        subscription.status = "active";
+        subscription.updatedAt = at.toISOString();
+        state.sharedHostingSubscriptions.set(
+          subscription.subscriptionId,
+          subscription,
+        );
+        recovered.push(subscription.subscriptionId);
+      }
+      return recovered;
+    });
+  }
+
+  private chargePendingRuntime(
+    state: BillingState,
+    subscription: SharedHostingSubscription,
+    pending: NonNullable<SharedHostingSubscription["pendingRuntimeCharge"]>,
+    at: Date,
+  ) {
+    const balance = state.balances.get(subscription.accountId) ?? {
+      availableMinor: 0,
+      reservedMinor: 0,
+    };
+    balance.availableMinor -= pending.amountMinor;
+    state.balances.set(subscription.accountId, balance);
+    state.ledger.push({
+      ledgerEntryId: this.createId("ledger"),
+      accountId: subscription.accountId,
+      kind: "shared_runtime_fee",
+      amount: {
+        currency: this.currency,
+        amountMinor: pending.amountMinor,
+      },
+      occurredAt: at.toISOString(),
+      referenceId:
+        `shared-runtime-arrears:${pending.serviceId}:${pending.assignmentId}:${pending.fromHour}-${pending.toHour}`,
+    });
+    const watermark = state.sharedRuntimeWatermarks.get(pending.serviceId);
+    state.sharedRuntimeWatermarks.set(pending.serviceId, {
+      assignmentId: pending.assignmentId,
+      startedAt: pending.startedAt,
+      settledHours: watermark?.assignmentId === pending.assignmentId
+        ? Math.max(watermark.settledHours, pending.toHour)
+        : pending.toHour,
+    });
+    delete subscription.pendingRuntimeCharge;
+  }
+
+  private markCancelled(
+    subscription: SharedHostingSubscription,
+    processedAt: Date,
+  ) {
+    const effectiveAt = subscription.currentPeriodEndsAt;
+    subscription.status = "cancelled";
+    subscription.cancelledAt = effectiveAt;
+    subscription.retentionEndsAt = new Date(
+      Date.parse(effectiveAt) + SHARED_HOSTING_CANCELLATION_RETENTION_MS,
+    ).toISOString();
+    subscription.updatedAt = processedAt.toISOString();
   }
 
   async adminSubscriptions() {
@@ -324,6 +505,15 @@ export class SharedHostingService {
       if (balance.availableMinor < amountMinor) {
         subscription.status = "payment_due";
         subscription.updatedAt = input.settledAt;
+        subscription.pendingRuntimeCharge = {
+          amountMinor,
+          serviceId: input.serviceId,
+          assignmentId: input.assignmentId,
+          startedAt: input.startedAt,
+          fromHour: settledHours + 1,
+          toHour: elapsedHours,
+          occurredAt: input.settledAt,
+        };
         state.sharedHostingSubscriptions.set(
           subscription.subscriptionId,
           subscription,
@@ -371,13 +561,21 @@ export class SharedHostingService {
   async subscribe(input: {
     accountId: string;
     planId: string;
+    regionId?: string;
     idempotencyKey: string;
   }): Promise<PublicSharedHostingSubscription> {
     if (!input.accountId || !input.idempotencyKey) {
       throw new AccountError(422, "invalid_shared_subscription");
     }
     const selected = plan(input.planId);
-    const fingerprint = stableFingerprint({ planId: selected.planId });
+    const selectedRegion = requireSharedHostingRegion(
+      input.regionId ?? this.enabledRegions[0].regionId,
+      this.enabledRegions,
+    );
+    const fingerprint = stableFingerprint({
+      planId: selected.planId,
+      regionId: selectedRegion.regionId,
+    });
     return await this.store.transaction((state) => {
       const scope = idempotencyScope(
         input.accountId,
@@ -391,22 +589,13 @@ export class SharedHostingService {
         }
         return replay.response as PublicSharedHostingSubscription;
       }
-      const existing = [...state.sharedHostingSubscriptions.values()]
-        .map((item) => item as SharedHostingSubscription)
-        .find((item) =>
-          item.accountId === input.accountId &&
-          ["active", "payment_due"].includes(item.status)
-        );
-      if (existing) {
-        throw new AccountError(409, "shared_subscription_exists");
-      }
-
       const now = this.now();
       const periodEnd = addCalendarMonth(now);
       const subscription: SharedHostingSubscription = {
         subscriptionId: this.createId("shared"),
         accountId: input.accountId,
         planId: selected.planId,
+        regionId: selectedRegion.regionId,
         status: "active",
         currentPeriodStartedAt: now.toISOString(),
         currentPeriodEndsAt: periodEnd.toISOString(),
@@ -510,8 +699,7 @@ export class SharedHostingService {
         return "cancelled";
       }
       if (subscription.cancelAtPeriodEnd) {
-        subscription.status = "cancelled";
-        subscription.updatedAt = at.toISOString();
+        this.markCancelled(subscription, at);
         return "cancelled";
       }
       const selected = plan(subscription.planId);

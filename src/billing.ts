@@ -42,6 +42,34 @@ export interface ProviderReconciliationResult {
 
 export type PaymentProvider = NonNullable<BillingOrder["provider"]>;
 
+export interface AdminBillingOrder {
+  orderId: string;
+  accountId: string;
+  provider: PaymentProvider;
+  providerOrderId?: string;
+  status: BillingOrder["status"];
+  cashAmount: Money;
+  providerPaidTotalMinor?: number;
+  refundedCashMinor: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminBillingAccount {
+  accountId: string;
+  balance: CashBalance;
+  paidCashMinor: number;
+  refundedCashMinor: number;
+  latestPaymentAt?: string;
+}
+
+export interface AdminBillingOverview {
+  generatedAt: string;
+  accounts: AdminBillingAccount[];
+  orders: AdminBillingOrder[];
+  ledger: LedgerEntry[];
+}
+
 export interface AdminOperation {
   operationId: string;
   action: "refund" | "balance_adjust";
@@ -237,6 +265,76 @@ export class BillingService {
 
   async adminLedger(): Promise<LedgerEntry[]> {
     return await this.store.read((state) => state.ledger);
+  }
+
+  async adminOverview(): Promise<AdminBillingOverview> {
+    return await this.store.read((state) => {
+      const orders = [...state.orders.values()]
+        .map<AdminBillingOrder>((order) => ({
+          orderId: order.orderId,
+          accountId: order.accountId,
+          provider: order.provider ?? "paypal",
+          ...(order.providerOrderId
+            ? { providerOrderId: order.providerOrderId }
+            : {}),
+          status: order.status,
+          cashAmount: structuredClone(order.amount),
+          ...(order.providerPaidTotalMinor !== undefined
+            ? { providerPaidTotalMinor: order.providerPaidTotalMinor }
+            : {}),
+          refundedCashMinor: state.refundTotalsByOrderId.get(order.orderId) ??
+            0,
+          createdAt: order.createdAt,
+          updatedAt: order.updatedAt ?? order.createdAt,
+        }))
+        .sort((left, right) =>
+          right.createdAt.localeCompare(left.createdAt) ||
+          left.orderId.localeCompare(right.orderId)
+        );
+      const ledger = structuredClone(state.ledger)
+        .sort((left, right) =>
+          right.occurredAt.localeCompare(left.occurredAt) ||
+          left.ledgerEntryId.localeCompare(right.ledgerEntryId)
+        );
+      const accountIds = new Set([
+        ...state.balances.keys(),
+        ...orders.map((order) => order.accountId),
+        ...ledger.map((entry) => entry.accountId),
+      ]);
+      const accounts = [...accountIds]
+        .map<AdminBillingAccount>((accountId) => {
+          const accountOrders = orders.filter((order) =>
+            order.accountId === accountId && order.status === "completed"
+          );
+          const latestPaymentAt = ledger.find((entry) =>
+            entry.accountId === accountId && entry.kind === "waffo_credit"
+          )?.occurredAt;
+          return {
+            accountId,
+            balance: balanceOf(state, accountId, this.currency),
+            paidCashMinor: accountOrders.reduce(
+              (total, order) => total + order.cashAmount.amountMinor,
+              0,
+            ),
+            refundedCashMinor: accountOrders.reduce(
+              (total, order) => total + order.refundedCashMinor,
+              0,
+            ),
+            ...(latestPaymentAt ? { latestPaymentAt } : {}),
+          };
+        })
+        .sort((left, right) =>
+          (right.latestPaymentAt ?? "").localeCompare(
+            left.latestPaymentAt ?? "",
+          ) || left.accountId.localeCompare(right.accountId)
+        );
+      return {
+        generatedAt: this.now().toISOString(),
+        accounts,
+        orders,
+        ledger,
+      };
+    });
   }
 
   async createOrder(input: {
@@ -524,13 +622,19 @@ export class BillingService {
     webhookEventId: string,
     rawBody: string,
     paidAmount: Money,
-  ): Promise<{ duplicate: boolean; order?: PublicOrder }> {
+    providerPaidTotal?: Money,
+  ): Promise<{
+    duplicate: boolean;
+    order?: PublicOrder;
+    accountId?: string;
+  }> {
     return await this.recordProviderCredit({
       provider: "waffo",
       orderId,
       webhookEventId,
       rawBody,
       paidAmount,
+      providerPaidTotal,
       ledgerKind: "waffo_credit",
       orderNotFoundCode: "waffo_order_not_found",
     });
@@ -543,12 +647,27 @@ export class BillingService {
     webhookEventId: string;
     rawBody: string;
     paidAmount?: Money;
+    providerPaidTotal?: Money;
     ledgerKind: LedgerKind;
     orderNotFoundCode: string;
-  }): Promise<{ duplicate: boolean; order?: PublicOrder }> {
+  }): Promise<{
+    duplicate: boolean;
+    order?: PublicOrder;
+    accountId?: string;
+  }> {
     return await this.store.transaction((state) => {
       if (state.webhookEventIds.has(input.webhookEventId)) {
-        return { duplicate: true };
+        const duplicateOrderId = input.orderId ??
+          (input.providerOrderId
+            ? state.ordersByProviderId.get(input.providerOrderId)
+            : undefined);
+        const duplicateOrder = duplicateOrderId
+          ? state.orders.get(duplicateOrderId)
+          : undefined;
+        return {
+          duplicate: true,
+          ...(duplicateOrder ? { accountId: duplicateOrder.accountId } : {}),
+        };
       }
       const orderId = input.orderId ??
         (input.providerOrderId
@@ -566,9 +685,23 @@ export class BillingService {
       ) {
         fail(422, "payment_amount_mismatch");
       }
+      if (
+        input.providerPaidTotal &&
+        (input.providerPaidTotal.currency !== order.amount.currency ||
+          input.providerPaidTotal.amountMinor < order.amount.amountMinor)
+      ) {
+        fail(422, "payment_amount_mismatch");
+      }
       if (order.status === "completed") {
+        if (!order.providerPaidTotalMinor && input.providerPaidTotal) {
+          order.providerPaidTotalMinor = input.providerPaidTotal.amountMinor;
+        }
         state.webhookEventIds.add(input.webhookEventId);
-        return { duplicate: true, order: publicOrder(order) };
+        return {
+          duplicate: true,
+          order: publicOrder(order),
+          accountId: order.accountId,
+        };
       }
       const balance = state.balances.get(order.accountId) ?? {
         availableMinor: 0,
@@ -583,6 +716,8 @@ export class BillingService {
       balance.availableMinor += order.amount.amountMinor;
       state.balances.set(order.accountId, balance);
       order.status = "completed";
+      order.providerPaidTotalMinor = input.providerPaidTotal?.amountMinor ??
+        order.amount.amountMinor;
       appendLedger(state, {
         ledgerEntryId: this.createId("ledger"),
         accountId: order.accountId,
@@ -593,7 +728,11 @@ export class BillingService {
       });
       state.webhookEventIds.add(input.webhookEventId);
       state.webhookRawBodies.set(input.webhookEventId, input.rawBody);
-      return { duplicate: false, order: publicOrder(order) };
+      return {
+        duplicate: false,
+        order: publicOrder(order),
+        accountId: order.accountId,
+      };
     });
   }
 
@@ -606,6 +745,98 @@ export class BillingService {
       state.webhookEventIds.add(webhookEventId);
       state.webhookRawBodies.set(webhookEventId, rawBody);
       return false;
+    });
+  }
+
+  async recordWaffoRefund(
+    orderId: string,
+    webhookEventId: string,
+    rawBody: string,
+    providerRefundedAmount: Money,
+    refundedCashAmount?: Money,
+  ): Promise<{ duplicate: boolean; accountId?: string }> {
+    return await this.store.transaction((state) => {
+      if (state.webhookEventIds.has(webhookEventId)) {
+        return {
+          duplicate: true,
+          accountId: state.orders.get(orderId)?.accountId,
+        };
+      }
+      const order = state.orders.get(orderId);
+      if (
+        !order || (order.provider ?? "paypal") !== "waffo" ||
+        order.status !== "completed"
+      ) {
+        fail(422, "waffo_order_not_found");
+      }
+      const providerRefundedTotal =
+        state.providerRefundTotalsByOrderId.get(orderId) ?? 0;
+      if (
+        providerRefundedAmount.currency !== order.amount.currency ||
+        !Number.isSafeInteger(
+          providerRefundedTotal + providerRefundedAmount.amountMinor,
+        ) ||
+        (order.providerPaidTotalMinor !== undefined &&
+          providerRefundedTotal + providerRefundedAmount.amountMinor >
+            order.providerPaidTotalMinor)
+      ) {
+        fail(422, "refund_amount_mismatch");
+      }
+      if (
+        order.providerPaidTotalMinor === undefined &&
+        refundedCashAmount === undefined
+      ) {
+        fail(422, "refund_amount_mismatch");
+      }
+      const refundedTotal = state.refundTotalsByOrderId.get(orderId) ?? 0;
+      const cumulativeCashAmount = order.providerPaidTotalMinor === undefined
+        ? refundedTotal + refundedCashAmount!.amountMinor
+        : Math.round(
+          (providerRefundedTotal + providerRefundedAmount.amountMinor) *
+            order.amount.amountMinor / order.providerPaidTotalMinor,
+        );
+      const refundedAmount: Money = {
+        currency: order.amount.currency,
+        amountMinor: cumulativeCashAmount - refundedTotal,
+      };
+      if (
+        !Number.isSafeInteger(refundedAmount.amountMinor) ||
+        refundedAmount.amountMinor <= 0
+      ) {
+        fail(422, "refund_amount_mismatch");
+      }
+      if (
+        refundedAmount.currency !== order.amount.currency ||
+        refundedTotal >
+          order.amount.amountMinor - refundedAmount.amountMinor
+      ) {
+        fail(422, "refund_amount_mismatch");
+      }
+      const balance = state.balances.get(order.accountId) ?? {
+        availableMinor: 0,
+        reservedMinor: 0,
+      };
+      balance.availableMinor -= refundedAmount.amountMinor;
+      state.balances.set(order.accountId, balance);
+      state.refundTotalsByOrderId.set(
+        orderId,
+        refundedTotal + refundedAmount.amountMinor,
+      );
+      state.providerRefundTotalsByOrderId.set(
+        orderId,
+        providerRefundedTotal + providerRefundedAmount.amountMinor,
+      );
+      appendLedger(state, {
+        ledgerEntryId: this.createId("ledger"),
+        accountId: order.accountId,
+        kind: "refund",
+        amount: refundedAmount,
+        occurredAt: this.now().toISOString(),
+        referenceId: webhookEventId,
+      });
+      state.webhookEventIds.add(webhookEventId);
+      state.webhookRawBodies.set(webhookEventId, rawBody);
+      return { duplicate: false, accountId: order.accountId };
     });
   }
 

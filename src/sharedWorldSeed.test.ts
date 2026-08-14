@@ -34,7 +34,7 @@ function fixture() {
       activeSubscription: async (accountId, subscriptionId) => ({
         subscriptionId, accountId, planId: "shared-small", status: "active",
         currentPeriodStartedAt: now, currentPeriodEndsAt: now, createdAt: now, updatedAt: now,
-        plan: { planId: "shared-small", displayName: "small", memoryMiB: 4096, sharedCpu: 2, burstCpu: 4, persistentStorageGiB: 32, monthlyBaseMinor: 1, hourlyRateVersion: 1, hourlyAmountMinor: 1 },
+        plan: { planId: "shared-small", displayName: "small", memoryMiB: 4096, sharedCpu: 2, persistentStorageGiB: 32, monthlyBaseMinor: 1, hourlyRateVersion: 1, hourlyAmountMinor: 1 },
       }),
     },
     { dispatch: async (command) => void commands.push(command) },

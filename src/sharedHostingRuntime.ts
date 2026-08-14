@@ -17,6 +17,7 @@ import {
 import {
   hasValidSharedNodeBlockStorageSettings,
   hasValidSharedNodeFirewallSettings,
+  hasValidSharedNodeIngressSettings,
   isImmutableSharedRuntimeImage,
   MongoSharedNodeProvisioningRepository,
   type SharedNodeVmProfile,
@@ -26,19 +27,26 @@ import {
   isSharedNodeRegion,
   MongoSharedHostingSchedulerRepository,
   SharedHostingScheduler,
+  type SharedNodeProvisioner,
 } from "./sharedHostingScheduler.ts";
+import { enabledSharedHostingRegions } from "./sharedHostingRegions.ts";
 import {
   type SharedHostingBillingScheduledWork,
   sharedHostingBillingWork,
 } from "./sharedHostingScheduling.ts";
 import { VultrV2Adapter } from "./vultr.ts";
+import {
+  MixedSharedNodeProvisioner,
+  MongoSharedNodeAllocationRepository,
+  type SharedNodeCapacitySource,
+} from "./sharedNodeInfrastructure.ts";
 
 export interface SharedHostingRuntime {
   billing: BillingRuntime["billing"];
   sharedHosting: SharedHostingService;
   scheduler: SharedHostingScheduler;
   transport: SharedNodeTransportService;
-  provisioner: VultrSharedNodeProvisioner;
+  provisioner: SharedNodeProvisioner;
   billingScheduledWork: SharedHostingBillingScheduledWork;
 }
 
@@ -72,6 +80,7 @@ export function sharedNodeProfileFromConfig(
     profileId:
       `shared-${config.VULTR_SHARED_NODE_PLAN}-${totalMemoryMiB}m-${totalSharedCpu}c-${totalWorkspaceGiB}g`,
     providerPlan: config.VULTR_SHARED_NODE_PLAN,
+    workloadClasses: ["standard", "large"],
     totalMemoryMiB,
     totalSharedCpu,
     totalWorkspaceGiB,
@@ -79,11 +88,26 @@ export function sharedNodeProfileFromConfig(
 }
 
 export function hasSharedNodeSettings(config: AppConfig) {
+  const regions = sharedNodeRegionsFromConfig(config);
+  const capacityMode = sharedNodeCapacityModeFromConfig(config);
+  const common = Boolean(
+    config.BILLING_RATES_JSON &&
+      regions &&
+      config.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT &&
+      config.XMCL_VULTR_OBJECT_STORAGE_REGION &&
+      config.XMCL_VULTR_OBJECT_STORAGE_BUCKET &&
+      hasValidSharedNodeIngressSettings(
+        config.XMCL_SHARED_NODE_INGRESS_PORT_MIN,
+        config.XMCL_SHARED_NODE_INGRESS_PORT_MAX,
+      ),
+  );
+  if (!common || !capacityMode) return false;
+  if (capacityMode === "preprovisioned") {
+    return true;
+  }
   const profile = sharedNodeProfileFromConfig(config);
   return Boolean(
-    config.BILLING_RATES_JSON &&
-      config.VULTR_API_TOKEN &&
-      isSharedNodeRegion(config.VULTR_SHARED_NODE_REGION_ID) &&
+    config.VULTR_API_TOKEN &&
       profile &&
       config.VULTR_SHARED_NODE_IMAGE_ID &&
       config.XMCL_SHARED_AGENT_RELEASE_URL &&
@@ -91,9 +115,6 @@ export function hasSharedNodeSettings(config: AppConfig) {
       config.XMCL_SHARED_QUOTA_HELPER_RELEASE_URL &&
       config.XMCL_SHARED_QUOTA_HELPER_RELEASE_SHA256 &&
       config.XMCL_CONTROL_PLANE_URL &&
-      config.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT &&
-      config.XMCL_VULTR_OBJECT_STORAGE_REGION &&
-      config.XMCL_VULTR_OBJECT_STORAGE_BUCKET &&
       isImmutableSharedRuntimeImage(config.XMCL_SHARED_NODE_CONTAINER_IMAGE) &&
       hasValidSharedNodeBlockStorageSettings(
         config.VULTR_SHARED_NODE_BLOCK_STORAGE_GIB,
@@ -108,6 +129,28 @@ export function hasSharedNodeSettings(config: AppConfig) {
   );
 }
 
+export function sharedNodeRegionsFromConfig(config: AppConfig) {
+  const values = (
+    config.XMCL_SHARED_NODE_REGION_IDS ??
+      config.VULTR_SHARED_NODE_REGION_IDS
+  )?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean) ??
+    (config.VULTR_SHARED_NODE_REGION_ID
+      ? [config.VULTR_SHARED_NODE_REGION_ID]
+      : []);
+  try {
+    return enabledSharedHostingRegions(values).map((region) => region.regionId);
+  } catch {
+    return undefined;
+  }
+}
+
+export function sharedNodeCapacityModeFromConfig(config: AppConfig) {
+  const value = config.XMCL_SHARED_NODE_CAPACITY_MODE ?? "vultr";
+  return value === "vultr" || value === "preprovisioned" ? value : undefined;
+}
+
 export function createSharedHostingRuntime(
   db: Db,
   config: AppConfig,
@@ -116,7 +159,11 @@ export function createSharedHostingRuntime(
   if (!hasSharedNodeSettings(config)) {
     throw new Error("shared node production settings are incomplete");
   }
-  const profile = sharedNodeProfileFromConfig(config)!;
+  const capacityMode = sharedNodeCapacityModeFromConfig(config)!;
+  const profile = capacityMode === "vultr"
+    ? sharedNodeProfileFromConfig(config)!
+    : undefined;
+  const regions = sharedNodeRegionsFromConfig(config)!;
   const billing = createBillingRuntime(db, config);
   const credentialRepository = new MongoSharedNodeCredentialRepository(db);
   const outbox = new MongoSharedNodeCommandOutbox(db);
@@ -138,50 +185,73 @@ export function createSharedHostingRuntime(
     billing.sharedHosting,
     new DurableSharedNodeCommandGateway(outbox, ingress),
     undefined,
-    { region: config.VULTR_SHARED_NODE_REGION_ID! },
+    { region: regions[0], regions },
   );
-  const provider = new VultrV2Adapter({
-    token: config.VULTR_API_TOKEN!,
-    regionId: config.VULTR_SHARED_NODE_REGION_ID!,
-    allowedPlans: [config.VULTR_SHARED_NODE_PLAN!],
-    imageId: config.VULTR_SHARED_NODE_IMAGE_ID!,
-  });
-  const provisioner = new VultrSharedNodeProvisioner({
-    provider,
-    volumeProvider: provider,
-    scheduler,
-    repository: new MongoSharedNodeProvisioningRepository(db),
-    enrollmentRepository: credentialRepository,
-    registration: {
-      isRegistered: (nodeId) => scheduler.hasNode(nodeId),
-    },
-    config: {
-      providerPlan: profile.providerPlan,
-      firewallGroupId: config.VULTR_SHARED_NODE_FIREWALL_GROUP_ID!,
-      releaseUrl: config.XMCL_SHARED_AGENT_RELEASE_URL!,
-      releaseSha256: config.XMCL_SHARED_AGENT_RELEASE_SHA256!,
-      quotaHelperReleaseUrl: config.XMCL_SHARED_QUOTA_HELPER_RELEASE_URL!,
-      quotaHelperReleaseSha256: config.XMCL_SHARED_QUOTA_HELPER_RELEASE_SHA256!,
-      controlPlaneUrl: config.XMCL_CONTROL_PLANE_URL!,
-      region: config.VULTR_SHARED_NODE_REGION_ID!,
-      blockStorageSizeGiB: Number(
-        config.VULTR_SHARED_NODE_BLOCK_STORAGE_GIB,
-      ),
-      blockStorageType: config.VULTR_SHARED_NODE_BLOCK_STORAGE_TYPE!,
-      objectStorageEndpoint: config.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT,
-      objectStorageRegion: config.XMCL_VULTR_OBJECT_STORAGE_REGION,
-      objectStorageBucket: config.XMCL_VULTR_OBJECT_STORAGE_BUCKET,
-      containerImage: config.XMCL_SHARED_NODE_CONTAINER_IMAGE!,
-      workspaceRoot: config.XMCL_WORKSPACE_ROOT,
-      rconStopTimeoutSeconds: config.XMCL_RCON_STOP_TIMEOUT_SECONDS
-        ? Number(config.XMCL_RCON_STOP_TIMEOUT_SECONDS)
-        : undefined,
-      xfsProjectBase: config.XMCL_XFS_PROJECT_BASE
-        ? Number(config.XMCL_XFS_PROJECT_BASE)
-        : undefined,
-    },
-    profiles: [profile],
-  });
+  const provisioningRepository = new MongoSharedNodeProvisioningRepository(db);
+  const capacitySources: SharedNodeCapacitySource[] = capacityMode === "vultr"
+    ? regions.map((region) => {
+      const provider = new VultrV2Adapter({
+        token: config.VULTR_API_TOKEN!,
+        regionId: region,
+        allowedPlans: [config.VULTR_SHARED_NODE_PLAN!],
+        imageId: config.VULTR_SHARED_NODE_IMAGE_ID!,
+      });
+      const provisioner = new VultrSharedNodeProvisioner({
+        provider,
+        volumeProvider: provider,
+        scheduler,
+        repository: provisioningRepository,
+        enrollmentRepository: credentialRepository,
+        registration: {
+          isRegistered: (nodeId) => scheduler.hasNode(nodeId),
+        },
+        config: {
+          providerPlan: profile!.providerPlan,
+          firewallGroupId: config.VULTR_SHARED_NODE_FIREWALL_GROUP_ID!,
+          releaseUrl: config.XMCL_SHARED_AGENT_RELEASE_URL!,
+          releaseSha256: config.XMCL_SHARED_AGENT_RELEASE_SHA256!,
+          quotaHelperReleaseUrl: config.XMCL_SHARED_QUOTA_HELPER_RELEASE_URL!,
+          quotaHelperReleaseSha256: config
+            .XMCL_SHARED_QUOTA_HELPER_RELEASE_SHA256!,
+          controlPlaneUrl: config.XMCL_CONTROL_PLANE_URL!,
+          region,
+          blockStorageSizeGiB: Number(
+            config.VULTR_SHARED_NODE_BLOCK_STORAGE_GIB,
+          ),
+          blockStorageType: config.VULTR_SHARED_NODE_BLOCK_STORAGE_TYPE!,
+          objectStorageEndpoint: config.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT,
+          objectStorageRegion: config.XMCL_VULTR_OBJECT_STORAGE_REGION,
+          objectStorageBucket: config.XMCL_VULTR_OBJECT_STORAGE_BUCKET,
+          containerImage: config.XMCL_SHARED_NODE_CONTAINER_IMAGE!,
+          workspaceRoot: config.XMCL_WORKSPACE_ROOT,
+          rconStopTimeoutSeconds: config.XMCL_RCON_STOP_TIMEOUT_SECONDS
+            ? Number(config.XMCL_RCON_STOP_TIMEOUT_SECONDS)
+            : undefined,
+          xfsProjectBase: config.XMCL_XFS_PROJECT_BASE
+            ? Number(config.XMCL_XFS_PROJECT_BASE)
+            : undefined,
+        },
+        profiles: [profile!],
+      });
+      return {
+        offer: {
+          providerId: "vultr",
+          offerId: `vultr:${region}:${profile!.profileId}`,
+          region,
+          workloadClasses: profile!.workloadClasses,
+          totalMemoryMiB: profile!.totalMemoryMiB,
+          totalSharedCpu: profile!.totalSharedCpu,
+          totalWorkspaceGiB: profile!.totalWorkspaceGiB,
+          priority: 100,
+        },
+        provisioner,
+      };
+    })
+    : [];
+  const provisioner = new MixedSharedNodeProvisioner(
+    capacitySources,
+    new MongoSharedNodeAllocationRepository(db),
+  );
   scheduler.attachProvisioner(provisioner);
   const transport = new SharedNodeTransportService({
     credentialRepository,
@@ -192,6 +262,9 @@ export function createSharedHostingRuntime(
     workspaceManifestRepository: new MongoSharedWorkspaceManifestRepository(db),
     ingressRepository,
   });
+  scheduler.attachRetentionPurger((service) =>
+    transport.purgeRetainedWorkspace(service)
+  );
   return {
     billing: billing.billing,
     sharedHosting: billing.sharedHosting,

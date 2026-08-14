@@ -6,6 +6,7 @@ import type {
   SharedHostingScheduler,
   SharedHostingServiceRecord,
 } from "../sharedHostingScheduler.ts";
+import type { SharedNodeTransportService } from "../sharedNodeTransport.ts";
 import type { AccountRuntimeResolver } from "../middleware/xmclAuth.ts";
 import { xmclAuth } from "../middleware/xmclAuth.ts";
 import type { AppEnv } from "../types.ts";
@@ -17,11 +18,20 @@ function requireAccountWrite(scopes: string[]) {
   }
 }
 
-function publicService(value: SharedHostingServiceRecord) {
+function publicService(
+  value: SharedHostingServiceRecord,
+  metrics?: {
+    cpuPercent: number;
+    memoryUsageMiB: number;
+    memoryLimitMiB: number;
+    observedAt: string;
+  },
+) {
   return {
     serviceId: value.serviceId,
     subscriptionId: value.subscriptionId,
     planId: value.planId,
+    regionId: value.regionId,
     status: value.status,
     workspace: {
       revision: value.workspace.revision,
@@ -31,6 +41,9 @@ function publicService(value: SharedHostingServiceRecord) {
       storageGraceEndsAt: value.storageGraceEndsAt,
     },
     statusReason: value.statusReason,
+    metrics,
+    retentionStartedAt: value.retentionStartedAt,
+    retentionEndsAt: value.retentionEndsAt,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
   };
@@ -39,17 +52,39 @@ function publicService(value: SharedHostingServiceRecord) {
 export function createSharedHostingServiceRoutes(
   scheduler?: SharedHostingScheduler,
   resolve: AccountRuntimeResolver = getAccountRuntime,
+  transport?: SharedNodeTransportService,
 ) {
   const app = new Hono<AppEnv>();
   app.onError(handleAccountError);
   app.use("/v1/shared-hosting/services/*", xmclAuth(["account:read"], resolve));
 
-  app.get("/v1/shared-hosting/services", async (c) =>
-    c.json(
-      (await schedulerFor(c, scheduler).listServices(
-        c.get("xmclPrincipal")!.accountId,
-      )).map(publicService),
-    ));
+  app.get("/v1/shared-hosting/services", async (c) => {
+    const accountId = c.get("xmclPrincipal")!.accountId;
+    const services = await schedulerFor(c, scheduler).listServices(accountId);
+    const activeTransport = transport ?? c.var.sharedNodeTransport;
+    return c.json(
+      await Promise.all(services.map(async (service) =>
+        publicService(
+          service,
+          activeTransport
+            ? await activeTransport.sharedServiceMetrics(
+              accountId,
+              service.serviceId,
+            )
+            : undefined,
+        )
+      )),
+    );
+  });
+  app.get("/v1/shared-hosting/services/:serviceId/export", async (c) => {
+    const principal = c.get("xmclPrincipal")!;
+    return c.json(
+      await transportFor(c, transport).retainedWorkspaceExport(
+        principal.accountId,
+        c.req.param("serviceId"),
+      ),
+    );
+  });
   app.post("/v1/shared-hosting/services", async (c) => {
     const principal = c.get("xmclPrincipal")!;
     requireAccountWrite(principal.scopes);
@@ -75,6 +110,17 @@ export function createSharedHostingServiceRoutes(
         return c.json(publicService(result), 202);
       },
     );
+  }
+
+  function transportFor(
+    c: { var: AppEnv["Variables"] },
+    injected?: SharedNodeTransportService,
+  ) {
+    const transport = injected ?? c.var.sharedNodeTransport;
+    if (!transport) {
+      throw new AccountError(503, "shared_workspace_export_unavailable");
+    }
+    return transport;
   }
   return app;
 }

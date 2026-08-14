@@ -23,7 +23,7 @@ const scheduler = new SharedHostingScheduler(
       subscriptionId, accountId, planId: "shared-small", status: "active",
       currentPeriodStartedAt: "2026-07-25T00:00:00.000Z", currentPeriodEndsAt: "2026-08-25T00:00:00.000Z",
       createdAt: "2026-07-25T00:00:00.000Z", updatedAt: "2026-07-25T00:00:00.000Z",
-      plan: { planId: "shared-small", displayName: "small", memoryMiB: 4096, sharedCpu: 2, burstCpu: 4, persistentStorageGiB: 32, monthlyBaseMinor: 1, hourlyRateVersion: 1, hourlyAmountMinor: 1 },
+      plan: { planId: "shared-small", displayName: "small", memoryMiB: 4096, sharedCpu: 2, persistentStorageGiB: 32, monthlyBaseMinor: 1, hourlyRateVersion: 1, hourlyAmountMinor: 1 },
     }),
   },
   { dispatch: async () => undefined },

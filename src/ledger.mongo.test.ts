@@ -69,6 +69,17 @@ function unsetValue(record: Record<string, unknown>, path: string) {
 class FakeCollection implements MongoCollection {
   readonly documents = new Map<string, Record<string, unknown>>();
 
+  find(filter: Record<string, unknown>) {
+    return {
+      toArray: async () =>
+        structuredClone(
+          [...this.documents.values()].filter((document) =>
+            matches(document, filter)
+          ),
+        ),
+    };
+  }
+
   async findOne(filter: Record<string, unknown>) {
     return [...this.documents.values()].find((document) =>
         matches(document, filter)
@@ -117,6 +128,13 @@ class FakeCollection implements MongoCollection {
 
   async replaceOne() {
     throw new Error("replaceOne is not used by this test");
+  }
+
+  async insertOne(document: Record<string, unknown>) {
+    const id = String(document._id);
+    if (this.documents.has(id)) throw new Error("duplicate key");
+    this.documents.set(id, structuredClone(document));
+    return { insertedId: id };
   }
 
   async deleteOne() {
@@ -178,10 +196,15 @@ Deno.test("MongoBillingStore persists committed billing state across store insta
     state.ledger.push({
       ledgerEntryId: "ledger_1",
       accountId: "account_1",
-      kind: "paypal_credit",
+      kind: "waffo_credit",
       amount: { currency: "USD", amountMinor: 150 },
       occurredAt: now.toISOString(),
       referenceId: "order_1",
+    });
+    state.plusSubscriptions.set("plus_1", {
+      subscriptionId: "plus_1",
+      accountId: "account_1",
+      status: "active",
     });
   });
 
@@ -189,6 +212,7 @@ Deno.test("MongoBillingStore persists committed billing state across store insta
   const snapshot = await second.read((state) => ({
     balance: state.balances.get("account_1"),
     ledger: state.ledger,
+    plus: state.plusSubscriptions.get("plus_1"),
   }));
 
   assert.deepEqual(snapshot.balance, {
@@ -198,11 +222,16 @@ Deno.test("MongoBillingStore persists committed billing state across store insta
   assert.deepEqual(snapshot.ledger, [{
     ledgerEntryId: "ledger_1",
     accountId: "account_1",
-    kind: "paypal_credit",
+    kind: "waffo_credit",
     amount: { currency: "USD", amountMinor: 150 },
     occurredAt: now.toISOString(),
     referenceId: "order_1",
   }]);
+  assert.deepEqual(snapshot.plus, {
+    subscriptionId: "plus_1",
+    accountId: "account_1",
+    status: "active",
+  });
 });
 
 Deno.test("MongoBillingStore rejects a commit if its lease token no longer owns the state", async () => {

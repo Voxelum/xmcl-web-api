@@ -10,6 +10,7 @@ function subscription(
   accountId: string,
   subscriptionId: string,
   planId: PublicSharedHostingSubscription["planId"] = "shared-small",
+  regionId?: string,
 ): PublicSharedHostingSubscription {
   const plan = {
     "shared-small": {
@@ -17,7 +18,6 @@ function subscription(
       displayName: "Small",
       memoryMiB: 4096,
       sharedCpu: 2,
-      burstCpu: 4,
       persistentStorageGiB: 32,
       monthlyBaseMinor: 400,
       hourlyRateVersion: 101,
@@ -28,7 +28,6 @@ function subscription(
       displayName: "Medium",
       memoryMiB: 6144,
       sharedCpu: 3,
-      burstCpu: 6,
       persistentStorageGiB: 48,
       monthlyBaseMinor: 600,
       hourlyRateVersion: 102,
@@ -39,7 +38,6 @@ function subscription(
       displayName: "Large",
       memoryMiB: 8192,
       sharedCpu: 4,
-      burstCpu: 8,
       persistentStorageGiB: 64,
       monthlyBaseMinor: 800,
       hourlyRateVersion: 103,
@@ -50,6 +48,7 @@ function subscription(
     subscriptionId,
     accountId,
     planId,
+    regionId,
     status: "active",
     currentPeriodStartedAt: "2026-07-24T00:00:00.000Z",
     currentPeriodEndsAt: "2026-08-24T00:00:00.000Z",
@@ -59,13 +58,14 @@ function subscription(
   };
 }
 
-function fixture() {
+function fixture(regions: readonly string[] = ["sgp"]) {
   let sequence = 0;
   const commands: SharedNodeCommand[] = [];
-  const requests: unknown[] = [];
+  const requests: Array<{ region: string; workloadClass: string }> = [];
   const subscriptions = new Map<string, PublicSharedHostingSubscription>();
+  const repository = new MemorySharedHostingSchedulerRepository();
   const scheduler = new SharedHostingScheduler(
-    new MemorySharedHostingSchedulerRepository(),
+    repository,
     {
       activeSubscription: async (accountId, subscriptionId) => {
         const value = subscriptions.get(subscriptionId);
@@ -79,12 +79,98 @@ function fixture() {
     { requestCapacity: async (request) => void requests.push(request) },
     {
       region: "sgp",
+      regions,
       now: () => new Date("2026-07-24T00:00:00.000Z"),
       createId: (prefix) => `${prefix}_${++sequence}`,
     },
   );
-  return { scheduler, commands, requests, subscriptions };
+  return { scheduler, repository, commands, requests, subscriptions };
 }
+
+Deno.test("failed retention deletion stays retained for reconciliation", async () => {
+  const f = fixture();
+  await f.repository.transact((state) => {
+    state.services.push({
+      serviceId: "service_retained",
+      accountId: "account_1",
+      subscriptionId: "subscription_1",
+      planId: "shared-small",
+      regionId: "sgp",
+      status: "retained",
+      workspace: {
+        objectPrefix: "shared-hosting/account_1/service_retained/",
+        revision: 1,
+        sizeBytes: 10,
+      },
+      retentionStartedAt: "2026-06-23T00:00:00.000Z",
+      retentionEndsAt: "2026-07-23T00:00:00.000Z",
+      createdAt: "2026-06-01T00:00:00.000Z",
+      updatedAt: "2026-06-23T00:00:00.000Z",
+    });
+  });
+  f.scheduler.attachRetentionPurger(async () => {
+    throw new Error("provider outcome unknown");
+  });
+  assert.deepEqual(await f.scheduler.purgeExpiredRetentions(), {
+    deleted: [],
+    failed: ["service_retained"],
+  });
+  assert.equal((await f.repository.read()).services[0].status, "retained");
+});
+
+Deno.test("shared scheduler keeps services inside their selected regional pool", async () => {
+  const f = fixture(["sgp", "nrt"]);
+  f.subscriptions.set(
+    "sub_nrt",
+    subscription("account_nrt", "sub_nrt", "shared-small", "nrt"),
+  );
+  await f.scheduler.registerNode({
+    nodeId: "node_sgp",
+    region: "sgp",
+    status: "ready",
+    totalMemoryMiB: 4096,
+    totalSharedCpu: 2,
+    totalWorkspaceGiB: 32,
+  });
+  await f.scheduler.registerNode({
+    nodeId: "node_nrt",
+    region: "nrt",
+    status: "ready",
+    totalMemoryMiB: 4096,
+    totalSharedCpu: 2,
+    totalWorkspaceGiB: 32,
+  });
+  const service = await f.scheduler.createService({
+    accountId: "account_nrt",
+    subscriptionId: "sub_nrt",
+    idempotencyKey: "create-nrt",
+  });
+  assert.equal(service.regionId, "nrt");
+  const started = await f.scheduler.start(
+    "account_nrt",
+    service.serviceId,
+    "start-nrt",
+  );
+  assert.equal(started.nodeId, "node_nrt");
+  assert.equal(f.commands[0].nodeId, "node_nrt");
+
+  f.subscriptions.set(
+    "sub_nrt_2",
+    subscription("account_nrt", "sub_nrt_2", "shared-small", "nrt"),
+  );
+  const queued = await f.scheduler.createService({
+    accountId: "account_nrt",
+    subscriptionId: "sub_nrt_2",
+    idempotencyKey: "create-nrt-2",
+  });
+  assert.equal(
+    (await f.scheduler.start("account_nrt", queued.serviceId, "start-nrt-2"))
+      .status,
+    "queued",
+  );
+  await f.scheduler.processCapacityRequests();
+  assert.equal(f.requests[0].region, "nrt");
+});
 
 Deno.test("shared scheduler packs services into slots and queues without capacity", async () => {
   const f = fixture();
@@ -229,6 +315,53 @@ Deno.test("shared scheduler never allocates a node that lacks workspace capacity
   assert.equal(f.commands.length, 0);
 });
 
+Deno.test("shared scheduler requires a large-capable node for Village services", async () => {
+  const f = fixture();
+  f.subscriptions.set(
+    "sub_large",
+    subscription("account_a", "sub_large", "shared-large"),
+  );
+  await f.scheduler.registerNode({
+    nodeId: "node_standard",
+    region: "sgp",
+    status: "ready",
+    workloadClasses: ["standard"],
+    totalMemoryMiB: 16384,
+    totalSharedCpu: 8,
+    totalWorkspaceGiB: 128,
+  });
+
+  const service = await f.scheduler.createService({
+    accountId: "account_a",
+    subscriptionId: "sub_large",
+    idempotencyKey: "create_large_class",
+  });
+  assert.equal(
+    (await f.scheduler.start(
+      "account_a",
+      service.serviceId,
+      "start_large_class",
+    )).status,
+    "queued",
+  );
+  await f.scheduler.processCapacityRequests();
+  assert.equal(f.requests[0].workloadClass, "large");
+
+  await f.scheduler.registerNode({
+    nodeId: "node_large",
+    region: "sgp",
+    status: "ready",
+    workloadClasses: ["standard", "large"],
+    totalMemoryMiB: 16384,
+    totalSharedCpu: 8,
+    totalWorkspaceGiB: 128,
+  });
+  assert.equal(
+    (await f.scheduler.listServices("account_a"))[0].nodeId,
+    "node_large",
+  );
+});
+
 Deno.test("a draining node heartbeat prevents later placement until control-plane reconciliation", async () => {
   const repository = new MemorySharedHostingSchedulerRepository();
   const scheduler = new SharedHostingScheduler(
@@ -261,7 +394,11 @@ Deno.test("shared scheduler fails closed for a durable node outside its configur
   const repository = new MemorySharedHostingSchedulerRepository();
   const scheduler = new SharedHostingScheduler(
     repository,
-    { activeSubscription: async () => { throw new Error("unused"); } },
+    {
+      activeSubscription: async () => {
+        throw new Error("unused");
+      },
+    },
     { dispatch: async () => {} },
     undefined,
     { region: "sgp" },
@@ -280,13 +417,14 @@ Deno.test("shared scheduler fails closed for a durable node outside its configur
 
   assert.equal(await scheduler.hasNode("stale-node"), false);
   await assert.rejects(
-    () => scheduler.registerNode({
-      nodeId: "stale-node",
-      region: "sgp",
-      status: "ready",
-      totalMemoryMiB: 4096,
-      totalSharedCpu: 2,
-      totalWorkspaceGiB: 32,
-    }),
+    () =>
+      scheduler.registerNode({
+        nodeId: "stale-node",
+        region: "sgp",
+        status: "ready",
+        totalMemoryMiB: 4096,
+        totalSharedCpu: 2,
+        totalWorkspaceGiB: 32,
+      }),
   );
 });

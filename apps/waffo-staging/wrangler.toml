@@ -1,0 +1,28 @@
+name = "xmcl-web-api-shared-sgp-staging"
+account_id = "7af57e4bbecec7133ccf33d2b530b4b5"
+main = "worker.ts"
+compatibility_date = "2025-03-20"
+compatibility_flags = ["nodejs_compat_v2"]
+workers_dev = true
+
+[vars]
+BILLING_CURRENCY = "USD"
+BILLING_RATES_JSON = "[]"
+WAFFO_ENVIRONMENT = "test"
+WAFFO_STORE_ID = "STO_43NzeqTrCZj6Z1Dvqd76Di"
+WAFFO_PRODUCT_ID = "PROD_3jywaliubkyhIgeYSGXx5s"
+XMCL_STAGING_BILLING_CORS_ORIGINS = "https://staging.xmcl.app,http://localhost:9000,http://127.0.0.1:9000"
+VULTR_SHARED_NODE_REGION_IDS = "ams,atl,blr,ewr,lax,lhr,nrt,ord,sea,sgp,syd"
+
+[observability]
+enabled = true
+
+[observability.logs]
+invocation_logs = true
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[routes]]
+pattern = "api-staging.xmcl.app"
+custom_domain = true
