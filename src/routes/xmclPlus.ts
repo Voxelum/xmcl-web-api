@@ -30,12 +30,29 @@ export function createXmclPlusRoutes(
         c.get("xmclPrincipal")!.accountId,
       ),
     ));
+  app.get("/v1/xmcl-plus/trial", async (c) =>
+    c.json(
+      await (await serviceFor(c, plus)).trialStatus(
+        c.get("xmclPrincipal")!.accountId,
+      ),
+    ));
   app.get("/v1/xmcl-plus/allowances", async (c) =>
     c.json(
       await (await serviceFor(c, plus)).allowances(
         c.get("xmclPrincipal")!.accountId,
       ),
     ));
+  app.post("/v1/xmcl-plus/trial", async (c) => {
+    const principal = c.get("xmclPrincipal")!;
+    requireAccountWrite(principal.scopes);
+    return c.json(
+      await (await serviceFor(c, plus)).claimTrial({
+        accountId: principal.accountId,
+        idempotencyKey: requireIdempotencyKey(c),
+      }),
+      201,
+    );
+  });
   app.post("/v1/xmcl-plus/subscribe", async (c) => {
     const principal = c.get("xmclPrincipal")!;
     requireAccountWrite(principal.scopes);

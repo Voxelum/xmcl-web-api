@@ -6,7 +6,6 @@ import {
   type WebhookEventData,
   WebhookEventType,
 } from "@waffo/pancake-ts";
-import { createHash, createSign } from "node:crypto";
 import { AccountError } from "./account.ts";
 import type {
   BillingService,
@@ -19,6 +18,7 @@ export interface WaffoCheckoutProvider {
   createCheckout(input: {
     orderId: string;
     amount: Money;
+    buyerIdentity: string;
   }): Promise<{ providerOrderId: string; approvalUrl: string }>;
 }
 
@@ -45,24 +45,6 @@ function displayAmount(amountMinor: number) {
   return `${Math.floor(amountMinor / 100)}.${
     String(amountMinor % 100).padStart(2, "0")
   }`;
-}
-
-function normalizePrivateKey(raw: string) {
-  const normalized = raw.replaceAll("\\n", "\n").replaceAll("\r\n", "\n")
-    .trim();
-  if (
-    normalized.includes("-----BEGIN PRIVATE KEY-----") ||
-    normalized.includes("-----BEGIN RSA PRIVATE KEY-----")
-  ) {
-    return normalized;
-  }
-  const base64 = normalized.replace(/\s+/g, "");
-  if (!/^[A-Za-z0-9+/]+=*$/.test(base64)) {
-    throw new Error("Waffo private key is not valid PEM or base64");
-  }
-  const wrapped = base64.match(/.{1,64}/g)?.join("\n");
-  if (!wrapped) throw new Error("Waffo private key is empty");
-  return `-----BEGIN PRIVATE KEY-----\n${wrapped}\n-----END PRIVATE KEY-----`;
 }
 
 function paymentAmount(currency: unknown, amount: unknown): Money {
@@ -124,6 +106,7 @@ export class WaffoSdkProvider
     this.client = new WaffoPancake({
       merchantId: options.merchantId,
       privateKey: options.privateKey,
+      environment: options.environment,
       ...(options.apiBaseUrl ? { baseUrl: options.apiBaseUrl } : {}),
       ...(options.webhookPublicKey
         ? { webhookPublicKey: options.webhookPublicKey }
@@ -132,11 +115,16 @@ export class WaffoSdkProvider
     });
   }
 
-  async createCheckout(input: { orderId: string; amount: Money }) {
+  async createCheckout(input: {
+    orderId: string;
+    amount: Money;
+    buyerIdentity: string;
+  }) {
     try {
-      const params = {
+      const session = await this.client.checkout.authenticated.create({
         productId: this.options.productId,
         currency: input.amount.currency,
+        buyerIdentity: input.buyerIdentity,
         priceSnapshot: {
           amount: displayAmount(input.amount.amountMinor),
           taxCategory: TaxCategory.SaaS,
@@ -146,48 +134,10 @@ export class WaffoSdkProvider
         ...(this.options.successUrl
           ? { successUrl: this.options.successUrl }
           : {}),
-      };
-      const path = "/v1/actions/checkout/create-session";
-      const body = JSON.stringify(params);
-      const timestamp = Math.floor(Date.now() / 1000).toString();
-      const bodyHash = createHash("sha256").update(body).digest("base64");
-      const signer = createSign("sha256");
-      signer.update(`POST\n${path}\n${timestamp}\n${bodyHash}`);
-      const signature = signer.sign(
-        normalizePrivateKey(this.options.privateKey),
-        "base64",
-      );
-      const idempotencyKey = createHash("sha256").update(
-        `${this.options.merchantId}:${path}:${body}`,
-      ).digest("hex");
-      const response = await (this.options.fetchImpl ?? fetch)(
-        `${(this.options.apiBaseUrl ?? "https://api.waffo.ai").replace(/\/+$/, "")}${path}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Merchant-Id": this.options.merchantId,
-            "X-Timestamp": timestamp,
-            "X-Signature": signature,
-            "X-Idempotency-Key": idempotencyKey,
-          },
-          body,
-        },
-      );
-      const envelope = await response.json() as {
-        data?: { sessionId?: unknown; checkoutUrl?: unknown };
-        errors?: unknown[];
-      };
-      if (
-        !response.ok || envelope.errors?.length ||
-        typeof envelope.data?.sessionId !== "string" ||
-        typeof envelope.data.checkoutUrl !== "string"
-      ) {
-        throw new AccountError(503, "waffo_provider_unavailable");
-      }
+      });
       return {
-        providerOrderId: envelope.data.sessionId,
-        approvalUrl: envelope.data.checkoutUrl,
+        providerOrderId: session.sessionId,
+        approvalUrl: session.checkoutUrl,
       };
     } catch (error) {
       if (
@@ -236,7 +186,11 @@ export class WaffoService {
       ...input,
       provider: "waffo",
       createProviderOrder: (orderId, amount) =>
-        this.provider.createCheckout({ orderId, amount }),
+        this.provider.createCheckout({
+          orderId,
+          amount,
+          buyerIdentity: input.accountId,
+        }),
     });
   }
 
@@ -258,7 +212,11 @@ export class WaffoService {
           candidate.orderId,
           "waffo",
           (orderId, amount) =>
-            this.provider.createCheckout({ orderId, amount }),
+            this.provider.createCheckout({
+              orderId,
+              amount,
+              buyerIdentity: candidate.accountId,
+            }),
         );
       if (outcome.attempted) result.attempted.push(outcome.orderId);
       if (outcome.outcome === "finalized") {
@@ -345,7 +303,11 @@ export class WaffoService {
 }
 
 export class FakeWaffoProvider implements WaffoCheckoutProvider {
-  readonly createCalls: Array<{ orderId: string; amount: Money }> = [];
+  readonly createCalls: Array<{
+    orderId: string;
+    amount: Money;
+    buyerIdentity: string;
+  }> = [];
   private failedOnce = false;
 
   constructor(
@@ -355,7 +317,11 @@ export class FakeWaffoProvider implements WaffoCheckoutProvider {
     } = {},
   ) {}
 
-  async createCheckout(input: { orderId: string; amount: Money }) {
+  async createCheckout(input: {
+    orderId: string;
+    amount: Money;
+    buyerIdentity: string;
+  }) {
     this.createCalls.push(structuredClone(input));
     if (
       this.options.failCreate ||

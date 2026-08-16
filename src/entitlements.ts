@@ -1,6 +1,9 @@
 import type { BillingStore } from "./ledger.ts";
 import type { SharedHostingSubscription } from "./sharedHosting.ts";
-import type { XmclPlusSubscription } from "./xmclPlus.ts";
+import {
+  activeTurnAllowanceSource,
+  type XmclPlusSubscription,
+} from "./xmclPlus.ts";
 
 export interface AccountEntitlements {
   ai: boolean;
@@ -32,7 +35,7 @@ export class BillingEntitlementReader {
         );
       return {
         ai: plus || hosting,
-        turn: plus,
+        turn: !!activeTurnAllowanceSource(state, accountId, this.now()),
       };
     });
   }

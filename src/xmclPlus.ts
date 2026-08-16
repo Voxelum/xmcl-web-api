@@ -17,6 +17,12 @@ export const XMCL_PLUS_OFFER = {
   serverAiUnitsPerPeriod: 200_000,
 } as const;
 
+export const XMCL_PLUS_TRIAL = {
+  offerId: "xmcl-plus-trial",
+  durationSeconds: 7 * 24 * 60 * 60,
+  turnEgressBytes: 1_000_000_000,
+} as const;
+
 export type XmclPlusSubscriptionStatus =
   | "active"
   | "payment_due"
@@ -33,13 +39,21 @@ export interface XmclPlusSubscription {
   cancelAtPeriodEnd?: true;
 }
 
+export interface XmclPlusTrial {
+  status: "available" | "active" | "expired" | "unavailable";
+  durationSeconds: number;
+  turnEgressBytes: number;
+  claimedAt?: string;
+  expiresAt?: string;
+}
+
 export type PublicXmclPlusOffer = typeof XMCL_PLUS_OFFER & {
   currency: string;
   monthlyPrice: Money;
 };
 
 export interface XmclPlusAllowanceSource {
-  source: "plus" | "shared_hosting";
+  source: "plus" | "shared_hosting" | "trial";
   referenceId: string;
   aiUnits: number;
   turnEgressBytes: number;
@@ -93,6 +107,66 @@ function scope(accountId: string, operation: string, key: string) {
   return `${accountId}:${operation}:${key}`;
 }
 
+export function xmclPlusTrialStatus(
+  state: BillingState,
+  accountId: string,
+  now = new Date(),
+): XmclPlusTrial {
+  const stored = state.plusTrials.get(accountId) as XmclPlusTrial | undefined;
+  if (stored?.claimedAt && stored.expiresAt) {
+    return {
+      ...stored,
+      status: Date.parse(stored.expiresAt) > now.getTime()
+        ? "active"
+        : "expired",
+    };
+  }
+  const hasSubscription = [...state.plusSubscriptions.values()]
+    .map((value) => value as XmclPlusSubscription)
+    .some((value) => value.accountId === accountId);
+  return {
+    status: hasSubscription ? "unavailable" : "available",
+    durationSeconds: XMCL_PLUS_TRIAL.durationSeconds,
+    turnEgressBytes: XMCL_PLUS_TRIAL.turnEgressBytes,
+  };
+}
+
+export function activeTurnAllowanceSource(
+  state: BillingState,
+  accountId: string,
+  now = new Date(),
+): XmclPlusAllowanceSource | undefined {
+  const subscription = [...state.plusSubscriptions.values()]
+    .map((value) => value as XmclPlusSubscription)
+    .find((value) =>
+      value.accountId === accountId &&
+      value.status === "active" &&
+      (value.currentPeriodStartedAt === undefined ||
+        Date.parse(value.currentPeriodStartedAt) <= now.getTime()) &&
+      Date.parse(value.currentPeriodEndsAt) > now.getTime()
+    );
+  if (subscription) {
+    return {
+      source: "plus",
+      referenceId: subscription.subscriptionId,
+      aiUnits: XMCL_PLUS_OFFER.aiUnitsPerPeriod,
+      turnEgressBytes: XMCL_PLUS_OFFER.turnEgressBytesPerPeriod,
+      periodStartedAt: subscription.currentPeriodStartedAt,
+      periodEndsAt: subscription.currentPeriodEndsAt,
+    };
+  }
+  const trial = xmclPlusTrialStatus(state, accountId, now);
+  if (trial.status !== "active") return undefined;
+  return {
+    source: "trial",
+    referenceId: XMCL_PLUS_TRIAL.offerId,
+    aiUnits: 0,
+    turnEgressBytes: trial.turnEgressBytes,
+    periodStartedAt: trial.claimedAt!,
+    periodEndsAt: trial.expiresAt!,
+  };
+}
+
 export class XmclPlusService {
   private readonly currency: string;
   private readonly now: () => Date;
@@ -130,6 +204,62 @@ export class XmclPlusService {
     );
   }
 
+  async trialStatus(accountId: string): Promise<XmclPlusTrial> {
+    return await this.store.read((state) =>
+      xmclPlusTrialStatus(state, accountId, this.now())
+    );
+  }
+
+  async claimTrial(input: {
+    accountId: string;
+    idempotencyKey: string;
+  }): Promise<XmclPlusTrial> {
+    if (!input.accountId || !input.idempotencyKey) {
+      throw new AccountError(422, "invalid_plus_trial");
+    }
+    return await this.store.transaction((state) => {
+      const idempotencyScope = scope(
+        input.accountId,
+        "plus_trial",
+        input.idempotencyKey,
+      );
+      const fingerprint = stableFingerprint({
+        offerId: XMCL_PLUS_TRIAL.offerId,
+      });
+      const replay = state.idempotencies.get(idempotencyScope);
+      if (replay) {
+        if (replay.fingerprint !== fingerprint) {
+          throw new AccountError(409, "idempotency_conflict");
+        }
+        return replay.response as XmclPlusTrial;
+      }
+      const current = xmclPlusTrialStatus(state, input.accountId, this.now());
+      if (current.status !== "available") {
+        state.idempotencies.set(idempotencyScope, {
+          fingerprint,
+          response: current,
+        });
+        return current;
+      }
+      const claimedAt = this.now();
+      const trial: XmclPlusTrial = {
+        status: "active",
+        durationSeconds: XMCL_PLUS_TRIAL.durationSeconds,
+        turnEgressBytes: XMCL_PLUS_TRIAL.turnEgressBytes,
+        claimedAt: claimedAt.toISOString(),
+        expiresAt: new Date(
+          claimedAt.getTime() + XMCL_PLUS_TRIAL.durationSeconds * 1_000,
+        ).toISOString(),
+      };
+      state.plusTrials.set(input.accountId, trial);
+      state.idempotencies.set(idempotencyScope, {
+        fingerprint,
+        response: trial,
+      });
+      return trial;
+    });
+  }
+
   async adminSubscriptions(): Promise<XmclPlusSubscription[]> {
     return await this.store.read((state) =>
       [...state.plusSubscriptions.values()]
@@ -145,6 +275,17 @@ export class XmclPlusService {
     return await this.store.read((state) => {
       const sources: XmclPlusAllowanceSource[] = [];
       const now = this.now().getTime();
+      const trial = xmclPlusTrialStatus(state, accountId, this.now());
+      if (trial.status === "active") {
+        sources.push({
+          source: "trial",
+          referenceId: XMCL_PLUS_TRIAL.offerId,
+          aiUnits: 0,
+          turnEgressBytes: trial.turnEgressBytes,
+          periodStartedAt: trial.claimedAt!,
+          periodEndsAt: trial.expiresAt!,
+        });
+      }
       const plus = [...state.plusSubscriptions.values()]
         .map((value) => value as XmclPlusSubscription)
         .find((value) =>
@@ -420,4 +561,5 @@ export class XmclPlusService {
     };
     state.ledger.push(entry);
   }
+
 }

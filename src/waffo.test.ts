@@ -24,7 +24,11 @@ const now = "2026-08-06T08:00:00.000Z";
 
 Deno.test("Waffo checkout uses stable provider idempotency across recovery", async () => {
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-  const idempotencyKeys: string[] = [];
+  const requests: Array<{
+    path: string;
+    idempotencyKey: string;
+    body: Record<string, unknown>;
+  }> = [];
   const provider = new WaffoSdkProvider({
     merchantId: "MER_0000000000000000000000",
     privateKey: privateKey.export({ type: "pkcs8", format: "der" }).toString(
@@ -33,12 +37,26 @@ Deno.test("Waffo checkout uses stable provider idempotency across recovery", asy
     storeId: "STO_0000000000000000000000",
     productId: "PROD_0000000000000000000000",
     environment: "test",
-    fetchImpl: async (_input, init) => {
-      idempotencyKeys.push(new Headers(init?.headers).get("X-Idempotency-Key")!);
+    fetchImpl: async (input, init) => {
+      const path = new URL(input instanceof Request ? input.url : input).pathname;
+      requests.push({
+        path,
+        idempotencyKey: new Headers(init?.headers).get("X-Idempotency-Key")!,
+        body: JSON.parse(String(init?.body)),
+      });
+      if (path === "/v1/actions/auth/issue-session-token") {
+        return Response.json({
+          data: {
+            token: "buyer-session-token",
+            expiresAt: "2026-08-06T08:05:00.000Z",
+          },
+        });
+      }
       return Response.json({
         data: {
           sessionId: "checkout-session",
           checkoutUrl: "https://pancake.waffo.ai/xmcl/checkout/session",
+          expiresAt: "2026-08-06T08:45:00.000Z",
         },
       });
     },
@@ -46,11 +64,22 @@ Deno.test("Waffo checkout uses stable provider idempotency across recovery", asy
   const input = {
     orderId: "order-stable",
     amount: { currency: "USD", amountMinor: 123 },
+    buyerIdentity: "account-stable",
   };
+  const checkout = await provider.createCheckout(input);
   await provider.createCheckout(input);
-  await provider.createCheckout(input);
-  assert.equal(idempotencyKeys.length, 2);
-  assert.equal(idempotencyKeys[0], idempotencyKeys[1]);
+  assert.equal(requests.length, 4);
+  assert.equal(requests[0].idempotencyKey, requests[2].idempotencyKey);
+  assert.equal(requests[1].idempotencyKey, requests[3].idempotencyKey);
+  assert.deepEqual(requests[0].body, {
+    productId: "PROD_0000000000000000000000",
+    buyerIdentity: "account-stable",
+  });
+  assert.equal(requests[1].body.orderMerchantExternalId, "order-stable");
+  assert.equal(
+    checkout.approvalUrl,
+    "https://pancake.waffo.ai/xmcl/checkout/session#token=buyer-session-token",
+  );
 });
 
 function webhook(

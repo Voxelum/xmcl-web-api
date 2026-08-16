@@ -154,6 +154,7 @@ export interface BillingState {
   adminOperations: Map<string, unknown>;
   sharedHostingSubscriptions: Map<string, unknown>;
   plusSubscriptions: Map<string, unknown>;
+  plusTrials: Map<string, unknown>;
   allowanceUsage: Map<string, AllowanceUsage>;
   aiAllowanceReservations: Map<string, AiAllowanceReservation>;
   turnCredentialIssuances: Map<string, TurnCredentialIssuance>;
@@ -182,6 +183,7 @@ function emptyState(): BillingState {
     adminOperations: new Map(),
     sharedHostingSubscriptions: new Map(),
     plusSubscriptions: new Map(),
+    plusTrials: new Map(),
     allowanceUsage: new Map(),
     aiAllowanceReservations: new Map(),
     turnCredentialIssuances: new Map(),
@@ -252,6 +254,7 @@ interface SerializedBillingState {
   adminOperations: [string, unknown][];
   sharedHostingSubscriptions: [string, unknown][];
   plusSubscriptions?: [string, unknown][];
+  plusTrials?: [string, unknown][];
   allowanceUsage?: [string, AllowanceUsage][];
   aiAllowanceReservations?: [string, AiAllowanceReservation][];
   turnCredentialIssuances?: [string, TurnCredentialIssuance][];
@@ -297,6 +300,7 @@ function serializeState(state: BillingState): SerializedBillingState {
     adminOperations: [...state.adminOperations.entries()],
     sharedHostingSubscriptions: [...state.sharedHostingSubscriptions.entries()],
     plusSubscriptions: [...state.plusSubscriptions.entries()],
+    plusTrials: [...state.plusTrials.entries()],
     allowanceUsage: [...state.allowanceUsage.entries()],
     aiAllowanceReservations: [...state.aiAllowanceReservations.entries()],
     turnCredentialIssuances: [...state.turnCredentialIssuances.entries()],
@@ -358,6 +362,9 @@ function deserializeState(value: unknown): BillingState {
     ),
     plusSubscriptions: new Map(
       requireArray(state.plusSubscriptions ?? [], "plusSubscriptions"),
+    ),
+    plusTrials: new Map(
+      requireArray(state.plusTrials ?? [], "plusTrials"),
     ),
     allowanceUsage: new Map(
       requireArray(state.allowanceUsage ?? [], "allowanceUsage"),

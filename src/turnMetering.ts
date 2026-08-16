@@ -1,8 +1,7 @@
 import type { BillingStore, TurnCredentialIssuance } from "./ledger.ts";
 import {
+  activeTurnAllowanceSource,
   allowanceSourceKey,
-  XMCL_PLUS_OFFER,
-  type XmclPlusSubscription,
 } from "./xmclPlus.ts";
 
 const ANALYTICS_DELAY_MS = 2 * 60 * 1_000;
@@ -38,28 +37,13 @@ export class TurnCredentialMeter {
   ): Promise<TurnCredentialAuthorization | undefined> {
     const now = this.now();
     return await this.store.transaction((state) => {
-      const subscription = [
-        ...state.plusSubscriptions.values(),
-      ].map((value) => value as XmclPlusSubscription).find((value) =>
-        value.accountId === accountId &&
-        value.status === "active" &&
-        Date.parse(value.currentPeriodStartedAt) <= now.getTime() &&
-        Date.parse(value.currentPeriodEndsAt) > now.getTime()
-      );
-      if (!subscription) return undefined;
-      const source = {
-        source: "plus" as const,
-        referenceId: subscription.subscriptionId,
-        aiUnits: XMCL_PLUS_OFFER.aiUnitsPerPeriod,
-        turnEgressBytes: XMCL_PLUS_OFFER.turnEgressBytesPerPeriod,
-        periodStartedAt: subscription.currentPeriodStartedAt,
-        periodEndsAt: subscription.currentPeriodEndsAt,
-      };
+      const source = activeTurnAllowanceSource(state, accountId, now);
+      if (!source) return undefined;
       const key = allowanceSourceKey(source);
       const expiresAt = new Date(
         Math.min(
           now.getTime() + ttlSeconds * 1_000,
-          Date.parse(subscription.currentPeriodEndsAt),
+          Date.parse(source.periodEndsAt),
         ),
       );
       const effectiveTtlSeconds = Math.max(

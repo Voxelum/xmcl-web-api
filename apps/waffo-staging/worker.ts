@@ -63,6 +63,7 @@ const sharedHostingReadPaths = new Set([
 const plusReadPaths = new Set([
   "/v1/xmcl-plus/offer",
   "/v1/xmcl-plus/status",
+  "/v1/xmcl-plus/trial",
   "/v1/xmcl-plus/allowances",
 ]);
 const adminReadPaths = new Set([
@@ -542,7 +543,8 @@ export default {
       const isPlusRead = request.method === "GET" &&
         plusReadPaths.has(url.pathname);
       const isPlusMutation = request.method === "POST" &&
-        (url.pathname === "/v1/xmcl-plus/subscribe" ||
+        (url.pathname === "/v1/xmcl-plus/trial" ||
+          url.pathname === "/v1/xmcl-plus/subscribe" ||
           url.pathname === "/v1/xmcl-plus/cancel");
       const isPlusPreflight = request.method === "OPTIONS" &&
         url.pathname.startsWith("/v1/xmcl-plus/");

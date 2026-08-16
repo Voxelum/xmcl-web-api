@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
+import { Hono } from "hono";
+import type { AccountRuntime } from "./accountRuntime.ts";
 import { BillingService } from "./billing.ts";
 import { MemoryBillingStore } from "./ledger.ts";
+import { handleAccountError } from "./accountHttp.ts";
+import { createXmclPlusRoutes } from "./routes/xmclPlus.ts";
 import { SharedHostingService } from "./sharedHosting.ts";
+import type { AppEnv } from "./types.ts";
 import {
   allowanceSourceKey,
   XMCL_PLUS_OFFER,
+  XMCL_PLUS_TRIAL,
   XmclPlusService,
 } from "./xmclPlus.ts";
 
@@ -99,6 +105,93 @@ Deno.test("Plus subscription charges once and exposes provider-neutral allowance
       meteringStatus: "not_configured",
     },
   });
+});
+
+Deno.test("Together trial can be claimed once and grants only bounded TURN allowance", async () => {
+  const f = fixture();
+  assert.deepEqual(await f.plus.trialStatus("account_trial"), {
+    status: "available",
+    durationSeconds: XMCL_PLUS_TRIAL.durationSeconds,
+    turnEgressBytes: XMCL_PLUS_TRIAL.turnEgressBytes,
+  });
+
+  const claimed = await f.plus.claimTrial({
+    accountId: "account_trial",
+    idempotencyKey: "claim-trial",
+  });
+  assert.equal(claimed.status, "active");
+  assert.equal(claimed.claimedAt, "2026-08-12T00:00:00.000Z");
+  assert.equal(claimed.expiresAt, "2026-08-19T00:00:00.000Z");
+  assert.deepEqual(
+    await f.plus.claimTrial({
+      accountId: "account_trial",
+      idempotencyKey: "another-request",
+    }),
+    claimed,
+  );
+
+  const allowances = await f.plus.allowances("account_trial");
+  assert.equal(allowances.aiUnits.included, 0);
+  assert.equal(
+    allowances.turnEgressBytes.included,
+    XMCL_PLUS_TRIAL.turnEgressBytes,
+  );
+  assert.equal(allowances.sources[0]?.source, "trial");
+
+  f.setNow("2026-08-19T00:00:00.000Z");
+  assert.equal((await f.plus.trialStatus("account_trial")).status, "expired");
+  assert.equal((await f.plus.allowances("account_trial")).sources.length, 0);
+});
+
+Deno.test("Together trial routes require account write scope and expose the claimed state", async () => {
+  const f = fixture();
+  const runtime = {
+    sessions: {
+      verify: async (token: string) => ({
+        sessionId: `session_${token}`,
+        familyId: `family_${token}`,
+        accountId: "account_route_trial",
+        scopes: token === "writer"
+          ? ["account:read", "account:write"]
+          : ["account:read"],
+        issuedAt: "2026-08-12T00:00:00.000Z",
+        expiresAt: "2026-08-12T01:00:00.000Z",
+      }),
+    },
+  } as AccountRuntime;
+  const app = new Hono<AppEnv>();
+  app.onError(handleAccountError);
+  app.route(
+    "/",
+    createXmclPlusRoutes(f.plus, () => Promise.resolve(runtime)),
+  );
+
+  assert.equal((await app.request("/v1/xmcl-plus/trial")).status, 401);
+  assert.equal(
+    (await app.request("/v1/xmcl-plus/trial", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer reader",
+        "idempotency-key": "claim",
+      },
+    })).status,
+    403,
+  );
+  const claimed = await app.request("/v1/xmcl-plus/trial", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer writer",
+      "idempotency-key": "claim",
+    },
+  });
+  assert.equal(claimed.status, 201);
+  assert.equal((await claimed.json() as { status: string }).status, "active");
+
+  const status = await app.request("/v1/xmcl-plus/trial", {
+    headers: { authorization: "Bearer reader" },
+  });
+  assert.equal(status.status, 200);
+  assert.equal((await status.json() as { status: string }).status, "active");
 });
 
 Deno.test("active shared hosting adds AI units but never TURN", async () => {
