@@ -25,8 +25,8 @@ export interface DurableObjectState {
     deleteAlarm(): Promise<void>;
     deleteAll(): Promise<void>;
   };
-  acceptWebSocket(socket: CfWebSocket): void;
-  getWebSockets(): CfWebSocket[];
+  acceptWebSocket(socket: CfWebSocket, tags?: string[]): void;
+  getWebSockets(tag?: string): CfWebSocket[];
   waitUntil?(promise: Promise<unknown>): void;
 }
 

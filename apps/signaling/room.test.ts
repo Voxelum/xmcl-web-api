@@ -12,6 +12,8 @@ function fixture() {
   let alarm: number | undefined;
   let roomPuts = 0;
   const sockets: CfWebSocket[] = [];
+  const socketTags = new Map<CfWebSocket, string[]>();
+  const webSocketQueries: Array<string | undefined> = [];
   const state = {
     id: { toString: () => "room" },
     storage: {
@@ -35,15 +37,31 @@ function fixture() {
         return Promise.resolve();
       },
     },
-    acceptWebSocket: (socket: CfWebSocket) => sockets.push(socket),
-    getWebSockets: () => sockets,
+    acceptWebSocket: (socket: CfWebSocket, tags: string[] = []) => {
+      sockets.push(socket);
+      socketTags.set(socket, tags);
+    },
+    getWebSockets: (tag?: string) => {
+      webSocketQueries.push(tag);
+      return tag === undefined
+        ? sockets
+        : sockets.filter((socket) => socketTags.get(socket)?.includes(tag));
+    },
   } satisfies DurableObjectState;
-  return {
-    object: new MultiplayerRoomObject(state, {
+  const createObject = () =>
+    new MultiplayerRoomObject(state, {
       XMCL_MULTIPLAYER_TICKET_SECRET: secret,
-    }),
+    });
+  return {
+    object: createObject(),
+    rehydrate: createObject,
     values,
     sockets,
+    attach: (socket: CfWebSocket, peerId: string) => {
+      sockets.push(socket);
+      socketTags.set(socket, [`peer:${peerId}`]);
+    },
+    webSocketQueries,
     resetRoomPuts: () => {
       roomPuts = 0;
     },
@@ -129,6 +147,7 @@ interface TestRoomState {
     displayName: string;
     status: "negotiating" | "connected";
     joinedAt: number;
+    disconnectedAt?: number;
   }>;
 }
 
@@ -178,7 +197,8 @@ function masterAndMember(
     accountId: "account_2",
     displayName: "Alex",
   });
-  f.sockets.push(master.socket, member.socket);
+  f.attach(master.socket, "master_peer");
+  f.attach(member.socket, "member_peer");
   f.values.set("room", roomState({ memberStatus }));
   return { master, member };
 }
@@ -271,6 +291,24 @@ Deno.test("member rtc-state transitions broadcast authoritative snapshots", asyn
   ]);
 });
 
+Deno.test("hibernated sockets resume on a fresh Durable Object instance", async () => {
+  const f = fixture();
+  const { master, member } = masterAndMember(f);
+  const rehydrated = f.rehydrate();
+
+  await rehydrated.webSocketMessage(
+    member.socket,
+    JSON.stringify({ type: "signal", payload: { answer: "sdp" } }),
+  );
+
+  assert.deepEqual(master.messages()[0], {
+    type: "signal",
+    sender: "member_peer",
+    payload: { answer: "sdp" },
+  });
+  assert.ok(f.webSocketQueries.includes("peer:master_peer"));
+});
+
 Deno.test("member join broadcasts one negotiating snapshot", async () => {
   const f = fixture();
   const master = socketWith({
@@ -286,7 +324,8 @@ Deno.test("member join broadcasts one negotiating snapshot", async () => {
   const room = roomState();
   delete room.members.member_peer;
   f.values.set("room", room);
-  f.sockets.push(master.socket, joining.socket);
+  f.attach(master.socket, "master_peer");
+  f.attach(joining.socket, "joining_peer");
   const joinRoom = f.object as unknown as {
     joinRoom(
       room: TestRoomState,
@@ -319,7 +358,7 @@ Deno.test("member join broadcasts one negotiating snapshot", async () => {
   );
 });
 
-Deno.test("member socket close removes membership with one snapshot", async () => {
+Deno.test("member socket close enters reconnect grace with one snapshot", async () => {
   const f = fixture();
   const { master, member } = masterAndMember(f, "connected");
   member.socket.close(1000, "gone");
@@ -327,16 +366,35 @@ Deno.test("member socket close removes membership with one snapshot", async () =
   await f.object.webSocketClose(member.socket, 1000, "gone", true);
 
   const room = f.values.get("room") as ReturnType<typeof roomState>;
-  assert.equal(room.members.member_peer, undefined);
+  assert.equal(room.members.member_peer.status, "negotiating");
+  assert.equal(typeof room.members.member_peer.disconnectedAt, "number");
+  assert.ok(f.alarm && f.alarm <= Date.now() + 30_000);
   assert.deepEqual(master.messages().map((message) => message.type), [
     "room-state",
   ]);
   assert.deepEqual(
     master.messages()[0].members.map(
       (current: { peerId: string }) => current.peerId,
-    ),
-    ["master_peer"],
+    ).sort(),
+    ["master_peer", "member_peer"],
   );
+});
+
+Deno.test("alarm removes a member after reconnect grace expires", async () => {
+  const f = fixture();
+  const { master, member } = masterAndMember(f, "connected");
+
+  await f.object.webSocketClose(member.socket, 1006, "lost", false);
+  const room = f.values.get("room") as ReturnType<typeof roomState>;
+  room.members.member_peer.disconnectedAt = Date.now() - 30_001;
+  master.clear();
+
+  await f.object.alarm();
+
+  assert.equal(room.members.member_peer, undefined);
+  assert.deepEqual(master.messages().map((message) => message.type), [
+    "room-state",
+  ]);
 });
 
 Deno.test("master socket close enters waiting-master with one snapshot", async () => {
@@ -350,6 +408,7 @@ Deno.test("master socket close enters waiting-master with one snapshot", async (
   const room = f.values.get("room") as ReturnType<typeof roomState>;
   assert.equal(room.status, "waiting-master");
   assert.equal(room.members.master_peer.status, "negotiating");
+  assert.equal(typeof room.members.master_peer.disconnectedAt, "number");
   assert.equal(room.members.member_peer.status, "negotiating");
   assert.ok(f.alarm && f.alarm <= Date.now() + 30_000);
   assert.deepEqual(member.messages().map((message) => message.type), [
@@ -433,7 +492,7 @@ Deno.test("master reconnect with a new peer id rebuilds topology in one snapshot
     accountId: "account_1",
     displayName: "Steve",
   });
-  f.sockets.push(reconnected.socket);
+  f.attach(reconnected.socket, "new_master_peer");
   f.resetRoomPuts();
   const peer = reconnected.socket.deserializeAttachment<
     Record<string, unknown>

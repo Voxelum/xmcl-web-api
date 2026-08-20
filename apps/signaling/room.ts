@@ -16,6 +16,7 @@ interface RoomMember {
   displayName: string;
   status: MemberStatus;
   joinedAt: number;
+  disconnectedAt?: number;
 }
 
 interface RoomState {
@@ -44,7 +45,7 @@ interface MultiplayerRoomObjectEnv {
 }
 
 const MAX_MESSAGE_BYTES = 64 * 1024;
-const MASTER_RECONNECT_GRACE_MS = 30_000;
+const PEER_RECONNECT_GRACE_MS = 30_000;
 const OPEN = 1;
 
 export class MultiplayerRoomObject {
@@ -66,11 +67,36 @@ export class MultiplayerRoomObject {
   async alarm(): Promise<void> {
     const room = await this.room();
     if (!room || room.status === "closed") return;
-    if (room.expiresAt <= Date.now() || room.status === "waiting-master") {
+    const now = Date.now();
+    if (room.expiresAt <= now) {
       await this.finishRoom(room, "Room expired");
       return;
     }
-    await this.state.storage.setAlarm(room.expiresAt);
+    let changed = false;
+    for (const member of Object.values(room.members)) {
+      if (member.disconnectedAt === undefined) continue;
+      if (member.disconnectedAt + PEER_RECONNECT_GRACE_MS > now) continue;
+      if (member.peerId === room.masterPeerId) {
+        await this.finishRoom(room, "Master reconnect timed out");
+        return;
+      }
+      delete room.members[member.peerId];
+      changed = true;
+    }
+    if (
+      room.status === "waiting-master" &&
+      (!room.masterPeerId ||
+        room.members[room.masterPeerId]?.disconnectedAt === undefined)
+    ) {
+      await this.finishRoom(room, "Master reconnect timed out");
+      return;
+    }
+    if (changed) {
+      room.revision++;
+      await this.persist(room);
+      this.broadcastRoomState(room);
+    }
+    await this.scheduleAlarm(room);
   }
 
   async webSocketMessage(
@@ -197,6 +223,8 @@ export class MultiplayerRoomObject {
 
     const member = room.members[peer.peerId];
     if (!member || member.accountId !== peer.accountId) return;
+    member.disconnectedAt = Date.now();
+    member.status = "negotiating";
     if (peer.peerId === room.masterPeerId) {
       room.status = "waiting-master";
       for (const current of Object.values(room.members)) {
@@ -204,19 +232,14 @@ export class MultiplayerRoomObject {
       }
       room.revision++;
       await this.persist(room);
-      await this.state.storage.setAlarm(
-        Math.min(
-          room.expiresAt,
-          Date.now() + MASTER_RECONNECT_GRACE_MS,
-        ),
-      );
+      await this.scheduleAlarm(room);
       this.broadcastRoomState(room, socket);
       return;
     }
 
-    delete room.members[peer.peerId];
     room.revision++;
     await this.persist(room);
+    await this.scheduleAlarm(room);
     this.broadcastRoomState(room, socket);
   }
 
@@ -365,7 +388,7 @@ export class MultiplayerRoomObject {
       messageCount: 0,
     };
     server.serializeAttachment(peer);
-    this.state.acceptWebSocket(server);
+    this.state.acceptWebSocket(server, [this.peerTag(peer.peerId)]);
     await this.joinRoom(room, peer, claims.role, server);
 
     return new Response(null, {
@@ -427,7 +450,7 @@ export class MultiplayerRoomObject {
     }
     room.revision++;
     await this.persist(room);
-    await this.state.storage.setAlarm(room.expiresAt);
+    await this.scheduleAlarm(room);
     if (socket.readyState === OPEN) this.broadcastRoomState(room);
   }
 
@@ -574,9 +597,26 @@ export class MultiplayerRoomObject {
   }
 
   private socketByPeer(peerId: string): CfWebSocket | undefined {
-    return this.state.getWebSockets().find((socket) =>
+    return this.state.getWebSockets(this.peerTag(peerId)).find((socket) =>
       socket.deserializeAttachment<PeerSession>()?.peerId === peerId
     );
+  }
+
+  private peerTag(peerId: string): string {
+    return `peer:${peerId}`;
+  }
+
+  private scheduleAlarm(room: RoomState): Promise<void> {
+    let scheduledAt = room.expiresAt;
+    for (const member of Object.values(room.members)) {
+      if (member.disconnectedAt !== undefined) {
+        scheduledAt = Math.min(
+          scheduledAt,
+          member.disconnectedAt + PEER_RECONNECT_GRACE_MS,
+        );
+      }
+    }
+    return this.state.storage.setAlarm(scheduledAt);
   }
 
   private liveSocketByPeer(peerId: string): CfWebSocket | undefined {
