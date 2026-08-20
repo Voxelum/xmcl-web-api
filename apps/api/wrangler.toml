@@ -26,10 +26,6 @@ custom_domain = true
 name = "DPOP_REPLAY"
 class_name = "DpopReplayObject"
 
-[[migrations]]
-tag = "v7"
-new_sqlite_classes = ["DpopReplayObject"]
-
 # Secrets and optional bindings are configured per Worker. The API Worker owns
 # Mongo-backed routes, payment webhooks, and scheduled work.
 
