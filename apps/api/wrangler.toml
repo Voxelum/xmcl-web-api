@@ -22,10 +22,6 @@ crons = ["*/5 * * * *"]
 pattern = "api.xmcl.app"
 custom_domain = true
 
-[[migrations]]
-tag = "v6"
-deleted_classes = ["MultiplayerRoomObject"]
-
 [[durable_objects.bindings]]
 name = "DPOP_REPLAY"
 class_name = "DpopReplayObject"
