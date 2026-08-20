@@ -24,6 +24,7 @@ import { isRetiredServicePath } from "../../src/realtime.ts";
 import { MongoBillingStore } from "../../src/ledger.ts";
 import { XmclPlusService } from "../../src/xmclPlus.ts";
 
+export { AlertCooldownObject } from "../../src/cloudflare/alertCooldown.ts";
 export { DpopReplayObject } from "../../src/cloudflare/dpopReplay.ts";
 
 async function dispatchApiRequest(
