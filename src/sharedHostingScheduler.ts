@@ -135,6 +135,7 @@ export interface SharedHostingServiceRecord {
   runtime?: {
     startedAt: string;
     settledHours: number;
+    stoppedAt?: string;
   };
   storageOverageSince?: string;
   storageGraceEndsAt?: string;
@@ -1222,18 +1223,9 @@ export class SharedHostingScheduler {
     ) {
       throw new AccountError(409, "shared_assignment_conflict");
     }
-    const runtime = existing.runtime && this.subscriptions.settleRuntime
-      ? await this.subscriptions.settleRuntime({
-        accountId: existing.accountId,
-        serviceId: existing.serviceId,
-        subscriptionId: existing.subscriptionId,
-        planId: existing.planId,
-        assignmentId: existing.assignmentId,
-        startedAt: existing.runtime.startedAt,
-        settledHours: existing.runtime.settledHours,
-        settledAt: now,
-      })
-      : undefined;
+    if (existing.runtime && !existing.runtime.stoppedAt) {
+      throw new AccountError(409, "shared_runtime_stop_not_reported");
+    }
     const outcome = await this.repository.transact((state) => {
       const value = service(state, input.serviceId);
       if (
@@ -1269,7 +1261,7 @@ export class SharedHostingScheduler {
       }
       value.statusReason = value.retentionEndsAt
         ? "cancellation_retention"
-        : runtime?.status === "payment_due"
+        : value.statusReason === "runtime_payment_due"
         ? "runtime_payment_due"
         : value.storageGraceEndsAt
         ? "storage_overage_grace"
@@ -1303,6 +1295,67 @@ export class SharedHostingScheduler {
       });
     }
     await this.scheduleQueued();
+  }
+
+  async reportStopped(input: {
+    nodeId: string;
+    serviceId: string;
+    assignmentId: string;
+  }) {
+    const reportedAt = this.now().toISOString();
+    const stopped = await this.repository.transact((state) => {
+      const value = service(state, input.serviceId);
+      if (
+        !value || value.nodeId !== input.nodeId ||
+        value.assignmentId !== input.assignmentId ||
+        value.status !== "stopping"
+      ) {
+        throw new AccountError(409, "shared_assignment_conflict");
+      }
+      if (!value.runtime) return undefined;
+      value.runtime.stoppedAt ??= reportedAt;
+      value.updatedAt = reportedAt;
+      return {
+        accountId: value.accountId,
+        serviceId: value.serviceId,
+        subscriptionId: value.subscriptionId,
+        planId: value.planId,
+        assignmentId: value.assignmentId,
+        startedAt: value.runtime.startedAt,
+        settledHours: value.runtime.settledHours,
+        stoppedAt: value.runtime.stoppedAt,
+      };
+    });
+    if (!stopped || !this.subscriptions.settleRuntime) return;
+    const runtime = await this.subscriptions.settleRuntime({
+      accountId: stopped.accountId,
+      serviceId: stopped.serviceId,
+      subscriptionId: stopped.subscriptionId,
+      planId: stopped.planId,
+      assignmentId: stopped.assignmentId,
+      startedAt: stopped.startedAt,
+      settledHours: stopped.settledHours,
+      settledAt: stopped.stoppedAt,
+    });
+    await this.repository.transact((state) => {
+      const value = service(state, input.serviceId);
+      if (
+        !value || value.nodeId !== input.nodeId ||
+        value.assignmentId !== input.assignmentId ||
+        value.status !== "stopping" || !value.runtime ||
+        value.runtime.stoppedAt !== stopped.stoppedAt
+      ) {
+        throw new AccountError(409, "shared_assignment_conflict");
+      }
+      value.runtime.settledHours = Math.max(
+        value.runtime.settledHours,
+        runtime.chargedHours,
+      );
+      if (runtime.status === "payment_due") {
+        value.statusReason = "runtime_payment_due";
+      }
+      value.updatedAt = reportedAt;
+    });
   }
 
   private async requireService(accountId: string, serviceId: string) {

@@ -124,6 +124,40 @@ Deno.test("periodic runtime settlement charges exactly five hours and retries sa
   );
 });
 
+Deno.test("runtime billing stops before a slow workspace sync", async () => {
+  const f = await runningFixture();
+  f.setNow("2026-07-24T00:05:00.000Z");
+  const stopping = await f.scheduler.stop(
+    "account_1",
+    f.serviceId,
+    "stop-before-sync",
+  );
+  await f.scheduler.reportStopped({
+    nodeId: "node_1",
+    serviceId: f.serviceId,
+    assignmentId: stopping.assignmentId!,
+  });
+  f.setNow("2026-07-24T01:30:00.000Z");
+  await f.scheduler.reportStopped({
+    nodeId: "node_1",
+    serviceId: f.serviceId,
+    assignmentId: stopping.assignmentId!,
+  });
+  f.setNow("2026-07-24T02:00:00.000Z");
+  await f.scheduler.reportStoppedAndSynced({
+    nodeId: "node_1",
+    serviceId: f.serviceId,
+    assignmentId: stopping.assignmentId!,
+    workspace: { revision: 1, sizeBytes: 1024 },
+  });
+
+  const fees = (await f.billing.ledger("account_1")).filter((entry) =>
+    entry.kind === "shared_runtime_fee"
+  );
+  assert.equal(fees.length, 1);
+  assert.equal(fees[0].amount.amountMinor, 6);
+});
+
 Deno.test("runtime payment failure stops the service and blocks later starts", async () => {
   const f = await runningFixture(400);
   const stopping = (await f.scheduler.listServices("account_1"))[0];
@@ -169,6 +203,11 @@ Deno.test("period-end cancellation syncs a running service into 30-day cold rete
   assert.equal(stopping.retentionStartedAt, "2026-08-24T00:00:00.000Z");
   assert.equal(stopping.retentionEndsAt, "2026-09-23T00:00:00.000Z");
   const stopCommand = f.commands.at(-1) as { assignmentId: string };
+  await f.scheduler.reportStopped({
+    nodeId: "node_1",
+    serviceId: f.serviceId,
+    assignmentId: stopCommand.assignmentId,
+  });
   await f.scheduler.reportStoppedAndSynced({
     nodeId: "node_1",
     serviceId: f.serviceId,
@@ -201,6 +240,11 @@ Deno.test("storage overage notifies, preserves data, and blocks only after grace
     assignmentId: string;
   };
   const quotaBytes = 32 * 1024 ** 3;
+  await f.scheduler.reportStopped({
+    nodeId: "node_1",
+    serviceId: service.serviceId,
+    assignmentId: stopCommand.assignmentId,
+  });
   await f.scheduler.reportStoppedAndSynced({
     nodeId: "node_1",
     serviceId: service.serviceId,

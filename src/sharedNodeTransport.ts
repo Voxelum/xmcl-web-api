@@ -20,7 +20,7 @@ const maxWorkspaceBytes = 64 * 1024 * 1024 * 1024;
 const maxWorkspaceBlobBytes = 4 * 1024 * 1024 * 1024;
 
 /** Wire-format version shared with xmcl-shared-node-agent. */
-export const SHARED_NODE_TRANSPORT_CONTRACT_VERSION = 1;
+export const SHARED_NODE_TRANSPORT_CONTRACT_VERSION = 2;
 /** The isolated workspace grant protocol intentionally supersedes v1 credentials. */
 export const SHARED_NODE_WORKSPACE_CONTRACT_VERSION = 2;
 
@@ -1799,6 +1799,39 @@ export class SharedNodeTransportService {
       });
     }
     await this.options.scheduler.reportStoppedAndSynced({ nodeId, ...input });
+    return {
+      contractVersion: SHARED_NODE_TRANSPORT_CONTRACT_VERSION,
+      released: true,
+    };
+  }
+
+  async stopped(
+    nodeId: string,
+    input: {
+      serviceId: string;
+      assignmentId: string;
+      commandId: string;
+      leaseToken: string;
+      leaseGeneration: number;
+    },
+    request: SharedNodeSignedRequest,
+  ) {
+    await this.authenticateNode(nodeId, request);
+    const command = await this.leasedWorkspaceCommand(
+      nodeId,
+      {
+        contractVersion: SHARED_NODE_WORKSPACE_CONTRACT_VERSION,
+        commandId: input.commandId,
+        assignmentId: input.assignmentId,
+        leaseToken: input.leaseToken,
+        leaseGeneration: input.leaseGeneration,
+      },
+      "workspace.stop_and_sync",
+    );
+    if (command.serviceId !== input.serviceId) {
+      throw new SharedNodeTransportError("workspace_grant_denied");
+    }
+    await this.options.scheduler.reportStopped({ nodeId, ...input });
     await this.options.ingressRepository?.release(
       nodeId,
       input.assignmentId,
@@ -1806,7 +1839,7 @@ export class SharedNodeTransportService {
     );
     return {
       contractVersion: SHARED_NODE_TRANSPORT_CONTRACT_VERSION,
-      released: true,
+      stopped: true,
     };
   }
 

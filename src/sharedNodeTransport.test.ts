@@ -1281,6 +1281,37 @@ Deno.test("each workspace grant route verifies the exact signed request body", a
     );
     assert.equal(response.status, 401, `${operation} accepted a modified body`);
   }
+
+  const stoppedPath =
+    "/v1/internal/shared-nodes/node_a/assignments/assignment_1/stopped";
+  const stoppedBody = JSON.stringify({
+    serviceId: "service_1",
+    commandId: "command_1234567890",
+    leaseToken: "12345678-1234-1234-1234-123456789abc",
+    leaseGeneration: 1,
+  });
+  const stoppedSignature = await signed(
+    credential,
+    `SharedNode ${credential}`,
+    "POST",
+    stoppedPath,
+    stoppedBody,
+    "tampered-stopped",
+  );
+  const stoppedResponse = await app.fetch(
+    new Request(`http://localhost${stoppedPath}`, {
+      method: "POST",
+      body: stoppedBody + " ",
+      headers: {
+        authorization: stoppedSignature.authorization!,
+        "x-xmcl-timestamp": stoppedSignature.timestamp!,
+        "x-xmcl-nonce": stoppedSignature.nonce!,
+        "x-xmcl-body-sha256": stoppedSignature.bodyHash!,
+        "x-xmcl-signature": stoppedSignature.signature!,
+      },
+    }),
+  );
+  assert.equal(stoppedResponse.status, 401);
 });
 
 Deno.test("control plane reserves command host ports and rejects missing ingress", async () => {
