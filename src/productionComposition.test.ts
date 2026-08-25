@@ -24,12 +24,11 @@ Deno.test("production composition leaves commercial routes unmounted by default"
   assert.equal(paths.some((path) => path.startsWith("/v1/sessions")), true);
 });
 
-Deno.test("production composition mounts Waffo checkout and webhook routes only with complete settings", () => {
+Deno.test("production composition mounts Waffo routes with provider and store settings", () => {
   const config = {
     WAFFO_MERCHANT_ID: "merchant",
     WAFFO_PRIVATE_KEY: "private-key",
     WAFFO_STORE_ID: "store",
-    WAFFO_PRODUCT_ID: "product",
     WAFFO_ENVIRONMENT: "test" as const,
   };
   const paths = createProductionApp(undefined, config).routes.map((route) =>

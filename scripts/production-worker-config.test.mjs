@@ -42,7 +42,7 @@ test("rejects missing or malformed billing configuration", () => {
   );
 });
 
-test("requires complete optional Waffo configuration", () => {
+test("requires the Waffo store and environment together", () => {
   const billing = {
     BILLING_CURRENCY: "USD",
     BILLING_RATES_JSON: "[]",
@@ -53,7 +53,19 @@ test("requires complete optional Waffo configuration", () => {
         ...billing,
         WAFFO_STORE_ID: "store",
       }),
-    /WAFFO_PRODUCT_ID, WAFFO_ENVIRONMENT/,
+    /WAFFO_ENVIRONMENT/,
+  );
+  assert.deepEqual(
+    productionWorkerConfig({
+      ...billing,
+      WAFFO_STORE_ID: "store",
+      WAFFO_ENVIRONMENT: "prod",
+    }),
+    {
+      ...billing,
+      WAFFO_STORE_ID: "store",
+      WAFFO_ENVIRONMENT: "prod",
+    },
   );
   assert.deepEqual(
     productionWorkerConfig({

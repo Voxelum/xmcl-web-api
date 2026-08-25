@@ -10,7 +10,7 @@ import type { SharedNodeWorkspaceSigner } from "./sharedNodeTransport.ts";
 
 function hasWaffoSettings(config: AppConfig | undefined) {
   return !!config?.WAFFO_MERCHANT_ID && !!config.WAFFO_PRIVATE_KEY &&
-    !!config.WAFFO_STORE_ID && !!config.WAFFO_PRODUCT_ID &&
+    !!config.WAFFO_STORE_ID &&
     (config.WAFFO_ENVIRONMENT === "test" ||
       config.WAFFO_ENVIRONMENT === "prod");
 }

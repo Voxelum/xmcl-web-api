@@ -190,7 +190,7 @@ export async function getWaffoService(
   const runtime = await getBillingRuntime(c);
   if (
     !config.WAFFO_MERCHANT_ID || !config.WAFFO_PRIVATE_KEY ||
-    !config.WAFFO_STORE_ID || !config.WAFFO_PRODUCT_ID ||
+    !config.WAFFO_STORE_ID ||
     (config.WAFFO_ENVIRONMENT !== "test" &&
       config.WAFFO_ENVIRONMENT !== "prod")
   ) {
@@ -214,7 +214,7 @@ export function createWaffoPaymentService(
 ) {
   if (
     !config.WAFFO_MERCHANT_ID || !config.WAFFO_PRIVATE_KEY ||
-    !config.WAFFO_STORE_ID || !config.WAFFO_PRODUCT_ID ||
+    !config.WAFFO_STORE_ID ||
     (config.WAFFO_ENVIRONMENT !== "test" &&
       config.WAFFO_ENVIRONMENT !== "prod")
   ) {

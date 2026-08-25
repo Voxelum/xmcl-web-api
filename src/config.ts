@@ -66,7 +66,10 @@ export interface AppConfig {
   WAFFO_PRIVATE_KEY?: string;
   /** Store that owns the configured top-up product and accepted webhooks. */
   WAFFO_STORE_ID?: string;
-  /** One-time product used with a server-calculated priceSnapshot for top-ups. */
+  /**
+   * Optional one-time product override. Without it, the provider discovers the
+   * unique active XMCL cash-top-up product in WAFFO_STORE_ID.
+   */
   WAFFO_PRODUCT_ID?: string;
   /** Expected webhook mode. Required to keep test and production credits isolated. */
   WAFFO_ENVIRONMENT?: "test" | "prod";

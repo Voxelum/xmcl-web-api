@@ -321,22 +321,24 @@ The same variables are used across every runtime (read via `hono/adapter`:
   containers against rate versions `101`, `102`, and `103`; it is intentionally
   not enabled in production yet.
 - `WAFFO_MERCHANT_ID` and `WAFFO_PRIVATE_KEY` - server-side Waffo API key.
-  `WAFFO_STORE_ID`, `WAFFO_PRODUCT_ID`, and `WAFFO_ENVIRONMENT` (`test` or
-  `prod`) pin the one-time top-up product and accepted webhook source. The
-  product is checked out with a server-owned dynamic price snapshot.
+  `WAFFO_STORE_ID` and `WAFFO_ENVIRONMENT` (`test` or `prod`) pin the store
+  and accepted webhook source. The provider discovers the unique active
+  one-time product whose metadata identifies the XMCL cash top-up, monthly
+  base plus hourly billing, dynamic snapshot, and XMCL-ledger flow;
+  `WAFFO_PRODUCT_ID` can explicitly override that discovery. The product is
+  checked out with a server-owned dynamic price snapshot.
   `WAFFO_SUCCESS_URL`, `WAFFO_API_BASE_URL`, and `WAFFO_WEBHOOK_PUBLIC_KEY` are
   optional. Configure an HTTP webhook for `order.completed` at
   `/v1/webhooks/waffo`; the handler verifies the raw-body signature, store,
   environment, external order ID, currency, and amount before crediting the
   durable ledger.
 - Production Cloudflare deployments use the GitHub Actions `production`
-  environment. `BILLING_CURRENCY` and `BILLING_RATES_JSON` are required
-  environment variables there. `WAFFO_STORE_ID`, `WAFFO_PRODUCT_ID`, and
-  `WAFFO_ENVIRONMENT` are optional as a group; setting only part of the group
-  fails the deployment before Cloudflare is changed. The workflow synchronizes
-  these values to the API Worker, verifies all required remote bindings, and
-  then deploys. Normal production releases must run through the workflow rather
-  than a manual `wrangler deploy`.
+  environment. `BILLING_CURRENCY`, `BILLING_RATES_JSON`, `WAFFO_STORE_ID`, and
+  `WAFFO_ENVIRONMENT` are required environment variables there;
+  `WAFFO_PRODUCT_ID` is an optional override. The workflow synchronizes these
+  values to the API Worker, verifies the complete provider/store binding set,
+  and then deploys. Normal production releases must run through the workflow
+  rather than a manual `wrangler deploy`.
 - Shared-hosting workspaces have one canonical S3-compatible object prefix per
   service. A global scheduler packs only `starting`, `running`, and `stopping`
   containers into a node's hard memory, shared CPU, and local-NVMe workspace

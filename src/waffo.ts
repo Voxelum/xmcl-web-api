@@ -33,7 +33,7 @@ export interface WaffoSdkOptions {
   merchantId: string;
   privateKey: string;
   storeId: string;
-  productId: string;
+  productId?: string;
   environment: "test" | "prod";
   successUrl?: string;
   apiBaseUrl?: string;
@@ -113,11 +113,11 @@ function refundAmounts(
 export class WaffoSdkProvider
   implements WaffoCheckoutProvider, WaffoWebhookVerifier {
   private readonly client: WaffoPancake;
+  private discoveredProductId?: Promise<string>;
 
   constructor(private readonly options: WaffoSdkOptions) {
     if (
-      !options.merchantId || !options.privateKey || !options.storeId ||
-      !options.productId
+      !options.merchantId || !options.privateKey || !options.storeId
     ) {
       throw new Error("Complete Waffo provider settings are required");
     }
@@ -132,10 +132,69 @@ export class WaffoSdkProvider
     });
   }
 
+  private async resolveProductId() {
+    if (this.options.productId) return this.options.productId;
+    this.discoveredProductId ??= this.discoverProductId().catch((error) => {
+      this.discoveredProductId = undefined;
+      throw error;
+    });
+    return await this.discoveredProductId;
+  }
+
+  private async discoverProductId() {
+    const result = await this.client.graphql.query<{
+      onetimeProducts?: Array<{
+        id?: unknown;
+        metadata?: unknown;
+      }>;
+    }>({
+      query: `query XmclCashTopUpProducts($storeId: String!) {
+        onetimeProducts(
+          storeId: $storeId
+          filter: { status: { eq: "active" } }
+        ) {
+          id
+          metadata
+        }
+      }`,
+      variables: { storeId: this.options.storeId },
+    });
+    const matches = (result.data?.onetimeProducts ?? []).filter((product) => {
+      if (
+        typeof product.id !== "string" ||
+        !/^PROD_[A-Za-z0-9]{22}$/.test(product.id)
+      ) {
+        return false;
+      }
+      let metadata = product.metadata;
+      if (typeof metadata === "string") {
+        try {
+          metadata = JSON.parse(metadata);
+        } catch {
+          return false;
+        }
+      }
+      if (
+        !metadata || typeof metadata !== "object" || Array.isArray(metadata)
+      ) {
+        return false;
+      }
+      const values = metadata as Record<string, unknown>;
+      return values.xmclProductType === "cash_top_up" &&
+        values.billingModel === "monthly_base_plus_hourly" &&
+        values.checkoutAmount === "server_dynamic_price_snapshot" &&
+        values.settlementOwner === "xmcl_ledger";
+    });
+    if (result.errors?.length || matches.length !== 1) {
+      throw new AccountError(503, "waffo_provider_unavailable");
+    }
+    return matches[0].id as string;
+  }
+
   async createCheckout(input: { orderId: string; amount: Money }) {
     try {
       const params = {
-        productId: this.options.productId,
+        productId: await this.resolveProductId(),
         currency: input.amount.currency,
         priceSnapshot: {
           amount: displayAmount(input.amount.amountMinor),
@@ -161,7 +220,12 @@ export class WaffoSdkProvider
         `${this.options.merchantId}:${path}:${body}`,
       ).digest("hex");
       const response = await (this.options.fetchImpl ?? fetch)(
-        `${(this.options.apiBaseUrl ?? "https://api.waffo.ai").replace(/\/+$/, "")}${path}`,
+        `${
+          (this.options.apiBaseUrl ?? "https://api.waffo.ai").replace(
+            /\/+$/,
+            "",
+          )
+        }${path}`,
         {
           method: "POST",
           headers: {

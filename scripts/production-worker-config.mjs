@@ -1,10 +1,10 @@
 import { stdin, stdout } from "node:process";
 
-const WAFFO_SETTINGS = [
+const REQUIRED_WAFFO_SETTINGS = [
   "WAFFO_STORE_ID",
-  "WAFFO_PRODUCT_ID",
   "WAFFO_ENVIRONMENT",
 ];
+const OPTIONAL_WAFFO_SETTINGS = ["WAFFO_PRODUCT_ID"];
 
 export const REQUIRED_API_BINDINGS = [
   "MONGO_CONNECION_STRING",
@@ -12,6 +12,9 @@ export const REQUIRED_API_BINDINGS = [
   "XMCL_SESSION_SECRET_PRIMARY",
   "BILLING_CURRENCY",
   "BILLING_RATES_JSON",
+  "WAFFO_MERCHANT_ID",
+  "WAFFO_PRIVATE_KEY",
+  ...REQUIRED_WAFFO_SETTINGS,
 ];
 
 function requiredValue(environment, name) {
@@ -41,27 +44,33 @@ export function productionWorkerConfig(environment) {
     BILLING_CURRENCY: currency,
     BILLING_RATES_JSON: JSON.stringify(rates),
   };
-  const configuredWaffoSettings = WAFFO_SETTINGS.filter((name) =>
+  const allWaffoSettings = [
+    ...REQUIRED_WAFFO_SETTINGS,
+    ...OPTIONAL_WAFFO_SETTINGS,
+  ];
+  const configuredWaffoSettings = allWaffoSettings.filter((name) =>
     environment[name]?.trim()
   );
-  if (
-    configuredWaffoSettings.length !== 0 &&
-    configuredWaffoSettings.length !== WAFFO_SETTINGS.length
-  ) {
-    const missing = WAFFO_SETTINGS.filter((name) =>
+  if (configuredWaffoSettings.length !== 0) {
+    const missing = REQUIRED_WAFFO_SETTINGS.filter((name) =>
       !environment[name]?.trim()
     );
-    throw new Error(
-      `Waffo production configuration is incomplete; missing ${missing.join(", ")}`,
-    );
-  }
-  if (configuredWaffoSettings.length === WAFFO_SETTINGS.length) {
+    if (missing.length > 0) {
+      throw new Error(
+        `Waffo production configuration is incomplete; missing ${
+          missing.join(", ")
+        }`,
+      );
+    }
     const waffoEnvironment = environment.WAFFO_ENVIRONMENT.trim();
     if (waffoEnvironment !== "test" && waffoEnvironment !== "prod") {
       throw new Error("WAFFO_ENVIRONMENT must be test or prod");
     }
-    for (const name of WAFFO_SETTINGS) {
+    for (const name of REQUIRED_WAFFO_SETTINGS) {
       config[name] = environment[name].trim();
+    }
+    for (const name of OPTIONAL_WAFFO_SETTINGS) {
+      if (environment[name]?.trim()) config[name] = environment[name].trim();
     }
   }
   return config;

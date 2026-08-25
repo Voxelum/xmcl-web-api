@@ -34,7 +34,9 @@ Deno.test("Waffo checkout uses stable provider idempotency across recovery", asy
     productId: "PROD_0000000000000000000000",
     environment: "test",
     fetchImpl: async (_input, init) => {
-      idempotencyKeys.push(new Headers(init?.headers).get("X-Idempotency-Key")!);
+      idempotencyKeys.push(
+        new Headers(init?.headers).get("X-Idempotency-Key")!,
+      );
       return Response.json({
         data: {
           sessionId: "checkout-session",
@@ -51,6 +53,119 @@ Deno.test("Waffo checkout uses stable provider idempotency across recovery", asy
   await provider.createCheckout(input);
   assert.equal(idempotencyKeys.length, 2);
   assert.equal(idempotencyKeys[0], idempotencyKeys[1]);
+});
+
+Deno.test("Waffo checkout discovers the unique XMCL cash top-up product", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  let graphqlCalls = 0;
+  let graphqlBody: {
+    query?: string;
+    variables?: Record<string, unknown>;
+  } | undefined;
+  let checkoutBody: Record<string, unknown> | undefined;
+  const provider = new WaffoSdkProvider({
+    merchantId: "MER_0000000000000000000000",
+    privateKey: privateKey.export({ type: "pkcs8", format: "der" }).toString(
+      "base64",
+    ),
+    storeId: "STO_0000000000000000000000",
+    environment: "test",
+    apiBaseUrl: "https://waffo.example",
+    fetchImpl: async (input, init) => {
+      if (String(input).endsWith("/v1/graphql")) {
+        graphqlCalls += 1;
+        graphqlBody = JSON.parse(String(init?.body));
+        return Response.json({
+          data: {
+            onetimeProducts: [
+              {
+                id: "PROD_0000000000000000000000",
+                metadata: JSON.stringify({
+                  xmclProductType: "cash_top_up",
+                  billingModel: "monthly_base_plus_hourly",
+                  checkoutAmount: "server_dynamic_price_snapshot",
+                  settlementOwner: "xmcl_ledger",
+                }),
+              },
+              {
+                id: "PROD_other",
+                metadata: { xmclProductType: "other" },
+              },
+            ],
+          },
+        });
+      }
+      checkoutBody = JSON.parse(String(init?.body));
+      return Response.json({
+        data: {
+          sessionId: "checkout-session",
+          checkoutUrl: "https://pancake.waffo.ai/xmcl/checkout/session",
+        },
+      });
+    },
+  });
+
+  await provider.createCheckout({
+    orderId: "order-discovered",
+    amount: { currency: "USD", amountMinor: 500 },
+  });
+  await provider.createCheckout({
+    orderId: "order-discovered",
+    amount: { currency: "USD", amountMinor: 500 },
+  });
+
+  assert.equal(graphqlCalls, 1);
+  assert.match(
+    graphqlBody?.query ?? "",
+    /onetimeProducts\(\s*storeId: \$storeId/,
+  );
+  assert.deepEqual(graphqlBody?.variables, {
+    storeId: "STO_0000000000000000000000",
+  });
+  assert.equal(
+    checkoutBody?.productId,
+    "PROD_0000000000000000000000",
+  );
+});
+
+Deno.test("Waffo product discovery rejects missing or ambiguous matches", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const encodedKey = privateKey.export({ type: "pkcs8", format: "der" })
+    .toString("base64");
+  const matchingProduct = {
+    id: "PROD_0000000000000000000000",
+    metadata: {
+      xmclProductType: "cash_top_up",
+      billingModel: "monthly_base_plus_hourly",
+      checkoutAmount: "server_dynamic_price_snapshot",
+      settlementOwner: "xmcl_ledger",
+    },
+  };
+
+  for (const products of [[], [matchingProduct, matchingProduct]]) {
+    const provider = new WaffoSdkProvider({
+      merchantId: "MER_0000000000000000000000",
+      privateKey: encodedKey,
+      storeId: "STO_0000000000000000000000",
+      environment: "test",
+      apiBaseUrl: "https://waffo.example",
+      fetchImpl: async (input) => {
+        assert.match(String(input), /\/v1\/graphql$/);
+        return Response.json({ data: { onetimeProducts: products } });
+      },
+    });
+
+    await assert.rejects(
+      () =>
+        provider.createCheckout({
+          orderId: "order-unavailable",
+          amount: { currency: "USD", amountMinor: 500 },
+        }),
+      (error) =>
+        error instanceof AccountError &&
+        error.code === "waffo_provider_unavailable",
+    );
+  }
 });
 
 function webhook(
@@ -447,11 +562,13 @@ Deno.test("Waffo converts cumulative taxed refunds without rounding drift", asyn
   await f.waffo.receiveWebhook("credit", {
     "x-waffo-signature": "valid",
   });
-  for (const [id, amount] of [
-    ["rounding_refund_1", "3.67"],
-    ["rounding_refund_2", "3.67"],
-    ["rounding_refund_3", "3.66"],
-  ]) {
+  for (
+    const [id, amount] of [
+      ["rounding_refund_1", "3.67"],
+      ["rounding_refund_2", "3.67"],
+      ["rounding_refund_3", "3.66"],
+    ]
+  ) {
     f.setEvent({
       ...webhook(order.orderId, {
         id,
