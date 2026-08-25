@@ -22,7 +22,8 @@ export interface VerifyDpopProofInput {
   replayStore?: DpopReplayStore;
 }
 
-const DPOP_PROOF_MAX_AGE_SECONDS = 60;
+const DPOP_PROOF_MAX_PAST_AGE_SECONDS = 5 * 60;
+const DPOP_PROOF_MAX_FUTURE_SKEW_SECONDS = 60;
 const DPOP_REPLAY_CAPACITY = 10_000;
 const replayCache = new Map<string, number>();
 
@@ -124,7 +125,8 @@ export async function verifyDpopProof(input: VerifyDpopProofInput) {
   if (
     typeof jti !== "string" || !jti || jti.length > 128 ||
     typeof claims.iat !== "number" || !Number.isInteger(claims.iat) ||
-    Math.abs(nowSeconds - claims.iat) > DPOP_PROOF_MAX_AGE_SECONDS ||
+    claims.iat < nowSeconds - DPOP_PROOF_MAX_PAST_AGE_SECONDS ||
+    claims.iat > nowSeconds + DPOP_PROOF_MAX_FUTURE_SKEW_SECONDS ||
     claims.htm !== input.method.toUpperCase() ||
     claims.htu !== normalizeHtu(input.url)
   ) {
@@ -148,7 +150,10 @@ export async function verifyDpopProof(input: VerifyDpopProofInput) {
   }
 
   const replayKey = `${jkt}:${jti}`;
-  const expiresAt = (claims.iat + DPOP_PROOF_MAX_AGE_SECONDS) * 1000;
+  const expiresAt = Math.max(
+    claims.iat + DPOP_PROOF_MAX_PAST_AGE_SECONDS,
+    nowSeconds + 1,
+  ) * 1000;
   const consumed = await (input.replayStore ?? memoryReplayStore).consume(
     replayKey,
     expiresAt,

@@ -50,6 +50,55 @@ Deno.test("DPoP proof binds method, URL, access token, key, and jti", async () =
   );
 });
 
+Deno.test("DPoP proof allows five minutes of past clock skew and one minute of future skew", async () => {
+  const key = await createKey();
+  const nowSeconds = Math.floor(Date.parse("2026-08-25T00:00:00Z") / 1000);
+  const now = new Date(nowSeconds * 1000);
+  const url = "https://api.xmcl.app/v1/account";
+  let oldestProofExpiresAt = 0;
+
+  for (const issuedAt of [nowSeconds - 300, nowSeconds + 60]) {
+    const proof = await signProof(key, {
+      method: "GET",
+      url,
+      issuedAt,
+    });
+    await verifyDpopProof({
+      proof,
+      method: "GET",
+      url,
+      now,
+      replayStore: issuedAt === nowSeconds - 300
+        ? {
+          consume: (_key, expiresAt) => {
+            oldestProofExpiresAt = expiresAt;
+            return true;
+          },
+        }
+        : undefined,
+    });
+  }
+  assert.ok(oldestProofExpiresAt > now.getTime());
+
+  for (const issuedAt of [nowSeconds - 301, nowSeconds + 61]) {
+    const proof = await signProof(key, {
+      method: "GET",
+      url,
+      issuedAt,
+    });
+    await assert.rejects(
+      () =>
+        verifyDpopProof({
+          proof,
+          method: "GET",
+          url,
+          now,
+        }),
+      (error: unknown) => isAccountError(error, "invalid_dpop_proof"),
+    );
+  }
+});
+
 Deno.test("DPoP-bound sessions reject Bearer and accept a valid proof", async () => {
   const key = await createKey();
   const repository = new MemoryAccountRepository();
@@ -168,7 +217,12 @@ async function createKey() {
 
 async function signProof(
   key: Awaited<ReturnType<typeof createKey>>,
-  input: { method: string; url: string; accessToken?: string },
+  input: {
+    method: string;
+    url: string;
+    accessToken?: string;
+    issuedAt?: number;
+  },
 ) {
   const header = encodeJson({
     typ: "dpop+jwt",
@@ -180,7 +234,7 @@ async function signProof(
     jti: key.lastJti,
     htm: input.method,
     htu: normalizeHtu(input.url),
-    iat: Math.floor(Date.now() / 1000),
+    iat: input.issuedAt ?? Math.floor(Date.now() / 1000),
     ...(input.accessToken
       ? { ath: await sha256Base64Url(input.accessToken) }
       : {}),
