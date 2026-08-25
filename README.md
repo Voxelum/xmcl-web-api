@@ -329,6 +329,14 @@ The same variables are used across every runtime (read via `hono/adapter`:
   `/v1/webhooks/waffo`; the handler verifies the raw-body signature, store,
   environment, external order ID, currency, and amount before crediting the
   durable ledger.
+- Production Cloudflare deployments use the GitHub Actions `production`
+  environment. `BILLING_CURRENCY` and `BILLING_RATES_JSON` are required
+  environment variables there. `WAFFO_STORE_ID`, `WAFFO_PRODUCT_ID`, and
+  `WAFFO_ENVIRONMENT` are optional as a group; setting only part of the group
+  fails the deployment before Cloudflare is changed. The workflow synchronizes
+  these values to the API Worker, verifies all required remote bindings, and
+  then deploys. Normal production releases must run through the workflow rather
+  than a manual `wrangler deploy`.
 - Shared-hosting workspaces have one canonical S3-compatible object prefix per
   service. A global scheduler packs only `starting`, `running`, and `stopping`
   containers into a node's hard memory, shared CPU, and local-NVMe workspace
