@@ -88,7 +88,7 @@ export class AzureBlobSasSigner {
     const expiresAt = azureTimestamp(
       new Date(now.getTime() + expiresInSeconds * 1_000),
     );
-    const permissions = method === "GET" ? "r" : method === "PUT" ? "cw" : "d";
+    const permissions = method === "GET" ? "r" : method === "PUT" ? "rcw" : "d";
     const canonicalResource =
       `/blob/${this.config.accountName}/${this.config.container}/${key}`;
     const stringToSign = [

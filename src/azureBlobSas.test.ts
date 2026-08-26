@@ -19,7 +19,7 @@ Deno.test("Azure Blob signer issues bounded immutable grants", async () => {
   const url = new URL(grant.url);
   if (
     url.hostname !== "xmclcampstaging.blob.core.windows.net" ||
-    url.searchParams.get("sp") !== "cw" ||
+    url.searchParams.get("sp") !== "rcw" ||
     url.searchParams.get("spr") !== "https" ||
     url.searchParams.get("sr") !== "b" ||
     !url.searchParams.get("sig") ||
