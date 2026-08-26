@@ -802,13 +802,12 @@ export function renderSharedNodeCloudInit(input: {
     `XMCL_CONTROL_PLANE_CREDENTIAL=${shellValue(input.controlPlaneCredential)}`,
     `XMCL_SHARED_NODE_VOLUME_ID=${shellValue(input.volumeId)}`,
     `XMCL_SHARED_NODE_REGION=${shellValue(input.region)}`,
-    `XMCL_VULTR_OBJECT_STORAGE_ENDPOINT=${
-      shellValue(input.objectStorageEndpoint ?? "https://sgp1.vultrobjects.com")
+    `XMCL_AZURE_BLOB_ENDPOINT=${
+      shellValue(
+        input.objectStorageEndpoint ?? "https://invalid.blob.core.windows.net",
+      )
     }`,
-    `XMCL_VULTR_OBJECT_STORAGE_REGION=${
-      shellValue(input.objectStorageRegion ?? "sgp")
-    }`,
-    `XMCL_VULTR_OBJECT_STORAGE_BUCKET=${
+    `XMCL_AZURE_BLOB_CONTAINER=${
       shellValue(input.objectStorageBucket ?? "xmcl-shared-hosting")
     }`,
     `XMCL_WORKSPACE_ROOT=${

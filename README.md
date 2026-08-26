@@ -365,7 +365,7 @@ The same variables are used across every runtime (read via `hono/adapter`:
   `/v1/webhooks/waffo`; the handler verifies the raw-body signature, store,
   environment, external order ID, currency, and amount before crediting the
   durable ledger.
-- Shared-hosting workspaces have one canonical S3-compatible object prefix per
+- Shared-hosting workspaces have one canonical Azure Blob prefix per
   service. A global scheduler packs only `starting`, `running`, and `stopping`
   containers into a node's hard memory, shared CPU, and local-NVMe workspace
   limits. A trusted node agent restores the canonical workspace before Docker
@@ -378,18 +378,17 @@ The same variables are used across every runtime (read via `hono/adapter`:
 - Shared-node transport is mounted only when every required shared-hosting
   setting is present **and** the runtime supplies a server-only
   `SHARED_NODE_WORKSPACE_SIGNER` binding. Cloudflare constructs that binding
-  from the Worker secrets `XMCL_VULTR_OBJECT_STORAGE_ACCESS_KEY` and
-  `XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY` plus
-  `XMCL_VULTR_OBJECT_STORAGE_ENDPOINT`, `XMCL_VULTR_OBJECT_STORAGE_REGION`, and
-  `XMCL_VULTR_OBJECT_STORAGE_BUCKET`. The key and secret must be Worker secrets,
-  never text responses, node configuration, logs, or exception data. Absent or
-  malformed signer configuration leaves internal transport routes unmounted;
-  public shared-hosting routes remain disabled.
+  from the Worker secret `XMCL_AZURE_STORAGE_ACCOUNT_KEY` plus
+  `XMCL_AZURE_BLOB_ENDPOINT`, `XMCL_AZURE_BLOB_CONTAINER`, and
+  `XMCL_AZURE_STORAGE_ACCOUNT_NAME`. The account key must remain a Worker
+  secret, never a text response, node configuration, log, or exception value.
+  Absent or malformed signer configuration leaves internal transport routes
+  unmounted; public shared-hosting routes remain disabled.
 - The v2 internal transfer contract exposes only authenticated,
   command/assignment/lease-bound `workspace-grants/restore`,
   `workspace-grants/sync`, and `workspace-grants/publish` endpoints. Grants are
-  exact short-lived Vultr SigV4 GET/PUT URLs; they never grant List, Delete,
-  bucket access, arbitrary keys, or storage credentials. The canonical layout is
+  exact short-lived Azure Blob SAS GET/PUT URLs; they never grant List, Delete,
+  container access, arbitrary keys, or storage credentials. The canonical layout is
   `shared-hosting/<accountId>/<serviceId>/content/<sha256>.tar.zst`,
   `revisions/<revision>/world/<shard>.tar.zst`,
   `revisions/<revision>/config.tar.zst`, and manifest-last
@@ -500,10 +499,10 @@ The same variables are used across every runtime (read via `hono/adapter`:
   the Worker. The Free Zone edge rate-limiting rule matches the `/translation`
   path (Free does not support a host field); only the common `api.xmcl.app`
   surface mounts that path.
-- `XMCL_VULTR_OBJECT_STORAGE_ACCESS_KEY` and
-  `XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY` - Worker **secret** bindings for the v2
-  S3 SigV4 signer. They require the endpoint, region, and bucket settings above
-  and must not be configured on node VMs.
+- `XMCL_AZURE_STORAGE_ACCOUNT_KEY` - Worker **secret** binding used only by the
+  Azure Blob SAS signer. It requires `XMCL_AZURE_BLOB_ENDPOINT`,
+  `XMCL_AZURE_BLOB_CONTAINER`, and `XMCL_AZURE_STORAGE_ACCOUNT_NAME`, and must
+  not be configured on node VMs.
 
 Before production approval, stage the complete real-Vultr path:
 `VM enroll ->

@@ -131,13 +131,11 @@ export interface AppConfig {
   XMCL_SHARED_QUOTA_HELPER_RELEASE_URL?: string;
   XMCL_SHARED_QUOTA_HELPER_RELEASE_SHA256?: string;
   XMCL_CONTROL_PLANE_URL?: string;
-  XMCL_VULTR_OBJECT_STORAGE_ENDPOINT?: string;
-  XMCL_VULTR_OBJECT_STORAGE_REGION?: string;
-  XMCL_VULTR_OBJECT_STORAGE_BUCKET?: string;
-  /** Server-only Worker secret used solely for S3 SigV4 pre-signing. */
-  XMCL_VULTR_OBJECT_STORAGE_ACCESS_KEY?: string;
-  /** Server-only Worker secret used solely for S3 SigV4 pre-signing. */
-  XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY?: string;
+  XMCL_AZURE_BLOB_ENDPOINT?: string;
+  XMCL_AZURE_BLOB_CONTAINER?: string;
+  XMCL_AZURE_STORAGE_ACCOUNT_NAME?: string;
+  /** Server-only Worker secret used solely for Azure Blob SAS signing. */
+  XMCL_AZURE_STORAGE_ACCOUNT_KEY?: string;
   XMCL_SHARED_NODE_CONTAINER_IMAGE?: string;
   XMCL_WORKSPACE_ROOT?: string;
   XMCL_RCON_STOP_TIMEOUT_SECONDS?: string;

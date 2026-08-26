@@ -93,9 +93,8 @@ export function hasSharedNodeSettings(config: AppConfig) {
   const common = Boolean(
     config.BILLING_RATES_JSON &&
       regions &&
-      config.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT &&
-      config.XMCL_VULTR_OBJECT_STORAGE_REGION &&
-      config.XMCL_VULTR_OBJECT_STORAGE_BUCKET &&
+      config.XMCL_AZURE_BLOB_ENDPOINT &&
+      config.XMCL_AZURE_BLOB_CONTAINER &&
       hasValidSharedNodeIngressSettings(
         config.XMCL_SHARED_NODE_INGRESS_PORT_MIN,
         config.XMCL_SHARED_NODE_INGRESS_PORT_MAX,
@@ -219,9 +218,9 @@ export function createSharedHostingRuntime(
             config.VULTR_SHARED_NODE_BLOCK_STORAGE_GIB,
           ),
           blockStorageType: config.VULTR_SHARED_NODE_BLOCK_STORAGE_TYPE!,
-          objectStorageEndpoint: config.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT,
-          objectStorageRegion: config.XMCL_VULTR_OBJECT_STORAGE_REGION,
-          objectStorageBucket: config.XMCL_VULTR_OBJECT_STORAGE_BUCKET,
+          objectStorageEndpoint: config.XMCL_AZURE_BLOB_ENDPOINT,
+          objectStorageRegion: "azure",
+          objectStorageBucket: config.XMCL_AZURE_BLOB_CONTAINER,
           containerImage: config.XMCL_SHARED_NODE_CONTAINER_IMAGE!,
           workspaceRoot: config.XMCL_WORKSPACE_ROOT,
           rconStopTimeoutSeconds: config.XMCL_RCON_STOP_TIMEOUT_SECONDS

@@ -19,7 +19,7 @@ import {
 import { getAccountRuntime } from "../../src/accountRuntime.ts";
 import { getSharedHostingRuntime } from "../../src/sharedHostingRuntime.ts";
 import { hasSharedNodeRuntimeSettings } from "../../src/productionComposition.ts";
-import { createS3SigV4Presigner } from "../../src/s3SigV4.ts";
+import { createAzureBlobSasSigner } from "../../src/azureBlobSas.ts";
 import { createBillingRoutes } from "../../src/routes/billing.ts";
 import { createSharedHostingRoutes } from "../../src/routes/sharedHosting.ts";
 import { createSharedHostingServiceRoutes } from "../../src/routes/sharedHostingServices.ts";
@@ -195,7 +195,9 @@ app.use("/v1/admin/*", async (c, next) => {
           action: String(record.action),
           resourceType: "account",
           resourceId: String(record.accountId),
-          correlationId: String(record.requestId ?? record.auditId ?? record._id),
+          correlationId: String(
+            record.requestId ?? record.auditId ?? record._id,
+          ),
           occurredAt: String(record.occurredAt),
         })),
     };
@@ -477,12 +479,11 @@ async function secureTokenEqual(actual: string, expected: string) {
 }
 
 function workspaceSigner(env: StagingBindings) {
-  return createS3SigV4Presigner({
-    endpoint: env.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT,
-    region: env.XMCL_VULTR_OBJECT_STORAGE_REGION,
-    bucket: env.XMCL_VULTR_OBJECT_STORAGE_BUCKET,
-    accessKey: env.XMCL_VULTR_OBJECT_STORAGE_ACCESS_KEY,
-    secretKey: env.XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY,
+  return createAzureBlobSasSigner({
+    endpoint: env.XMCL_AZURE_BLOB_ENDPOINT,
+    container: env.XMCL_AZURE_BLOB_CONTAINER,
+    accountName: env.XMCL_AZURE_STORAGE_ACCOUNT_NAME,
+    accountKey: env.XMCL_AZURE_STORAGE_ACCOUNT_KEY,
   });
 }
 export default {
@@ -582,7 +583,8 @@ export default {
           ctx.waitUntil(alertStaging(env, {
             severity: "critical",
             event: "waffo_staging.webhook_failed",
-            summary: "A Waffo webhook request failed before it could be reconciled.",
+            summary:
+              "A Waffo webhook request failed before it could be reconciled.",
             fields: {
               status: 500,
               cfRay: request.headers.get("cf-ray") ?? "unavailable",
@@ -595,7 +597,8 @@ export default {
         ctx.waitUntil(alertStaging(env, {
           severity: "critical",
           event: "waffo_staging.webhook_failed",
-          summary: "A Waffo webhook request failed before it could be reconciled.",
+          summary:
+            "A Waffo webhook request failed before it could be reconciled.",
           fields: {
             status: response.status,
             cfRay: request.headers.get("cf-ray") ?? "unavailable",
@@ -644,7 +647,8 @@ export default {
             await alertStaging(env, {
               severity: "warning",
               event: "ai.staging_settlement.pending",
-              summary: "AI usage settlement is still pending after a scheduled retry.",
+              summary:
+                "AI usage settlement is still pending after a scheduled retry.",
               occurredAt: scheduledAt.toISOString(),
               fields: { failedCount: aiResult.failed.length },
             });

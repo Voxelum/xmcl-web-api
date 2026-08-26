@@ -265,6 +265,11 @@ Deno.test("shared scheduler syncs stopped data to object storage and assigns the
   assert.equal(stopping.status, "stopping");
   const stopCommand = f.commands.at(-1)!;
   assert.equal(stopCommand.kind, "workspace.stop_and_sync");
+  await f.scheduler.reportStopped({
+    nodeId: "node_a",
+    serviceId: first.serviceId,
+    assignmentId: stopCommand.assignmentId,
+  });
   await f.scheduler.reportStoppedAndSynced({
     nodeId: "node_a",
     serviceId: first.serviceId,

@@ -1,5 +1,5 @@
 import { createProductionApp } from "../../src/productionComposition.ts";
-import { createS3SigV4Presigner } from "../../src/s3SigV4.ts";
+import { createAzureBlobSasSigner } from "../../src/azureBlobSas.ts";
 import { createDbMiddleware } from "../../src/middleware/db.ts";
 import { geoipMiddleware } from "../../src/middleware/geoip.ts";
 import { getDb } from "../../src/db_npm.ts";
@@ -13,12 +13,11 @@ import { cors } from "hono/cors";
 export function createAzureWorkspaceSigner(
   environment: Record<string, string | undefined>,
 ) {
-  return createS3SigV4Presigner({
-    endpoint: environment.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT,
-    region: environment.XMCL_VULTR_OBJECT_STORAGE_REGION,
-    bucket: environment.XMCL_VULTR_OBJECT_STORAGE_BUCKET,
-    accessKey: environment.XMCL_VULTR_OBJECT_STORAGE_ACCESS_KEY,
-    secretKey: environment.XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY,
+  return createAzureBlobSasSigner({
+    endpoint: environment.XMCL_AZURE_BLOB_ENDPOINT,
+    container: environment.XMCL_AZURE_BLOB_CONTAINER,
+    accountName: environment.XMCL_AZURE_STORAGE_ACCOUNT_NAME,
+    accountKey: environment.XMCL_AZURE_STORAGE_ACCOUNT_KEY,
   });
 }
 

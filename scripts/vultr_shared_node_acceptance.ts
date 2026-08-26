@@ -86,9 +86,9 @@ async function main() {
       region,
       blockStorageSizeGiB: integer("VULTR_SHARED_NODE_BLOCK_STORAGE_GIB"),
       blockStorageType: required("VULTR_SHARED_NODE_BLOCK_STORAGE_TYPE"),
-      objectStorageEndpoint: required("XMCL_VULTR_OBJECT_STORAGE_ENDPOINT"),
-      objectStorageRegion: required("XMCL_VULTR_OBJECT_STORAGE_REGION"),
-      objectStorageBucket: required("XMCL_VULTR_OBJECT_STORAGE_BUCKET"),
+      objectStorageEndpoint: required("XMCL_AZURE_BLOB_ENDPOINT"),
+      objectStorageRegion: "azure",
+      objectStorageBucket: required("XMCL_AZURE_BLOB_CONTAINER"),
       containerImage: required("XMCL_SHARED_NODE_CONTAINER_IMAGE"),
     },
     profiles: [{

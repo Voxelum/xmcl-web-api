@@ -145,7 +145,13 @@ function fixture(
     now: () => now,
     createId: (prefix) => `${prefix}_${++sequence}`,
   });
-  return { scheduler, runtime, repository, commands, submissions: () => submissions };
+  return {
+    scheduler,
+    runtime,
+    repository,
+    commands,
+    submissions: () => submissions,
+  };
 }
 
 async function publishedFixture() {
@@ -342,14 +348,16 @@ Deno.test("rejects Java component, major, and catalog-revision mismatches", () =
     },
     contentSha256: "b".repeat(64),
   };
-  for (const invalid of [
-    { ...descriptor, java: { component: "java-runtime-gamma", major: 25 } },
-    { ...descriptor, java: { component: "unreviewed-component", major: 21 } },
-    {
-      ...descriptor,
-      runtimeCatalog: { sha256: "c".repeat(64) },
-    },
-  ]) {
+  for (
+    const invalid of [
+      { ...descriptor, java: { component: "java-runtime-gamma", major: 25 } },
+      { ...descriptor, java: { component: "unreviewed-component", major: 21 } },
+      {
+        ...descriptor,
+        runtimeCatalog: { sha256: "c".repeat(64) },
+      },
+    ]
+  ) {
     assert.throws(
       () => validateRuntimeDescriptor(invalid),
       (error) =>
@@ -388,7 +396,10 @@ Deno.test("freezes validated local server bundles with exact catalog Java and co
     expectedSizeBytes: archive.byteLength,
     idempotencyKey: "local-bundle",
   });
-  const complete = await f.runtime.completeImport("account_1", imported.importId);
+  const complete = await f.runtime.completeImport(
+    "account_1",
+    imported.importId,
+  );
   assert.equal(complete.status, "valid");
   const deployment = await f.runtime.createDeployment({
     accountId: "account_1",
@@ -486,6 +497,11 @@ Deno.test("selecting compiled content preserves world revision and stops before 
     (await f.scheduler.getService("account_1", f.service.serviceId)).status,
     "stopping",
   );
+  await f.scheduler.reportStopped({
+    nodeId: "node_1",
+    serviceId: f.service.serviceId,
+    assignmentId: starting.assignmentId!,
+  });
   await f.scheduler.reportStoppedAndSynced({
     nodeId: "node_1",
     serviceId: f.service.serviceId,
@@ -601,7 +617,11 @@ Deno.test("compiler callbacks are request-bound and idempotent only for the same
 
 Deno.test("durable compiler failure callbacks preserve selected content and world state", async () => {
   const f = await publishedFixture();
-  await f.runtime.apply("account_1", f.deployment.deploymentId, "select-current");
+  await f.runtime.apply(
+    "account_1",
+    f.deployment.deploymentId,
+    "select-current",
+  );
   const imported = await f.runtime.createImport({
     accountId: "account_1",
     serviceId: f.service.serviceId,
@@ -624,7 +644,10 @@ Deno.test("durable compiler failure callbacks preserve selected content and worl
     code: "compiler_failed",
   });
   assert.equal(failed.status, "compile_failed");
-  const service = await f.scheduler.getService("account_1", f.service.serviceId);
+  const service = await f.scheduler.getService(
+    "account_1",
+    f.service.serviceId,
+  );
   assert.equal(service.runtimeContent?.deploymentId, f.deployment.deploymentId);
   assert.equal(service.workspace.revision, 0);
 });

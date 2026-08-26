@@ -1,7 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { createSharedHostingRuntime } from "../../src/sharedHostingRuntime.ts";
 import { hasSharedNodeRuntimeSettings } from "../../src/productionComposition.ts";
-import { createS3SigV4Presigner } from "../../src/s3SigV4.ts";
+import { createAzureBlobSasSigner } from "../../src/azureBlobSas.ts";
 import { runServerControlScheduledSweep } from "../../src/serverControlScheduling.ts";
 import { runSharedHostingBillingScheduledSweep } from "../../src/sharedHostingScheduling.ts";
 import { runSharedNodeScheduledSweep } from "../../src/sharedNodeScheduling.ts";
@@ -31,9 +31,12 @@ import { sendRuntimeAlert } from "../../src/cloudflare/runtimeAlerting.ts";
 export { DpopReplayObject } from "../../src/cloudflare/dpopReplay.ts";
 export { AlertCooldownObject };
 
-function alertProduction(env: any, alert: Parameters<
-  typeof sendRuntimeAlert
->[0]["alert"]) {
+function alertProduction(
+  env: any,
+  alert: Parameters<
+    typeof sendRuntimeAlert
+  >[0]["alert"],
+) {
   return sendRuntimeAlert({
     namespace: env.ALERT_COOLDOWN,
     webhookUrl: env.XMCL_PRODUCTION_DISCORD_ALERT_WEBHOOK_URL,
@@ -235,12 +238,11 @@ export default {
               });
             }
           }
-          const signer = createS3SigV4Presigner({
-            endpoint: env.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT,
-            region: env.XMCL_VULTR_OBJECT_STORAGE_REGION,
-            bucket: env.XMCL_VULTR_OBJECT_STORAGE_BUCKET,
-            accessKey: env.XMCL_VULTR_OBJECT_STORAGE_ACCESS_KEY,
-            secretKey: env.XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY,
+          const signer = createAzureBlobSasSigner({
+            endpoint: env.XMCL_AZURE_BLOB_ENDPOINT,
+            container: env.XMCL_AZURE_BLOB_CONTAINER,
+            accountName: env.XMCL_AZURE_STORAGE_ACCOUNT_NAME,
+            accountKey: env.XMCL_AZURE_STORAGE_ACCOUNT_KEY,
           });
           if (
             hasSharedNodeRuntimeSettings(env, {

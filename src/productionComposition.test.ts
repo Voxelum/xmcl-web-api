@@ -80,9 +80,8 @@ Deno.test("production composition mounts only the authenticated node transport f
       "https://release.example/quota-helper",
     XMCL_SHARED_QUOTA_HELPER_RELEASE_SHA256: "b".repeat(64),
     XMCL_CONTROL_PLANE_URL: "https://api.example",
-    XMCL_VULTR_OBJECT_STORAGE_ENDPOINT: "https://sgp1.vultrobjects.com",
-    XMCL_VULTR_OBJECT_STORAGE_REGION: "sgp",
-    XMCL_VULTR_OBJECT_STORAGE_BUCKET: "shared",
+    XMCL_AZURE_BLOB_ENDPOINT: "https://xmclcampstaging.blob.core.windows.net",
+    XMCL_AZURE_BLOB_CONTAINER: "shared",
     XMCL_SHARED_NODE_CONTAINER_IMAGE:
       "ghcr.io/voxelum/xmcl-shared-minecraft-runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     VULTR_SHARED_NODE_BLOCK_STORAGE_GIB: "192",
@@ -99,7 +98,8 @@ Deno.test("production composition mounts only the authenticated node transport f
     presign: async (key, method, expiresInSeconds) => ({
       key,
       method,
-      url: `https://sgp1.vultrobjects.com/shared/${key}?grant=only`,
+      url:
+        `https://xmclcampstaging.blob.core.windows.net/shared/${key}?grant=only`,
       expiresAt: new Date(
         Date.now() + expiresInSeconds * 1_000,
       ).toISOString(),

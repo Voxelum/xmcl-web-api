@@ -168,6 +168,27 @@ export function createSharedNodeTransportRoutes(
   );
 
   app.post(
+    "/v1/internal/shared-nodes/:nodeId/assignments/:assignmentId/stopped",
+    async (c) => {
+      const service = serviceFor(c, configured);
+      const parsed = await rawJson(c);
+      const body = parsed.value;
+      const result = await service.stopped(
+        c.req.param("nodeId"),
+        {
+          serviceId: text(body.serviceId),
+          assignmentId: c.req.param("assignmentId"),
+          commandId: text(body.commandId),
+          leaseToken: text(body.leaseToken),
+          leaseGeneration: integer(body.leaseGeneration),
+        },
+        request(c, { body: parsed.body }),
+      );
+      return c.json(result, 202);
+    },
+  );
+
+  app.post(
     "/v1/internal/shared-nodes/:nodeId/assignments/:assignmentId/stopped-synced",
     async (c) => {
       const service = serviceFor(c, configured);

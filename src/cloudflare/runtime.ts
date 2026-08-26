@@ -10,7 +10,7 @@ import { getBillingRuntime } from "../billingRuntime.ts";
 import type { AppConfig } from "../config.ts";
 import type { DbFactory } from "../db.ts";
 import { createProductionApp } from "../productionComposition.ts";
-import { createS3SigV4Presigner } from "../s3SigV4.ts";
+import { createAzureBlobSasSigner } from "../azureBlobSas.ts";
 import { createDbMiddleware } from "../middleware/db.ts";
 import type { AppEnv } from "../types.ts";
 
@@ -139,12 +139,11 @@ export function createCloudflareApp(
   env: AppConfig,
   routeSurface: CloudflareRouteSurface,
 ) {
-  const signer = createS3SigV4Presigner({
-    endpoint: env.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT,
-    region: env.XMCL_VULTR_OBJECT_STORAGE_REGION,
-    bucket: env.XMCL_VULTR_OBJECT_STORAGE_BUCKET,
-    accessKey: env.XMCL_VULTR_OBJECT_STORAGE_ACCESS_KEY,
-    secretKey: env.XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY,
+  const signer = createAzureBlobSasSigner({
+    endpoint: env.XMCL_AZURE_BLOB_ENDPOINT,
+    container: env.XMCL_AZURE_BLOB_CONTAINER,
+    accountName: env.XMCL_AZURE_STORAGE_ACCOUNT_NAME,
+    accountKey: env.XMCL_AZURE_STORAGE_ACCOUNT_KEY,
   });
   return createProductionApp(
     (app) => {

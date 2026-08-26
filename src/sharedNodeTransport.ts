@@ -9,18 +9,18 @@ import {
   type SharedNodeWorkloadClass,
   type SharedWorkspace,
 } from "./sharedHostingScheduler.ts";
-import type { S3PresignedObject } from "./s3SigV4.ts";
+import type { AzureBlobSignedObject } from "./azureBlobSas.ts";
 
 const encoder = new TextEncoder();
 const maxWorkspaceBlobCount = 130;
 const maxWorkspaceGrantBatchCount = 8;
 const maxWorkspacePathCount = 100_000;
 const maxWorkspaceBytes = 64 * 1024 * 1024 * 1024;
-// v2 uses single immutable PUTs only. Keep blobs below S3 multipart thresholds.
+// v2 uses single immutable PUTs only. Keep blobs below the Azure Put Blob limit.
 const maxWorkspaceBlobBytes = 4 * 1024 * 1024 * 1024;
 
 /** Wire-format version shared with xmcl-shared-node-agent. */
-export const SHARED_NODE_TRANSPORT_CONTRACT_VERSION = 1;
+export const SHARED_NODE_TRANSPORT_CONTRACT_VERSION = 2;
 /** The isolated workspace grant protocol intentionally supersedes v1 credentials. */
 export const SHARED_NODE_WORKSPACE_CONTRACT_VERSION = 2;
 
@@ -142,13 +142,13 @@ export interface SharedWorkspaceGrantResponse {
   grants: readonly SharedWorkspaceGrant[];
 }
 
-/** A server-only S3 signer; it returns grants but never its signing credential. */
+/** A server-only Azure signer; it returns grants but never its signing credential. */
 export interface SharedNodeWorkspaceSigner {
   presign(
     key: string,
     method: "GET" | "PUT",
     expiresInSeconds: number,
-  ): Promise<S3PresignedObject>;
+  ): Promise<AzureBlobSignedObject>;
   /** Server-side exact deletion; never returned as a client grant. */
   deleteExact?(keys: readonly string[]): Promise<void>;
 }
@@ -1799,6 +1799,39 @@ export class SharedNodeTransportService {
       });
     }
     await this.options.scheduler.reportStoppedAndSynced({ nodeId, ...input });
+    return {
+      contractVersion: SHARED_NODE_TRANSPORT_CONTRACT_VERSION,
+      released: true,
+    };
+  }
+
+  async stopped(
+    nodeId: string,
+    input: {
+      serviceId: string;
+      assignmentId: string;
+      commandId: string;
+      leaseToken: string;
+      leaseGeneration: number;
+    },
+    request: SharedNodeSignedRequest,
+  ) {
+    await this.authenticateNode(nodeId, request);
+    const command = await this.leasedWorkspaceCommand(
+      nodeId,
+      {
+        contractVersion: SHARED_NODE_WORKSPACE_CONTRACT_VERSION,
+        commandId: input.commandId,
+        assignmentId: input.assignmentId,
+        leaseToken: input.leaseToken,
+        leaseGeneration: input.leaseGeneration,
+      },
+      "workspace.stop_and_sync",
+    );
+    if (command.serviceId !== input.serviceId) {
+      throw new SharedNodeTransportError("workspace_grant_denied");
+    }
+    await this.options.scheduler.reportStopped({ nodeId, ...input });
     await this.options.ingressRepository?.release(
       nodeId,
       input.assignmentId,
@@ -1806,7 +1839,7 @@ export class SharedNodeTransportService {
     );
     return {
       contractVersion: SHARED_NODE_TRANSPORT_CONTRACT_VERSION,
-      released: true,
+      stopped: true,
     };
   }
 

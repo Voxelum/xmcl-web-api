@@ -22,9 +22,8 @@ const config = {
   XMCL_SHARED_QUOTA_HELPER_RELEASE_URL: "https://release.example/quota-helper",
   XMCL_SHARED_QUOTA_HELPER_RELEASE_SHA256: "b".repeat(64),
   XMCL_CONTROL_PLANE_URL: "https://api.example",
-  XMCL_VULTR_OBJECT_STORAGE_ENDPOINT: "https://sgp1.vultrobjects.com",
-  XMCL_VULTR_OBJECT_STORAGE_REGION: "sgp",
-  XMCL_VULTR_OBJECT_STORAGE_BUCKET: "shared",
+  XMCL_AZURE_BLOB_ENDPOINT: "https://xmclcampstaging.blob.core.windows.net",
+  XMCL_AZURE_BLOB_CONTAINER: "shared",
   XMCL_SHARED_NODE_CONTAINER_IMAGE:
     "ghcr.io/voxelum/xmcl-shared-minecraft-runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   VULTR_SHARED_NODE_BLOCK_STORAGE_GIB: "192",
@@ -78,9 +77,8 @@ Deno.test("shared-node runtime supports a preprovisioned LightNode Moscow and Ta
     BILLING_RATES_JSON: "[]",
     XMCL_SHARED_NODE_CAPACITY_MODE: "preprovisioned" as const,
     XMCL_SHARED_NODE_REGION_IDS: "mow,tpe",
-    XMCL_VULTR_OBJECT_STORAGE_ENDPOINT: "https://sgp1.vultrobjects.com",
-    XMCL_VULTR_OBJECT_STORAGE_REGION: "sgp",
-    XMCL_VULTR_OBJECT_STORAGE_BUCKET: "shared",
+    XMCL_AZURE_BLOB_ENDPOINT: "https://xmclcampstaging.blob.core.windows.net",
+    XMCL_AZURE_BLOB_CONTAINER: "shared",
     XMCL_SHARED_NODE_INGRESS_PORT_MIN: "25565",
     XMCL_SHARED_NODE_INGRESS_PORT_MAX: "25665",
   };

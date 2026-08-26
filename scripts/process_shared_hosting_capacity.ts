@@ -1,7 +1,7 @@
 import process from "node:process";
+import { createAzureBlobSasSigner } from "../src/azureBlobSas.ts";
 import type { AppConfig } from "../src/config.ts";
 import { getDb } from "../src/db_npm.ts";
-import { createS3SigV4Presigner } from "../src/s3SigV4.ts";
 import { createSharedHostingRuntime } from "../src/sharedHostingRuntime.ts";
 
 const acknowledgement = "I_UNDERSTAND_THIS_MAY_CREATE_RESOURCES";
@@ -12,12 +12,11 @@ if (process.env.XMCL_PROCESS_CAPACITY !== acknowledgement) {
 }
 
 const config = process.env as AppConfig;
-const signer = createS3SigV4Presigner({
-  endpoint: config.XMCL_VULTR_OBJECT_STORAGE_ENDPOINT,
-  region: config.XMCL_VULTR_OBJECT_STORAGE_REGION,
-  bucket: config.XMCL_VULTR_OBJECT_STORAGE_BUCKET,
-  accessKey: config.XMCL_VULTR_OBJECT_STORAGE_ACCESS_KEY,
-  secretKey: config.XMCL_VULTR_OBJECT_STORAGE_SECRET_KEY,
+const signer = createAzureBlobSasSigner({
+  endpoint: config.XMCL_AZURE_BLOB_ENDPOINT,
+  container: config.XMCL_AZURE_BLOB_CONTAINER,
+  accountName: config.XMCL_AZURE_STORAGE_ACCOUNT_NAME,
+  accountKey: config.XMCL_AZURE_STORAGE_ACCOUNT_KEY,
 });
 const runtime = createSharedHostingRuntime(
   await getDb(config),

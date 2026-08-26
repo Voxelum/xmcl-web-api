@@ -133,7 +133,7 @@ async function fixture() {
         key,
         method,
         url:
-          `https://sgp1.vultrobjects.com/xmcl-shared-hosting/${key}?grant=only`,
+          `https://xmclcampstaging.blob.core.windows.net/xmcl-shared-hosting/${key}?grant=only`,
         expiresAt: new Date(
           nowValue.value.getTime() + expiresInSeconds * 1_000,
         ).toISOString(),
