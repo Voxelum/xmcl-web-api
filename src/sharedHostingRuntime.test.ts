@@ -6,6 +6,7 @@ import {
   sharedNodeCapacityModeFromConfig,
   sharedNodeProfileFromConfig,
   sharedNodeRegionsFromConfig,
+  vultrSharedNodeRegionsFromConfig,
 } from "./sharedHostingRuntime.ts";
 
 const config = {
@@ -70,6 +71,17 @@ Deno.test("shared-node runtime accepts an explicit unique regional pool set", ()
       undefined,
     );
   }
+});
+
+Deno.test("shared-node pool regions do not create invalid Vultr offers", () => {
+  const mixed = {
+    ...config,
+    XMCL_SHARED_NODE_REGION_IDS: "mow,sgp",
+    VULTR_SHARED_NODE_REGION_IDS: "sgp",
+  };
+  assert.deepEqual(sharedNodeRegionsFromConfig(mixed), ["mow", "sgp"]);
+  assert.deepEqual(vultrSharedNodeRegionsFromConfig(mixed), ["sgp"]);
+  assert.equal(hasSharedNodeSettings(mixed), true);
 });
 
 Deno.test("shared-node runtime supports a preprovisioned LightNode Moscow and Taipei pool", () => {

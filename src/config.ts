@@ -98,6 +98,8 @@ export interface AppConfig {
    * operations console. Configure it as a Worker secret, never as a plain var.
    */
   XMCL_STAGING_ADMIN_ACCESS_TOKEN?: string;
+  /** One-purpose bearer used only to enroll reviewed preprovisioned staging nodes. */
+  XMCL_STAGING_NODE_OPERATOR_TOKEN?: string;
   XMCL_STAGING_ADMIN_SESSION_SECRET?: string;
   /** Comma-separated verified OAuth emails allowed to mint staging admin sessions. */
   XMCL_STAGING_ADMIN_EMAILS?: string;

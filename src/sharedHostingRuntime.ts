@@ -107,6 +107,7 @@ export function hasSharedNodeSettings(config: AppConfig) {
   const profile = sharedNodeProfileFromConfig(config);
   return Boolean(
     config.VULTR_API_TOKEN &&
+      vultrSharedNodeRegionsFromConfig(config) &&
       profile &&
       config.VULTR_SHARED_NODE_IMAGE_ID &&
       config.XMCL_SHARED_AGENT_RELEASE_URL &&
@@ -145,6 +146,20 @@ export function sharedNodeRegionsFromConfig(config: AppConfig) {
   }
 }
 
+export function vultrSharedNodeRegionsFromConfig(config: AppConfig) {
+  const values = config.VULTR_SHARED_NODE_REGION_IDS?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean) ??
+    (config.VULTR_SHARED_NODE_REGION_ID
+      ? [config.VULTR_SHARED_NODE_REGION_ID]
+      : []);
+  try {
+    return enabledSharedHostingRegions(values).map((region) => region.regionId);
+  } catch {
+    return undefined;
+  }
+}
+
 export function sharedNodeCapacityModeFromConfig(config: AppConfig) {
   const value = config.XMCL_SHARED_NODE_CAPACITY_MODE ?? "vultr";
   return value === "vultr" || value === "preprovisioned" ? value : undefined;
@@ -163,6 +178,9 @@ export function createSharedHostingRuntime(
     ? sharedNodeProfileFromConfig(config)!
     : undefined;
   const regions = sharedNodeRegionsFromConfig(config)!;
+  const vultrRegions = capacityMode === "vultr"
+    ? vultrSharedNodeRegionsFromConfig(config)!
+    : [];
   const billing = createBillingRuntime(db, config);
   const credentialRepository = new MongoSharedNodeCredentialRepository(db);
   const outbox = new MongoSharedNodeCommandOutbox(db);
@@ -188,7 +206,7 @@ export function createSharedHostingRuntime(
   );
   const provisioningRepository = new MongoSharedNodeProvisioningRepository(db);
   const capacitySources: SharedNodeCapacitySource[] = capacityMode === "vultr"
-    ? regions.map((region) => {
+    ? vultrRegions.map((region) => {
       const provider = new VultrV2Adapter({
         token: config.VULTR_API_TOKEN!,
         regionId: region,

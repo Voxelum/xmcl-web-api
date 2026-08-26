@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { getConfig } from "../config.ts";
 import type { AppEnv } from "../types.ts";
 import {
   SHARED_NODE_TRANSPORT_CONTRACT_VERSION,
@@ -15,6 +16,37 @@ export function createSharedNodeTransportRoutes(
 ) {
   const app = new Hono<AppEnv>();
 
+  app.post("/v1/staging/shared-nodes/enrollments", async (c) => {
+    const config = getConfig(c);
+    if (
+      config.XMCL_DEPLOYMENT_ENVIRONMENT !== "staging" ||
+      !config.XMCL_STAGING_NODE_OPERATOR_TOKEN ||
+      !await bearerMatches(
+        c.req.header("authorization"),
+        config.XMCL_STAGING_NODE_OPERATOR_TOKEN,
+      )
+    ) {
+      throw new SharedNodeTransportError("unauthorized");
+    }
+    const parsed = await rawJson(c, 16 * 1024);
+    const body = parsed.value;
+    const capacity = record(body.expectedCapacity);
+    const result = await serviceFor(c, configured)
+      .preparePreprovisionedEnrollment({
+        nodeId: text(body.nodeId),
+        provisioningRequestId: text(body.provisioningRequestId),
+        instanceId: text(body.instanceId),
+        region: region(body.region),
+        expectedCapacity: {
+          workloadClasses: workloadClasses(capacity.workloadClasses),
+          totalMemoryMiB: integer(capacity.totalMemoryMiB),
+          totalSharedCpu: integer(capacity.totalSharedCpu),
+          totalWorkspaceGiB: integer(capacity.totalWorkspaceGiB),
+        },
+      });
+    return c.json(result, 201);
+  });
+
   app.post("/v1/internal/shared-nodes/register", async (c) => {
     const service = serviceFor(c, configured);
     const parsed = await rawJson(c, maxWorkspaceGrantRequestBytes);
@@ -25,6 +57,7 @@ export function createSharedNodeTransportRoutes(
     const result = await service.register(
       {
         nodeId: text(body.nodeId),
+        instanceId: text(body.instanceId),
         region: region(body.region),
         totalMemoryMiB: integer(body.totalMemoryMiB),
         totalSharedCpu: integer(body.totalSharedCpu),
@@ -339,6 +372,42 @@ function nonNegativeInteger(value: unknown) {
     throw new SharedNodeTransportError("invalid_request");
   }
   return value as number;
+}
+
+function record(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new SharedNodeTransportError("invalid_request");
+  }
+  return value as Record<string, unknown>;
+}
+
+function workloadClasses(value: unknown) {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.some((item) => item !== "standard" && item !== "large")
+  ) {
+    throw new SharedNodeTransportError("invalid_request");
+  }
+  return value as ("standard" | "large")[];
+}
+
+async function bearerMatches(
+  authorization: string | undefined,
+  expected: string,
+) {
+  const token = /^Bearer (.+)$/.exec(authorization ?? "")?.[1] ?? "";
+  const [left, right] = await Promise.all([
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)),
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(expected)),
+  ]);
+  let difference = token.length ^ expected.length;
+  const leftBytes = new Uint8Array(left);
+  const rightBytes = new Uint8Array(right);
+  for (let index = 0; index < leftBytes.length; index += 1) {
+    difference |= leftBytes[index] ^ rightBytes[index];
+  }
+  return difference === 0;
 }
 
 function workspaceGrant(value: Record<string, unknown>) {

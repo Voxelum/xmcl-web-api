@@ -222,6 +222,7 @@ const composeSharedRuntime = async (
 app.use("/v1/shared-hosting/services", composeSharedRuntime);
 app.use("/v1/shared-hosting/services/*", composeSharedRuntime);
 app.use("/v1/internal/shared-nodes/*", composeSharedRuntime);
+app.use("/v1/staging/shared-nodes/enrollments", composeSharedRuntime);
 app.route("/", createBillingRoutes());
 app.route("/", createSharedHostingRoutes());
 app.route("/", createSharedHostingServiceRoutes());

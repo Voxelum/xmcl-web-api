@@ -65,10 +65,19 @@ export interface SharedNodeEnrollmentRecord {
   nodeId: string;
   provisioningRequestId: string;
   instanceId: string;
+  region: string;
   expectedCapacity: SharedNodeExpectedCapacity;
   oneTimeTokenHash: string;
   expiresAt: string;
   consumedAt?: string;
+}
+
+export interface PreprovisionedSharedNodeEnrollment {
+  nodeId: string;
+  provisioningRequestId: string;
+  instanceId: string;
+  region: string;
+  expectedCapacity: SharedNodeExpectedCapacity;
 }
 
 export interface SharedNodeEnrollmentRepository {
@@ -76,8 +85,14 @@ export interface SharedNodeEnrollmentRepository {
     nodeId: string,
   ): Promise<SharedNodeEnrollmentRecord | undefined>;
   saveEnrollment(record: SharedNodeEnrollmentRecord): Promise<void>;
+  createEnrollment(
+    record: SharedNodeEnrollmentRecord,
+    now: string,
+  ): Promise<boolean>;
   consumeEnrollment(input: {
     nodeId: string;
+    region: string;
+    instanceId: string;
     tokenHash: string;
     expectedCapacity: SharedNodeExpectedCapacity;
     now: string;
@@ -898,9 +913,18 @@ export interface SharedNodeCredentialRepository {
     nodeId: string,
   ): Promise<SharedNodeCredentialRecord | undefined>;
   saveCredential(record: SharedNodeCredentialRecord): Promise<void>;
+  findEnrollment(
+    nodeId: string,
+  ): Promise<SharedNodeEnrollmentRecord | undefined>;
   saveEnrollment(record: SharedNodeEnrollmentRecord): Promise<void>;
+  createEnrollment(
+    record: SharedNodeEnrollmentRecord,
+    now: string,
+  ): Promise<boolean>;
   consumeEnrollment(input: {
     nodeId: string;
+    region: string;
+    instanceId: string;
     tokenHash: string;
     expectedCapacity: SharedNodeExpectedCapacity;
     now: string;
@@ -936,12 +960,26 @@ export class MemorySharedNodeCredentialRepository
     return Promise.resolve();
   }
 
+  createEnrollment(record: SharedNodeEnrollmentRecord, now: string) {
+    const existing = this.enrollments.get(record.nodeId);
+    if (
+      existing && !existing.consumedAt &&
+      Date.parse(existing.expiresAt) > Date.parse(now)
+    ) {
+      return Promise.resolve(false);
+    }
+    this.enrollments.set(record.nodeId, clone(record));
+    return Promise.resolve(true);
+  }
+
   findEnrollment(nodeId: string) {
     return Promise.resolve(clone(this.enrollments.get(nodeId)));
   }
 
   consumeEnrollment(input: {
     nodeId: string;
+    region: string;
+    instanceId: string;
     tokenHash: string;
     expectedCapacity: SharedNodeExpectedCapacity;
     now: string;
@@ -950,6 +988,8 @@ export class MemorySharedNodeCredentialRepository
     if (
       !record ||
       record.consumedAt ||
+      record.region !== input.region ||
+      record.instanceId !== input.instanceId ||
       record.oneTimeTokenHash !== input.tokenHash ||
       Date.parse(record.expiresAt) <= Date.parse(input.now) ||
       !sameExpectedCapacity(record.expectedCapacity, input.expectedCapacity)
@@ -1016,6 +1056,37 @@ export class MongoSharedNodeCredentialRepository
     );
   }
 
+  async createEnrollment(record: SharedNodeEnrollmentRecord, now: string) {
+    const { nodeId: _nodeId, consumedAt: _consumedAt, ...replacement } = record;
+    try {
+      const result = await this.db.collection("shared_node_enrollments")
+        .updateOne(
+          {
+            _id: record.nodeId,
+            $or: [
+              { consumedAt: { $exists: true } },
+              { expiresAt: { $lte: now } },
+            ],
+          },
+          {
+            $set: { ...replacement, nodeId: record.nodeId },
+            $unset: { consumedAt: "" },
+          },
+          { upsert: true },
+        );
+      return Number(result.matchedCount ?? 0) === 1 ||
+        Number(result.upsertedCount ?? 0) === 1;
+    } catch (error) {
+      if (
+        Number((error as { code?: unknown }).code) === 11000 ||
+        error instanceof Error && /duplicate key/i.test(error.message)
+      ) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
   async findEnrollment(nodeId: string) {
     const value = await this.db.collection("shared_node_enrollments").findOne({
       _id: nodeId,
@@ -1025,6 +1096,8 @@ export class MongoSharedNodeCredentialRepository
 
   async consumeEnrollment(input: {
     nodeId: string;
+    region: string;
+    instanceId: string;
     tokenHash: string;
     expectedCapacity: SharedNodeExpectedCapacity;
     now: string;
@@ -1034,6 +1107,8 @@ export class MongoSharedNodeCredentialRepository
         {
           _id: input.nodeId,
           nodeId: input.nodeId,
+          region: input.region,
+          instanceId: input.instanceId,
           oneTimeTokenHash: input.tokenHash,
           "expectedCapacity.totalMemoryMiB":
             input.expectedCapacity.totalMemoryMiB,
@@ -1386,6 +1461,7 @@ export async function issueSharedNodeCredential(
 
 export interface SharedNodeRegistration {
   nodeId: string;
+  instanceId: string;
   region: string;
   totalMemoryMiB: number;
   totalSharedCpu: number;
@@ -1447,6 +1523,59 @@ export class SharedNodeTransportService {
     authority: SharedRuntimeContentGrantAuthority,
   ) {
     this.runtimeContentGrantAuthority = authority;
+  }
+
+  async preparePreprovisionedEnrollment(
+    input: PreprovisionedSharedNodeEnrollment,
+  ) {
+    const identifier = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+    const classes = input.expectedCapacity.workloadClasses ?? [];
+    if (
+      !identifier.test(input.nodeId) ||
+      !identifier.test(input.provisioningRequestId) ||
+      !identifier.test(input.instanceId) ||
+      !this.options.scheduler.isPoolRegion(input.region) ||
+      classes.length === 0 ||
+      new Set(classes).size !== classes.length ||
+      classes.some((value) => value !== "standard" && value !== "large") ||
+      !Number.isSafeInteger(input.expectedCapacity.totalMemoryMiB) ||
+      !Number.isSafeInteger(input.expectedCapacity.totalSharedCpu) ||
+      !Number.isSafeInteger(input.expectedCapacity.totalWorkspaceGiB) ||
+      input.expectedCapacity.totalMemoryMiB <= 0 ||
+      input.expectedCapacity.totalSharedCpu <= 0 ||
+      input.expectedCapacity.totalWorkspaceGiB <= 0
+    ) {
+      throw new SharedNodeTransportError("invalid_request");
+    }
+    const now = this.now();
+    const activeCredential = await this.options.credentialRepository
+      .findCredential(input.nodeId);
+    if (
+      activeCredential && Date.parse(activeCredential.expiresAt) > now.getTime()
+    ) {
+      throw new SharedNodeTransportError("node_conflict");
+    }
+
+    const token = crypto.randomUUID().replaceAll("-", "") +
+      crypto.randomUUID().replaceAll("-", "");
+    const expiresAt = new Date(now.getTime() + 15 * 60_000).toISOString();
+    const created = await this.options.enrollmentRepository.createEnrollment({
+      nodeId: input.nodeId,
+      provisioningRequestId: input.provisioningRequestId,
+      instanceId: input.instanceId,
+      region: input.region,
+      expectedCapacity: structuredClone(input.expectedCapacity),
+      oneTimeTokenHash: await hashSharedNodeToken(token),
+      expiresAt,
+    }, now.toISOString());
+    if (!created) throw new SharedNodeTransportError("node_conflict");
+    return {
+      contractVersion: SHARED_NODE_TRANSPORT_CONTRACT_VERSION,
+      nodeId: input.nodeId,
+      region: input.region,
+      bootstrapCredential: token,
+      expiresAt,
+    };
   }
 
   async retainedWorkspaceExport(accountId: string, serviceId: string) {
@@ -1605,6 +1734,8 @@ export class SharedNodeTransportService {
     const enrollment = await this.options.enrollmentRepository
       .consumeEnrollment({
         nodeId: input.nodeId,
+        region: input.region,
+        instanceId: input.instanceId,
         tokenHash: await hashSharedNodeToken(credential),
         expectedCapacity: {
           totalMemoryMiB: input.totalMemoryMiB,

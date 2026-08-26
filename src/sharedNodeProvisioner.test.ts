@@ -516,6 +516,7 @@ Deno.test("successful drain deletes VM, confirms detach, then deletes its owned 
 Deno.test("shared cloud-init safely waits for its exact Vultr volume", () => {
   const value = renderSharedNodeCloudInit({
     nodeId: "shared-node-1",
+    instanceId: "xmcl-shared-node-1",
     ...config,
     volumeId: "vol-abc",
     controlPlaneCredential: "one-time-enrollment-token",
@@ -525,6 +526,7 @@ Deno.test("shared cloud-init safely waits for its exact Vultr volume", () => {
   });
 
   assert.match(value, /XMCL_SHARED_NODE_VOLUME_ID='vol-abc'/);
+  assert.match(value, /XMCL_SHARED_NODE_INSTANCE_ID='xmcl-shared-node-1'/);
   assert.match(value, /XMCL_SHARED_NODE_REGION='sgp'/);
   assert.match(
     value,
@@ -551,6 +553,7 @@ Deno.test("shared cloud-init safely waits for its exact Vultr volume", () => {
     () =>
       renderSharedNodeCloudInit({
         nodeId: "shared-node-1",
+        instanceId: "xmcl-shared-node-1",
         ...config,
         volumeId: "vol-abc",
         workspaceRoot: "/var/lib/not-the-volume",

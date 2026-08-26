@@ -52,22 +52,14 @@ try {
   const repository = new MongoSharedNodeCredentialRepository(
     mongo.db(required("MONGODB_NAME")) as unknown as Db,
   );
-  const existing = await repository.findEnrollment(nodeId);
-  if (
-    existing &&
-    !existing.consumedAt &&
-    Date.parse(existing.expiresAt) > Date.now()
-  ) {
-    throw new Error(
-      "an unconsumed enrollment already exists for this node",
-    );
-  }
+  const now = new Date();
   const token = crypto.randomUUID().replaceAll("-", "") +
     crypto.randomUUID().replaceAll("-", "");
-  await repository.saveEnrollment({
+  const created = await repository.createEnrollment({
     nodeId,
     provisioningRequestId: `preprovisioned:${instanceId}`,
     instanceId,
+    region,
     expectedCapacity: {
       workloadClasses: ["standard", "large"],
       totalMemoryMiB,
@@ -75,8 +67,11 @@ try {
       totalWorkspaceGiB,
     },
     oneTimeTokenHash: await hashSharedNodeToken(token),
-    expiresAt: new Date(Date.now() + ttlHours * 60 * 60_000).toISOString(),
-  });
+    expiresAt: new Date(now.getTime() + ttlHours * 60 * 60_000).toISOString(),
+  }, now.toISOString());
+  if (!created) {
+    throw new Error("an unconsumed enrollment already exists for this node");
+  }
   console.log(JSON.stringify({
     nodeId,
     region,

@@ -465,16 +465,21 @@ export class VultrSharedNodeProvisioner
       totalSharedCpu: profile.totalSharedCpu,
       totalWorkspaceGiB: profile.totalWorkspaceGiB,
     };
-    await this.options.enrollmentRepository.saveEnrollment({
+    const enrollmentCreated = await this.options.enrollmentRepository
+      .createEnrollment({
       nodeId: record.nodeId,
       provisioningRequestId: record.requestId,
       instanceId: record.label,
+      region: this.options.config.region,
       expectedCapacity,
       oneTimeTokenHash: await hashSharedNodeToken(enrollmentToken),
       expiresAt: new Date(
         this.now().getTime() + this.enrollmentTtlMs,
       ).toISOString(),
-    });
+    }, this.now().toISOString());
+    if (!enrollmentCreated) {
+      throw new Error("shared node already has an active enrollment");
+    }
     record.instanceCreationAttempted = true;
     record.instanceStatus = "creating";
     await this.save(record);
@@ -492,6 +497,7 @@ export class VultrSharedNodeProvisioner
         firewallGroupId: record.firewallGroupId,
         userData: renderSharedNodeCloudInit({
           nodeId: record.nodeId,
+          instanceId: record.label,
           ...this.options.config,
           volumeId: record.volumeId!,
           controlPlaneCredential: enrollmentToken,
@@ -776,6 +782,7 @@ export class VultrSharedNodeProvisioner
 
 export function renderSharedNodeCloudInit(input: {
   nodeId: string;
+  instanceId: string;
   releaseUrl: string;
   releaseSha256: string;
   quotaHelperReleaseUrl: string;
@@ -798,6 +805,7 @@ export function renderSharedNodeCloudInit(input: {
   validateCloudInitInput(input);
   const config = [
     `XMCL_SHARED_NODE_ID=${shellValue(input.nodeId)}`,
+    `XMCL_SHARED_NODE_INSTANCE_ID=${shellValue(input.instanceId)}`,
     `XMCL_CONTROL_PLANE_URL=${shellValue(input.controlPlaneUrl)}`,
     `XMCL_CONTROL_PLANE_CREDENTIAL=${shellValue(input.controlPlaneCredential)}`,
     `XMCL_SHARED_NODE_VOLUME_ID=${shellValue(input.volumeId)}`,
@@ -1110,6 +1118,7 @@ function validateConfig(input: SharedNodeProvisioningConfig) {
 
 function validateCloudInitInput(input: {
   nodeId: string;
+  instanceId: string;
   releaseUrl: string;
   releaseSha256: string;
   quotaHelperReleaseUrl: string;
@@ -1123,7 +1132,8 @@ function validateCloudInitInput(input: {
 }) {
   if (
     !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(input.volumeId) ||
-    !input.nodeId
+    !input.nodeId ||
+    !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(input.instanceId)
   ) {
     throw new Error("shared node cloud-init configuration is invalid");
   }

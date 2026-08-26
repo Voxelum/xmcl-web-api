@@ -23,7 +23,7 @@ export interface MongoCollection {
     filter: Record<string, unknown>,
     update: Record<string, unknown>,
     options?: { upsert?: boolean },
-  ): Promise<unknown>;
+  ): Promise<{ matchedCount?: number; upsertedCount?: number }>;
   insertOne(document: Record<string, unknown>): Promise<unknown>;
   replaceOne(
     filter: Record<string, unknown>,

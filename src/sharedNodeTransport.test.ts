@@ -149,6 +149,7 @@ async function fixture() {
       nodeId,
       provisioningRequestId: `request-${nodeId}`,
       instanceId: `instance-${nodeId}`,
+      region: "sgp",
       expectedCapacity: {
         totalMemoryMiB: 4096,
         totalSharedCpu: 2,
@@ -159,6 +160,7 @@ async function fixture() {
     });
     const body = JSON.stringify({
       nodeId,
+      instanceId: `instance-${nodeId}`,
       region: "sgp",
       totalMemoryMiB: 4096,
       totalSharedCpu: 2,
@@ -675,6 +677,7 @@ Deno.test("one-time enrollment binds node identity and cannot replace an active 
     nodeId: "node_c",
     provisioningRequestId: "request-c",
     instanceId: "instance-c",
+    region: "sgp",
     expectedCapacity: {
       totalMemoryMiB: 4096,
       totalSharedCpu: 2,
@@ -685,11 +688,31 @@ Deno.test("one-time enrollment binds node identity and cannot replace an active 
   });
   const body = JSON.stringify({
     nodeId: "node_c",
+    instanceId: "instance-c",
     region: "sgp",
     totalMemoryMiB: 4096,
     totalSharedCpu: 2,
     totalWorkspaceGiB: 32,
   });
+  const wrongInstanceBody = body.replace("instance-c", "instance-other");
+  const wrongInstanceRequest = await signed(
+    token,
+    undefined,
+    "POST",
+    "/v1/internal/shared-nodes/register",
+    wrongInstanceBody,
+    "register-c-wrong-instance",
+  );
+  await assert.rejects(
+    () =>
+      f.service.register(JSON.parse(wrongInstanceBody), {
+        ...wrongInstanceRequest,
+        bootstrapCredential: token,
+      }),
+    (error) =>
+      error instanceof SharedNodeTransportError &&
+      error.code === "unauthorized",
+  );
   const request = await signed(
     token,
     undefined,
@@ -708,6 +731,7 @@ Deno.test("one-time enrollment binds node identity and cannot replace an active 
     nodeId: "node_c",
     provisioningRequestId: "request-c-replacement",
     instanceId: "instance-c",
+    region: "sgp",
     expectedCapacity: {
       totalMemoryMiB: 4096,
       totalSharedCpu: 2,
@@ -747,6 +771,7 @@ Deno.test("shared node registration accepts only the configured generic pool reg
         f.service.register(
           {
             nodeId: `rejected-${region}`,
+            instanceId: `instance-rejected-${region}`,
             region,
             totalMemoryMiB: 4096,
             totalSharedCpu: 2,
@@ -772,6 +797,7 @@ Deno.test("shared node routes verify the exact signed HTTP body", async () => {
   app.route("/", createSharedNodeTransportRoutes(f.service));
   const body = JSON.stringify({
     nodeId: "node_route",
+    instanceId: "instance-route",
     region: "sgp",
     totalMemoryMiB: 4096,
     totalSharedCpu: 2,
@@ -782,6 +808,7 @@ Deno.test("shared node routes verify the exact signed HTTP body", async () => {
     nodeId: "node_route",
     provisioningRequestId: "request-route",
     instanceId: "instance-route",
+    region: "sgp",
     expectedCapacity: {
       totalMemoryMiB: 4096,
       totalSharedCpu: 2,
@@ -838,6 +865,95 @@ Deno.test("shared node routes verify the exact signed HTTP body", async () => {
     }),
   );
   assert.equal(heartbeatResponse.status, 200);
+});
+
+Deno.test("staging operator creates one bounded preprovisioned enrollment", async () => {
+  const f = await fixture();
+  const app = new Hono<AppEnv>();
+  app.route("/", createSharedNodeTransportRoutes(f.service));
+  const path = "/v1/staging/shared-nodes/enrollments";
+  const body = JSON.stringify({
+    nodeId: "node_staging",
+    provisioningRequestId: "staging-request-1",
+    instanceId: "ecs-staging-1",
+    region: "sgp",
+    expectedCapacity: {
+      workloadClasses: ["standard"],
+      totalMemoryMiB: 1536,
+      totalSharedCpu: 1,
+      totalWorkspaceGiB: 24,
+    },
+  });
+  const previousEnvironment = Deno.env.get("XMCL_DEPLOYMENT_ENVIRONMENT");
+  const previousToken = Deno.env.get("XMCL_STAGING_NODE_OPERATOR_TOKEN");
+  try {
+    Deno.env.set("XMCL_DEPLOYMENT_ENVIRONMENT", "staging");
+    Deno.env.set("XMCL_STAGING_NODE_OPERATOR_TOKEN", "operator-secret");
+    const unauthorized = await app.fetch(
+      new Request(`http://localhost${path}`, {
+        method: "POST",
+        body,
+        headers: { authorization: "Bearer wrong" },
+      }),
+    );
+    assert.equal(unauthorized.status, 401);
+
+    const response = await app.fetch(
+      new Request(`http://localhost${path}`, {
+        method: "POST",
+        body,
+        headers: { authorization: "Bearer operator-secret" },
+      }),
+    );
+    assert.equal(response.status, 201);
+    const issued = await response.json();
+    assert.equal(issued.nodeId, "node_staging");
+    assert.equal(issued.region, "sgp");
+    assert.match(issued.bootstrapCredential, /^[a-f0-9]{64}$/);
+    assert.equal(
+      issued.expiresAt,
+      new Date(nowValue.value.getTime() + 15 * 60_000).toISOString(),
+    );
+    const stored = await f.credentialRepository.findEnrollment("node_staging");
+    assert.ok(stored);
+    assert.notEqual(stored.oneTimeTokenHash, issued.bootstrapCredential);
+    assert.equal(
+      stored.oneTimeTokenHash,
+      await hashSharedNodeToken(issued.bootstrapCredential),
+    );
+    assert.deepEqual(stored.expectedCapacity.workloadClasses, ["standard"]);
+
+    const duplicate = await app.fetch(
+      new Request(`http://localhost${path}`, {
+        method: "POST",
+        body,
+        headers: { authorization: "Bearer operator-secret" },
+      }),
+    );
+    assert.equal(duplicate.status, 409);
+    assert.equal((await duplicate.json()).error, "node_conflict");
+
+    Deno.env.set("XMCL_DEPLOYMENT_ENVIRONMENT", "production");
+    const production = await app.fetch(
+      new Request(`http://localhost${path}`, {
+        method: "POST",
+        body: body.replace("node_staging", "node_production"),
+        headers: { authorization: "Bearer operator-secret" },
+      }),
+    );
+    assert.equal(production.status, 401);
+  } finally {
+    if (previousEnvironment === undefined) {
+      Deno.env.delete("XMCL_DEPLOYMENT_ENVIRONMENT");
+    } else {
+      Deno.env.set("XMCL_DEPLOYMENT_ENVIRONMENT", previousEnvironment);
+    }
+    if (previousToken === undefined) {
+      Deno.env.delete("XMCL_STAGING_NODE_OPERATOR_TOKEN");
+    } else {
+      Deno.env.set("XMCL_STAGING_NODE_OPERATOR_TOKEN", previousToken);
+    }
+  }
 });
 
 Deno.test("workspace grants are lease-bound, exact, manifest-last, and credential-free", async () => {
