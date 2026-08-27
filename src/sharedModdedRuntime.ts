@@ -560,8 +560,9 @@ export class CompilerGrantAuthority {
     }
     if (
       method === "PUT" &&
-      (Object.keys(signed.headers ?? {}).length !== 1 ||
-        signed.headers?.["if-none-match"] !== "*")
+      (Object.keys(signed.headers ?? {}).length !== 2 ||
+        signed.headers?.["if-none-match"] !== "*" ||
+        signed.headers?.["x-ms-blob-type"] !== "BlockBlob")
     ) {
       throw new SharedModdedRuntimeError("compiler_unavailable");
     }
@@ -608,6 +609,10 @@ export interface SharedModdedRuntimeOptions {
 
 export interface SharedRuntimeTerms {
   accepted(input: { accountId: string; serviceId: string }): Promise<boolean>;
+  accept?(input: { accountId: string; serviceId: string }): Promise<{
+    termsVersion: string;
+    acceptedAt: string;
+  }>;
 }
 
 /**
@@ -638,6 +643,41 @@ export class MongoSharedRuntimeTerms implements SharedRuntimeTerms {
     return typeof value?.acceptedAt === "string" &&
       Number.isFinite(Date.parse(value.acceptedAt));
   }
+
+  async accept(input: { accountId: string; serviceId: string }) {
+    const acceptedAt = new Date().toISOString();
+    const collection = this.db.collection("shared_runtime_terms_acceptances");
+    await collection.updateOne(
+      {
+        _id: `${input.accountId}:${input.serviceId}:${this.termsVersion}`,
+      },
+      {
+        $setOnInsert: {
+          _id: `${input.accountId}:${input.serviceId}:${this.termsVersion}`,
+          accountId: input.accountId,
+          serviceId: input.serviceId,
+          termsVersion: this.termsVersion,
+          accepted: true,
+          acceptedAt,
+        },
+      },
+      { upsert: true },
+    );
+    const persisted = await collection.findOne({
+      _id: `${input.accountId}:${input.serviceId}:${this.termsVersion}`,
+      accepted: true,
+    }) as { acceptedAt?: unknown } | undefined;
+    if (
+      typeof persisted?.acceptedAt !== "string" ||
+      !Number.isFinite(Date.parse(persisted.acceptedAt))
+    ) {
+      throw new SharedModdedRuntimeError("compiler_unavailable");
+    }
+    return {
+      termsVersion: this.termsVersion,
+      acceptedAt: persisted.acceptedAt,
+    };
+  }
 }
 
 export class SharedModdedRuntimeService {
@@ -654,9 +694,18 @@ export class SharedModdedRuntimeService {
         "shared modded runtime composition requires durable repository, archive store, compiler, scheduler, and terms policy",
       );
     }
+
     this.now = options.now ?? (() => new Date().toISOString());
     this.createId = options.createId ??
       ((prefix) => `${prefix}_${crypto.randomUUID()}`);
+  }
+
+  async acceptTerms(accountId: string, serviceId: string) {
+    await this.requireService(accountId, serviceId);
+    if (!this.options.terms.accept) {
+      throw new SharedModdedRuntimeError("compiler_unavailable");
+    }
+    return await this.options.terms.accept({ accountId, serviceId });
   }
 
   async createImport(input: {

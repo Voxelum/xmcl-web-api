@@ -91,6 +91,7 @@ function fixture(
   }]);
   const repository = new MemorySharedModdedRuntimeRepository();
   let submissions = 0;
+  let acceptedTerms = options.termsAccepted !== false;
   const runtime = new SharedModdedRuntimeService({
     repository,
     scheduler,
@@ -141,7 +142,16 @@ function fixture(
         }
       },
     },
-    terms: { accepted: async () => options.termsAccepted !== false },
+    terms: {
+      accepted: async () => acceptedTerms,
+      accept: async () => {
+        acceptedTerms = true;
+        return {
+          termsVersion: "minecraft-eula-v1",
+          acceptedAt: now,
+        };
+      },
+    },
     now: () => now,
     createId: (prefix) => `${prefix}_${++sequence}`,
   });
@@ -153,6 +163,27 @@ function fixture(
     submissions: () => submissions,
   };
 }
+
+Deno.test("accepts runtime terms only for an account-owned service", async () => {
+  const f = fixture({ termsAccepted: false });
+  const service = await f.scheduler.createService({
+    accountId: "account_1",
+    subscriptionId: "subscription_1",
+    idempotencyKey: "service",
+  });
+  assert.deepEqual(
+    await f.runtime.acceptTerms("account_1", service.serviceId),
+    {
+      termsVersion: "minecraft-eula-v1",
+      acceptedAt: now,
+    },
+  );
+  await assert.rejects(
+    () => f.runtime.acceptTerms("account_2", service.serviceId),
+    (error) =>
+      error instanceof SharedModdedRuntimeError && error.code === "not_found",
+  );
+});
 
 async function publishedFixture() {
   const f = fixture();
@@ -189,7 +220,14 @@ async function publishedFixture() {
         method,
         url: `https://storage.example/bucket/${key}`,
         expiresAt: "2026-07-25T00:10:00.000Z",
-        ...(method === "PUT" ? { headers: { "if-none-match": "*" } } : {}),
+        ...(method === "PUT"
+          ? {
+            headers: {
+              "if-none-match": "*",
+              "x-ms-blob-type": "BlockBlob",
+            },
+          }
+          : {}),
       }),
     }),
   });
@@ -422,7 +460,14 @@ Deno.test("freezes validated local server bundles with exact catalog Java and co
         method,
         url: `https://storage.example/${key}`,
         expiresAt: "2026-07-25T00:10:00.000Z",
-        ...(method === "PUT" ? { headers: { "if-none-match": "*" } } : {}),
+        ...(method === "PUT"
+          ? {
+            headers: {
+              "if-none-match": "*",
+              "x-ms-blob-type": "BlockBlob",
+            },
+          }
+          : {}),
       }),
     }),
   });

@@ -23,12 +23,31 @@ import {
 } from "../../src/sharedHostingRuntime.ts";
 import { hasSharedNodeRuntimeSettings } from "../../src/productionComposition.ts";
 import { createAzureBlobSasSigner } from "../../src/azureBlobSas.ts";
+import {
+  CompilerGrantAuthority,
+  MongoSharedModdedRuntimeRepository,
+  MongoSharedRuntimeTerms,
+  SharedModdedRuntimeService,
+} from "../../src/sharedModdedRuntime.ts";
+import { AzureSharedModdedArchiveStore } from "../../src/sharedModdedAzureArchive.ts";
+import {
+  CompilerServiceIdentityError,
+  HmacCompilerServiceIdentity,
+  MongoCompilerNonceStore,
+} from "../../src/compilerServiceIdentity.ts";
+import { HttpSharedModdedCompiler } from "../../src/compilerHttpSubmission.ts";
+import { CurseForgeSourceResolver } from "../../src/modpack/curseforge.ts";
+import { ModrinthSourceResolver } from "../../src/modpack/modrinth.ts";
 import { runSharedHostingBillingScheduledSweep } from "../../src/sharedHostingScheduling.ts";
 import { runSharedNodeScheduledSweep } from "../../src/sharedNodeScheduling.ts";
 import { createBillingRoutes } from "../../src/routes/billing.ts";
 import { createSharedHostingRoutes } from "../../src/routes/sharedHosting.ts";
 import { createSharedHostingServiceRoutes } from "../../src/routes/sharedHostingServices.ts";
 import { createSharedNodeTransportRoutes } from "../../src/routes/sharedNodeTransport.ts";
+import {
+  createSharedModdedCompilerRoutes,
+  createSharedModdedRuntimeRoutes,
+} from "../../src/routes/sharedModdedRuntime.ts";
 import { createWaffoRoutes } from "../../src/routes/waffo.ts";
 import { createXmclPlusRoutes } from "../../src/routes/xmclPlus.ts";
 import { createSessionRoutes } from "../../src/routes/session.ts";
@@ -225,8 +244,121 @@ const composeSharedRuntime = async (
   await getSharedHostingRuntime(c, signer);
   await next();
 };
+const composeSharedModdedRuntime = async (
+  c: Context<AppEnv>,
+  next: Next,
+) => {
+  const config = c.env as StagingBindings;
+  const signer = workspaceSigner(config);
+  if (
+    !signer ||
+    !hasSharedNodeRuntimeSettings(config, {
+      SHARED_NODE_WORKSPACE_SIGNER: signer,
+    }) ||
+    !config.XMCL_SHARED_COMPILER_ENDPOINT ||
+    !config.XMCL_SHARED_COMPILER_KEY_ID ||
+    !config.XMCL_SHARED_COMPILER_HMAC_SECRET ||
+    !config.XMCL_SHARED_COMPILER_TIMEOUT_MS ||
+    !config.XMCL_SHARED_RUNTIME_TERMS_VERSION
+  ) {
+    return c.json({ error: "shared_modded_runtime_unavailable" }, 503);
+  }
+  const timeoutMs = Number(config.XMCL_SHARED_COMPILER_TIMEOUT_MS);
+  if (
+    !Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 ||
+    timeoutMs > 300_000
+  ) {
+    return c.json({ error: "shared_modded_runtime_unavailable" }, 503);
+  }
+  try {
+    const db = await c.get("getDb")();
+    const hosting = await getSharedHostingRuntime(c, signer);
+    const repository = new MongoSharedModdedRuntimeRepository(db);
+    const grants = new CompilerGrantAuthority(signer);
+    const identity = new HmacCompilerServiceIdentity({
+      keyId: config.XMCL_SHARED_COMPILER_KEY_ID,
+      secret: config.XMCL_SHARED_COMPILER_HMAC_SECRET,
+      nonceStore: new MongoCompilerNonceStore(db),
+    });
+    const runtime = new SharedModdedRuntimeService({
+      repository,
+      archives: new AzureSharedModdedArchiveStore(signer),
+      resolvers: [
+        new ModrinthSourceResolver(),
+        ...(config.CURSEFORGE_KEY
+          ? [new CurseForgeSourceResolver(config.CURSEFORGE_KEY)]
+          : []),
+      ],
+      compiler: new HttpSharedModdedCompiler({
+        endpoint: config.XMCL_SHARED_COMPILER_ENDPOINT,
+        repository,
+        grants,
+        identity,
+        timeoutMs,
+      }),
+      scheduler: hosting.scheduler,
+      terms: new MongoSharedRuntimeTerms(
+        db,
+        config.XMCL_SHARED_RUNTIME_TERMS_VERSION,
+      ),
+    });
+    c.set("sharedModdedRuntime", runtime);
+    c.set("sharedModdedCompilerGrants", grants);
+    if (c.req.path.startsWith("/v1/internal/shared-runtime-compiler/")) {
+      const contentLength = c.req.header("content-length");
+      if (
+        contentLength && (!/^(?:0|[1-9]\d*)$/.test(contentLength) ||
+          Number(contentLength) > 4 * 1024 * 1024)
+      ) {
+        return c.json({ error: "invalid_request" }, 400);
+      }
+      const body = new Uint8Array(await c.req.raw.arrayBuffer());
+      if (body.byteLength > 4 * 1024 * 1024) {
+        return c.json({ error: "invalid_request" }, 400);
+      }
+      await identity.verifyIncoming({
+        method: c.req.method,
+        target: `${new URL(c.req.url).pathname}${new URL(c.req.url).search}`,
+        headers: c.req.raw.headers,
+        body,
+      });
+      c.set("sharedModdedCompilerRawBody", body);
+      c.set("sharedModdedCompilerPrincipal", {
+        compilerId: config.XMCL_SHARED_COMPILER_KEY_ID,
+      });
+    }
+  } catch (error) {
+    if (error instanceof CompilerServiceIdentityError) {
+      return c.json({ error: "unauthorized" }, 401);
+    }
+    return c.json({ error: "shared_modded_runtime_unavailable" }, 503);
+  }
+  await next();
+};
 app.use("/v1/shared-hosting/services", composeSharedRuntime);
 app.use("/v1/shared-hosting/services/*", composeSharedRuntime);
+app.use("/v1/shared-hosting/modpack-imports/*", composeSharedModdedRuntime);
+app.use(
+  "/v1/shared-hosting/services/:serviceId/modpack-imports",
+  composeSharedModdedRuntime,
+);
+app.use(
+  "/v1/shared-hosting/services/:serviceId/runtime-terms-acceptance",
+  composeSharedModdedRuntime,
+);
+app.use(
+  "/v1/shared-hosting/services/:serviceId/modpack-deployments",
+  composeSharedModdedRuntime,
+);
+app.use(
+  "/v1/shared-hosting/services/:serviceId/modpack-deployments/:deploymentId/rollback",
+  composeSharedModdedRuntime,
+);
+app.use("/v1/shared-hosting/modpack-deployments/*", composeSharedModdedRuntime);
+app.use(
+  "/v1/internal/shared-runtime-compiler/*",
+  composeSharedModdedRuntime,
+);
 app.use("/v1/internal/shared-nodes/*", composeSharedRuntime);
 app.use("/v1/staging/shared-nodes/enrollments", composeSharedRuntime);
 app.use("/v1/admin/shared-hosting/reconciliation", composeSharedRuntime);
@@ -234,6 +366,8 @@ app.route("/", createBillingRoutes());
 app.route("/", createSharedHostingRoutes());
 app.route("/", createSharedHostingServiceRoutes());
 app.route("/", createSharedNodeTransportRoutes());
+app.route("/", createSharedModdedRuntimeRoutes());
+app.route("/", createSharedModdedCompilerRoutes());
 app.route("/", createXmclPlusRoutes());
 app.route("/", createWaffoRoutes());
 app.route("/", createSessionRoutes());
@@ -553,6 +687,10 @@ export default {
         request.method,
         url.pathname,
       );
+      const isSharedModdedRuntime = isStagingSharedModdedRuntimeRequest(
+        request.method,
+        url.pathname,
+      );
       const isPlusRead = request.method === "GET" &&
         plusReadPaths.has(url.pathname);
       const isPlusMutation = request.method === "POST" &&
@@ -583,7 +721,7 @@ export default {
       if (
         !isBillingRead && !isBillingMutation && !isBillingPreflight &&
         !isSharedHostingRead && !isSharedHostingPreflight &&
-        !isSharedHostingMutation &&
+        !isSharedHostingMutation && !isSharedModdedRuntime &&
         !isPlusRead && !isPlusMutation &&
         !isPlusPreflight && !isAccountSurface && !isAdminSurface &&
         !isUsageSurface && !isWebhook && !isSharedNodeTransport &&
@@ -866,4 +1004,29 @@ export function isStagingSharedHostingMutation(
       /^\/v1\/shared-hosting\/subscriptions\/[^/]+\/cancel$/.test(path) ||
       path === "/v1/shared-hosting/services" ||
       /^\/v1\/shared-hosting\/services\/[^/]+\/(start|stop)$/.test(path));
+}
+
+export function isStagingSharedModdedRuntimeRequest(
+  method: string,
+  path: string,
+) {
+  if (
+    method === "POST" &&
+    /^\/v1\/internal\/shared-runtime-compiler\/deployments\/[^/]+\/(grants|upload-prepared|published|failed)$/
+      .test(path)
+  ) return true;
+  if (
+    !path.startsWith("/v1/shared-hosting/") ||
+    !["GET", "POST"].includes(method)
+  ) return false;
+  return /^\/v1\/shared-hosting\/services\/[^/]+\/modpack-imports$/.test(path) ||
+    /^\/v1\/shared-hosting\/services\/[^/]+\/runtime-terms-acceptance$/.test(
+      path,
+    ) ||
+    /^\/v1\/shared-hosting\/modpack-imports\/[^/]+\/(upload-url|complete)$/
+      .test(path) ||
+    /^\/v1\/shared-hosting\/services\/[^/]+\/modpack-deployments$/.test(path) ||
+    /^\/v1\/shared-hosting\/modpack-deployments\/[^/]+\/apply$/.test(path) ||
+    /^\/v1\/shared-hosting\/services\/[^/]+\/modpack-deployments\/[^/]+\/rollback$/
+      .test(path);
 }

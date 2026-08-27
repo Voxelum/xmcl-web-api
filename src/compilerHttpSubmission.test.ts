@@ -69,7 +69,10 @@ const grants: CompilerGrantSet = {
     method: "PUT",
     url: "https://storage.example/output",
     expiresAt: "2026-07-25T08:05:00.000Z",
-    headers: { "if-none-match": "*" },
+    headers: {
+      "if-none-match": "*",
+      "x-ms-blob-type": "BlockBlob",
+    },
   }],
 };
 

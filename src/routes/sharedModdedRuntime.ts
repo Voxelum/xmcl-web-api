@@ -103,6 +103,29 @@ export function createSharedModdedRuntimeRoutes(
     xmclAuth(["account:read"], resolve),
   );
   app.post(
+    "/v1/shared-hosting/services/:serviceId/runtime-terms-acceptance",
+    async (c) => {
+      const principal = c.get("xmclPrincipal")!;
+      requireWrite(principal.scopes);
+      const body = await jsonBody(c);
+      if (
+        Object.keys(body).length !== 1 ||
+        body.accepted !== true
+      ) {
+        throw new SharedModdedRuntimeError("invalid_request", {
+          field: "accepted",
+        });
+      }
+      return c.json(
+        await runtimeFor(c, configured).acceptTerms(
+          principal.accountId,
+          c.req.param("serviceId"),
+        ),
+        201,
+      );
+    },
+  );
+  app.post(
     "/v1/shared-hosting/services/:serviceId/modpack-imports",
     async (c) => {
       const principal = c.get("xmclPrincipal")!;

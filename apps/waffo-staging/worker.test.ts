@@ -4,6 +4,7 @@ import {
   isStagingAccountRequest,
   isStagingAdminRequest,
   isStagingSharedHostingMutation,
+  isStagingSharedModdedRuntimeRequest,
   isStagingUsageRequest,
   isRecentBrowserOAuthAdminPrincipal,
   issueStagingAdminSession,
@@ -134,6 +135,51 @@ Deno.test("staging admin surface remains read-only", () => {
     isStagingAdminRequest(
       "POST",
       "/v1/admin/accounts/account_123/refunds",
+    ),
+    false,
+  );
+});
+
+Deno.test("staging exposes only the reviewed shared modded runtime routes", () => {
+  for (
+    const [method, path] of [
+      ["POST", "/v1/shared-hosting/services/service_1/modpack-imports"],
+      [
+        "POST",
+        "/v1/shared-hosting/services/service_1/runtime-terms-acceptance",
+      ],
+      ["POST", "/v1/shared-hosting/modpack-imports/import_1/upload-url"],
+      ["POST", "/v1/shared-hosting/modpack-imports/import_1/complete"],
+      ["POST", "/v1/shared-hosting/services/service_1/modpack-deployments"],
+      ["GET", "/v1/shared-hosting/services/service_1/modpack-deployments"],
+      ["POST", "/v1/shared-hosting/modpack-deployments/deployment_1/apply"],
+      [
+        "POST",
+        "/v1/shared-hosting/services/service_1/modpack-deployments/deployment_1/rollback",
+      ],
+      [
+        "POST",
+        "/v1/internal/shared-runtime-compiler/deployments/deployment_1/published",
+      ],
+    ]
+  ) {
+    assert.equal(
+      isStagingSharedModdedRuntimeRequest(method, path),
+      true,
+      `${method} ${path}`,
+    );
+  }
+  assert.equal(
+    isStagingSharedModdedRuntimeRequest(
+      "GET",
+      "/v1/internal/shared-runtime-compiler/deployments/deployment_1/published",
+    ),
+    false,
+  );
+  assert.equal(
+    isStagingSharedModdedRuntimeRequest(
+      "DELETE",
+      "/v1/shared-hosting/modpack-imports/import_1",
     ),
     false,
   );

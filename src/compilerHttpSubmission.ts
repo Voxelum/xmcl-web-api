@@ -204,7 +204,10 @@ function sameGrantSet(
     input.key === deployment.frozenManifest.archive.key &&
     (!input.headers || Object.keys(input.headers).length === 0) &&
     output.key === deployment.expectedContentKey &&
-    JSON.stringify(output.headers) === JSON.stringify({ "if-none-match": "*" }) &&
+    JSON.stringify(output.headers) === JSON.stringify({
+      "if-none-match": "*",
+      "x-ms-blob-type": "BlockBlob",
+    }) &&
     exactGrant(input, now) && exactGrant(output, now);
 }
 
