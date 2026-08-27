@@ -200,11 +200,16 @@ operations.get("/v1/admin/shared-hosting/reconciliation", async (c) => {
     const billing = c.var.billingService as BillingService | undefined;
     const shared = c.var.sharedHostingService;
     const scheduler = c.var.sharedHostingScheduler;
-    if (!billing || !shared || !scheduler) throw new Error("unavailable");
+    const transport = c.var.sharedNodeTransport;
+    if (!billing || !shared || !scheduler || !transport) {
+      throw new Error("unavailable");
+    }
     return c.json({
       generatedAt: new Date().toISOString(),
       subscriptions: await shared.adminSubscriptions(),
       services: await scheduler.reconciliationServices(),
+      nodes: await transport.reconciliationNodes(),
+      commands: await transport.reconciliationCommands(),
       ledger: await billing.adminLedger(),
     });
   } catch (cause) {

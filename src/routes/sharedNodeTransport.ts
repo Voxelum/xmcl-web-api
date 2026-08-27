@@ -206,17 +206,47 @@ export function createSharedNodeTransportRoutes(
       const service = serviceFor(c, configured);
       const parsed = await rawJson(c);
       const body = parsed.value;
-      const result = await service.stopped(
-        c.req.param("nodeId"),
-        {
+      let input;
+      try {
+        input = {
           serviceId: text(body.serviceId),
           assignmentId: c.req.param("assignmentId"),
           commandId: text(body.commandId),
           leaseToken: text(body.leaseToken),
           leaseGeneration: integer(body.leaseGeneration),
-        },
-        request(c, { body: parsed.body }),
-      );
+        };
+      } catch (error) {
+        console.warn({
+          event: "shared_node.stopped.invalid_request",
+          serviceIdType: typeof body.serviceId,
+          serviceIdLength: stringLength(body.serviceId),
+          commandIdType: typeof body.commandId,
+          commandIdLength: stringLength(body.commandId),
+          leaseTokenType: typeof body.leaseToken,
+          leaseTokenLength: stringLength(body.leaseToken),
+          leaseGenerationType: typeof body.leaseGeneration,
+          leaseGenerationValid: Number.isSafeInteger(body.leaseGeneration) &&
+            Number(body.leaseGeneration) > 0,
+        });
+        throw error;
+      }
+      let result;
+      try {
+        result = await service.stopped(
+          c.req.param("nodeId"),
+          input,
+          request(c, { body: parsed.body }),
+        );
+      } catch (error) {
+        console.warn({
+          event: "shared_node.stopped.failed",
+          errorName: error instanceof Error ? error.name : "UnknownError",
+          errorCode: error && typeof error === "object" && "code" in error
+            ? String(error.code)
+            : undefined,
+        });
+        throw error;
+      }
       return c.json(result, 202);
     },
   );
@@ -351,6 +381,10 @@ function text(value: unknown) {
     throw new SharedNodeTransportError("invalid_request");
   }
   return value;
+}
+
+function stringLength(value: unknown) {
+  return typeof value === "string" ? value.length : undefined;
 }
 
 function region(value: unknown) {

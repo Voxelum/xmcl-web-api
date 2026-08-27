@@ -960,7 +960,7 @@ Deno.test("workspace grants are lease-bound, exact, manifest-last, and credentia
   const f = await fixture();
   const credential = f.registrations.get("node_a")!;
   await f.service.dispatch({
-    ...command("node_a", "contract_command"),
+    ...command("node_a", "workspace.stop_and_sync:assignment_1"),
     kind: "workspace.stop_and_sync",
   });
   const leased = await f.service.nextCommand(
@@ -976,14 +976,14 @@ Deno.test("workspace grants are lease-bound, exact, manifest-last, and credentia
   );
   const renewal = await f.service.renewLease(
     "node_a",
-    "contract_command",
+    "workspace.stop_and_sync:assignment_1",
     leased!.leaseToken,
     leased!.leaseGeneration,
     await signed(
       credential,
       `SharedNode ${credential}`,
       "POST",
-      "/v1/internal/shared-nodes/node_a/commands/contract_command/lease-renew",
+      "/v1/internal/shared-nodes/node_a/commands/workspace.stop_and_sync:assignment_1/lease-renew",
       JSON.stringify({
         leaseToken: leased!.leaseToken,
         leaseGeneration: leased!.leaseGeneration,
@@ -1022,7 +1022,7 @@ Deno.test("workspace grants are lease-bound, exact, manifest-last, and credentia
   };
   const syncInput = {
     contractVersion: SHARED_NODE_WORKSPACE_CONTRACT_VERSION as 2,
-    commandId: "contract_command",
+    commandId: "workspace.stop_and_sync:assignment_1",
     assignmentId: "assignment_1",
     leaseToken: leased!.leaseToken,
     leaseGeneration: leased!.leaseGeneration,
@@ -1187,14 +1187,14 @@ Deno.test("workspace grants are lease-bound, exact, manifest-last, and credentia
   );
   await f.service.acknowledge(
     "node_a",
-    "contract_command",
+    "workspace.stop_and_sync:assignment_1",
     leased!.leaseToken,
     leased!.leaseGeneration,
     await signed(
       credential,
       `SharedNode ${credential}`,
       "POST",
-      "/v1/internal/shared-nodes/node_a/commands/contract_command/ack",
+      "/v1/internal/shared-nodes/node_a/commands/workspace.stop_and_sync:assignment_1/ack",
       JSON.stringify({
         leaseToken: leased!.leaseToken,
         leaseGeneration: leased!.leaseGeneration,

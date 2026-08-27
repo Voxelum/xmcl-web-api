@@ -121,6 +121,13 @@ Deno.test("staging admin surface remains read-only", () => {
     isStagingAdminRequest("GET", "/v1/admin/accounts/account_123"),
     true,
   );
+  assert.equal(
+    isStagingAdminRequest(
+      "GET",
+      "/v1/admin/shared-hosting/reconciliation",
+    ),
+    true,
+  );
   assert.equal(isStagingAdminRequest("GET", "/v1/admin/accounts"), true);
   assert.equal(isStagingAdminRequest("POST", "/v1/admin/session"), true);
   assert.equal(

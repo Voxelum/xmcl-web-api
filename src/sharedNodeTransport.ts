@@ -394,6 +394,24 @@ export interface SharedNodeCommandOutbox {
     now: string;
   }): Promise<SharedNodeCommand>;
   requeueExpired(now: string): Promise<number>;
+  requeueAcknowledged?(commandIds: readonly string[]): Promise<number>;
+  reconciliation?(): Promise<SharedNodeCommandReconciliation[]>;
+}
+
+export interface SharedNodeCommandReconciliation {
+  commandId: string;
+  kind: SharedNodeCommand["kind"];
+  nodeId: string;
+  serviceId: string;
+  assignmentId: string;
+  outboxStatus: "queued" | "leased" | "acked";
+  createdAt: string;
+  leaseGeneration: number;
+  leaseRenewals: number;
+  leaseStartedAt?: string;
+  leaseRenewedAt?: string;
+  leaseExpiresAt?: string;
+  acknowledgedAt?: string;
 }
 
 /**
@@ -516,6 +534,34 @@ function commandFingerprint(command: SharedNodeCommand) {
     resources: command.resources,
     connection: command.connection,
   });
+}
+
+function commandReconciliation(
+  command: StoredCommand,
+): SharedNodeCommandReconciliation {
+  return {
+    commandId: command.commandId,
+    kind: command.kind,
+    nodeId: command.nodeId,
+    serviceId: command.serviceId,
+    assignmentId: command.assignmentId,
+    outboxStatus: command.outboxStatus,
+    createdAt: command.createdAt,
+    leaseGeneration: command.leaseGeneration,
+    leaseRenewals: command.leaseRenewals,
+    ...(command.leaseStartedAt
+      ? { leaseStartedAt: command.leaseStartedAt }
+      : {}),
+    ...(command.leaseRenewedAt
+      ? { leaseRenewedAt: command.leaseRenewedAt }
+      : {}),
+    ...(command.leaseExpiresAt
+      ? { leaseExpiresAt: command.leaseExpiresAt }
+      : {}),
+    ...(command.acknowledgedAt
+      ? { acknowledgedAt: command.acknowledgedAt }
+      : {}),
+  };
 }
 
 export class MemorySharedNodeCommandOutbox implements SharedNodeCommandOutbox {
@@ -689,6 +735,28 @@ export class MemorySharedNodeCommandOutbox implements SharedNodeCommandOutbox {
     });
   }
 
+  async requeueAcknowledged(commandIds: readonly string[]) {
+    return await this.transact(() => {
+      let count = 0;
+      for (const commandId of commandIds) {
+        const command = this.commands.get(commandId);
+        if (command?.outboxStatus !== "acked") continue;
+        command.outboxStatus = "queued";
+        command.acknowledgedAt = undefined;
+        count += 1;
+      }
+      return count;
+    });
+  }
+
+  async reconciliation() {
+    return await this.transact(() =>
+      [...this.commands.values()]
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+        .map(commandReconciliation)
+    );
+  }
+
   private async transact<T>(mutation: () => T): Promise<T> {
     const previous = this.tail;
     let release!: () => void;
@@ -746,32 +814,67 @@ export class MongoSharedNodeCommandOutbox implements SharedNodeCommandOutbox {
       },
     );
     const leaseExpiresAt = new Date(Date.parse(now) + leaseMs).toISOString();
-    const leaseToken = crypto.randomUUID();
-    const found = await this.collection().findOneAndUpdate(
-      { nodeId, outboxStatus: "queued" },
-      {
-        $set: {
-          outboxStatus: "leased",
-          leaseExpiresAt,
-          leaseToken,
-          leaseStartedAt: now,
-          leaseRenewals: 0,
+    const queued = await this.collection().find({
+      nodeId,
+      outboxStatus: "queued",
+    }).toArray() as unknown as StoredCommand[];
+    queued.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    for (const candidate of queued) {
+      const leaseToken = crypto.randomUUID();
+      const found = await this.collection().findOneAndUpdate(
+        {
+          _id: candidate.commandId,
+          nodeId,
+          outboxStatus: "queued",
         },
-        $inc: { leaseGeneration: 1 },
-      },
-      { sort: { createdAt: 1 }, returnDocument: "after" },
-    );
-    const command = ((found && "value" in found) ? found.value : found) as
-      | StoredCommand
-      | undefined;
-    return command
-      ? {
+        {
+          $set: {
+            outboxStatus: "leased",
+            leaseExpiresAt,
+            leaseToken,
+            leaseStartedAt: now,
+            leaseRenewals: 0,
+          },
+          $inc: { leaseGeneration: 1 },
+        },
+        { returnDocument: "after" },
+      );
+      const command = ((found && "value" in found) ? found.value : found) as
+        | StoredCommand
+        | undefined;
+      if (!command) continue;
+      const reserved = await this.reserveNodeLease({
+        nodeId,
+        commandId: command.commandId,
+        leaseToken,
+        leaseGeneration: command.leaseGeneration,
+        now,
+        leaseExpiresAt,
+      });
+      if (!reserved) {
+        await this.collection().findOneAndUpdate(
+          {
+            _id: command.commandId,
+            nodeId,
+            outboxStatus: "leased",
+            leaseToken,
+            leaseGeneration: command.leaseGeneration,
+          },
+          {
+            $set: { outboxStatus: "queued" },
+            $unset: { leaseExpiresAt: "", leaseToken: "" },
+          },
+        );
+        return undefined;
+      }
+      return {
         command: clone(command),
-        leaseToken: command.leaseToken!,
+        leaseToken,
         leaseGeneration: command.leaseGeneration,
         leaseExpiresAt,
-      }
-      : undefined;
+      };
+    }
+    return undefined;
   }
 
   async acknowledge(input: {
@@ -816,6 +919,12 @@ export class MongoSharedNodeCommandOutbox implements SharedNodeCommandOutbox {
       { returnDocument: "before" },
     );
     if (!updated) throw new SharedNodeTransportError("lease_conflict");
+    await this.nodeClaims().deleteOne({
+      _id: input.nodeId,
+      commandId: input.commandId,
+      leaseToken: input.leaseToken,
+      leaseGeneration: input.leaseGeneration,
+    });
   }
 
   async renew(input: {
@@ -844,6 +953,19 @@ export class MongoSharedNodeCommandOutbox implements SharedNodeCommandOutbox {
     if (Date.parse(leaseExpiresAt) <= Date.parse(input.now)) {
       throw new SharedNodeTransportError("lease_maximum_exceeded");
     }
+    const claim = await this.nodeClaims().updateOne(
+      {
+        _id: input.nodeId,
+        commandId: input.commandId,
+        leaseToken: input.leaseToken,
+        leaseGeneration: input.leaseGeneration,
+        expiresAt: { $gt: input.now },
+      },
+      { $set: { expiresAt: leaseExpiresAt } },
+    );
+    if (claim.matchedCount !== 1) {
+      throw new SharedNodeTransportError("lease_conflict");
+    }
     const updated = await this.collection().findOneAndUpdate(
       {
         _id: input.commandId,
@@ -859,7 +981,15 @@ export class MongoSharedNodeCommandOutbox implements SharedNodeCommandOutbox {
       },
       { returnDocument: "after" },
     );
-    if (!updated) throw new SharedNodeTransportError("lease_conflict");
+    if (!updated) {
+      await this.nodeClaims().deleteOne({
+        _id: input.nodeId,
+        commandId: input.commandId,
+        leaseToken: input.leaseToken,
+        leaseGeneration: input.leaseGeneration,
+      });
+      throw new SharedNodeTransportError("lease_conflict");
+    }
     return { leaseExpiresAt };
   }
 
@@ -891,21 +1021,110 @@ export class MongoSharedNodeCommandOutbox implements SharedNodeCommandOutbox {
           $set: { outboxStatus: "queued" },
           $unset: { leaseExpiresAt: "", leaseToken: "" },
         },
+        { returnDocument: "before" },
       );
       if (!result) return count;
+      const command = ((result && "value" in result)
+        ? result.value
+        : result) as StoredCommand | undefined;
+      if (command) {
+        await this.nodeClaims().deleteOne({
+          _id: command.nodeId,
+          commandId: command.commandId,
+          leaseToken: command.leaseToken,
+          leaseGeneration: command.leaseGeneration,
+        });
+      }
       count += 1;
     }
+  }
+
+  async requeueAcknowledged(commandIds: readonly string[]) {
+    let count = 0;
+    for (const commandId of commandIds) {
+      const result = await this.collection().findOneAndUpdate(
+        { _id: commandId, outboxStatus: "acked" },
+        {
+          $set: { outboxStatus: "queued" },
+          $unset: { acknowledgedAt: "" },
+        },
+      );
+      if (result) count += 1;
+    }
+    return count;
+  }
+
+  async reconciliation() {
+    const commands = await this.collection().find({})
+      .toArray() as unknown as StoredCommand[];
+    return commands
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .map(commandReconciliation);
   }
 
   private collection() {
     return this.db.collection("shared_node_command_outbox");
   }
+
+  private nodeClaims() {
+    return this.db.collection("shared_node_command_claims");
+  }
+
+  private async reserveNodeLease(input: {
+    nodeId: string;
+    commandId: string;
+    leaseToken: string;
+    leaseGeneration: number;
+    now: string;
+    leaseExpiresAt: string;
+  }) {
+    const renewed = await this.nodeClaims().findOneAndUpdate(
+      { _id: input.nodeId, expiresAt: { $lte: input.now } },
+      {
+        $set: {
+          commandId: input.commandId,
+          leaseToken: input.leaseToken,
+          leaseGeneration: input.leaseGeneration,
+          expiresAt: input.leaseExpiresAt,
+        },
+      },
+      { returnDocument: "after" },
+    );
+    const claim = (renewed && "value" in renewed) ? renewed.value : renewed;
+    if (claim) return true;
+    try {
+      await this.nodeClaims().insertOne({
+        _id: input.nodeId,
+        commandId: input.commandId,
+        leaseToken: input.leaseToken,
+        leaseGeneration: input.leaseGeneration,
+        expiresAt: input.leaseExpiresAt,
+      });
+      return true;
+    } catch (cause) {
+      if (isDuplicateKeyError(cause)) return false;
+      throw cause;
+    }
+  }
+}
+
+function isDuplicateKeyError(cause: unknown) {
+  return !!cause && typeof cause === "object" &&
+    "code" in cause && cause.code === 11000;
 }
 
 export interface SharedNodeCredentialRecord {
   nodeId: string;
   tokenHash: string;
   expiresAt: string;
+}
+
+export interface SharedNodeReconciliation {
+  nodeId: string;
+  credentialExpiresAt: string;
+  heartbeatReceivedAt?: string;
+  status?: SharedNodeHeartbeat["status"];
+  agentVersion?: string;
 }
 
 export interface SharedNodeCredentialRepository {
@@ -937,6 +1156,7 @@ export interface SharedNodeCredentialRepository {
   }): Promise<"claimed" | "replayed">;
   saveHeartbeat(record: SharedNodeHeartbeatRecord): Promise<void>;
   findHeartbeat(nodeId: string): Promise<SharedNodeHeartbeatRecord | undefined>;
+  reconciliation?(): Promise<SharedNodeReconciliation[]>;
 }
 
 export class MemorySharedNodeCredentialRepository
@@ -1161,6 +1381,32 @@ export class MongoSharedNodeCredentialRepository
       _id: nodeId,
     }) as SharedNodeHeartbeatRecord | undefined;
     return value ? clone(value) : undefined;
+  }
+
+  async reconciliation() {
+    const [credentials, heartbeats] = await Promise.all([
+      this.db.collection("shared_node_credentials").find({})
+        .toArray() as Promise<SharedNodeCredentialRecord[]>,
+      this.db.collection("shared_node_heartbeats").find({})
+        .toArray() as Promise<SharedNodeHeartbeatRecord[]>,
+    ]);
+    const heartbeatByNode = new Map(
+      heartbeats.map((heartbeat) => [heartbeat.nodeId, heartbeat]),
+    );
+    return credentials.map((credential) => {
+      const heartbeat = heartbeatByNode.get(credential.nodeId);
+      return {
+        nodeId: credential.nodeId,
+        credentialExpiresAt: credential.expiresAt,
+        ...(heartbeat
+          ? {
+            heartbeatReceivedAt: heartbeat.receivedAt,
+            status: heartbeat.status,
+            agentVersion: heartbeat.agentVersion,
+          }
+          : {}),
+      };
+    });
   }
 }
 
@@ -1525,6 +1771,14 @@ export class SharedNodeTransportService {
     this.runtimeContentGrantAuthority = authority;
   }
 
+  async reconciliationCommands() {
+    return await this.options.commandOutbox.reconciliation?.() ?? [];
+  }
+
+  async reconciliationNodes() {
+    return await this.options.credentialRepository.reconciliation?.() ?? [];
+  }
+
   async preparePreprovisionedEnrollment(
     input: PreprovisionedSharedNodeEnrollment,
   ) {
@@ -1808,11 +2062,21 @@ export class SharedNodeTransportService {
 
   async nextCommand(nodeId: string, request: SharedNodeSignedRequest) {
     await this.authenticateNode(nodeId, request);
-    return await this.options.commandOutbox.next(
-      nodeId,
-      this.now().toISOString(),
-      this.commandLeaseMs,
-    );
+    try {
+      return await this.options.commandOutbox.next(
+        nodeId,
+        this.now().toISOString(),
+        this.commandLeaseMs,
+      );
+    } catch (error) {
+      console.error({
+        event: "shared_node.command_poll_failed",
+        nodeId,
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
 
   async acknowledge(
@@ -1977,8 +2241,23 @@ export class SharedNodeTransportService {
   async sweep(at = this.now().toISOString()) {
     const now = new Date(at).toISOString();
     const redelivered = await this.options.commandOutbox.requeueExpired(now);
+    const pendingCommands = (await this.options.scheduler
+      .reconciliationServices())
+      .flatMap((service) => {
+        if (!service.assignmentId) return [];
+        if (service.status === "starting") {
+          return [`workspace.restore_and_start:${service.assignmentId}`];
+        }
+        if (service.status === "stopping") {
+          return [`workspace.stop_and_sync:${service.assignmentId}`];
+        }
+        return [];
+      });
+    const retried = await this.options.commandOutbox.requeueAcknowledged?.(
+      pendingCommands,
+    ) ?? 0;
     await this.options.scheduler.sweepStaleNodes(undefined, new Date(now));
-    return { redelivered };
+    return { redelivered, retried };
   }
 
   async isRegistered(nodeId: string) {
@@ -2194,7 +2473,7 @@ export class SharedNodeTransportService {
   ) {
     if (
       input.contractVersion !== SHARED_NODE_WORKSPACE_CONTRACT_VERSION ||
-      !validIdentifier(input.commandId) ||
+      !validCommandId(input.commandId) ||
       !validIdentifier(input.assignmentId) ||
       !validLeaseToken(input.leaseToken) ||
       !Number.isSafeInteger(input.leaseGeneration) ||
@@ -2668,6 +2947,10 @@ function isContentPath(path: string) {
 
 function validIdentifier(value: string) {
   return /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value);
+}
+
+function validCommandId(value: string) {
+  return /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,254}$/.test(value);
 }
 
 function validLeaseToken(value: string) {

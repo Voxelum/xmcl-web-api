@@ -17,9 +17,14 @@ import {
   TurnCredentialMeter,
 } from "../../src/turnMetering.ts";
 import { getAccountRuntime } from "../../src/accountRuntime.ts";
-import { getSharedHostingRuntime } from "../../src/sharedHostingRuntime.ts";
+import {
+  createSharedHostingRuntime,
+  getSharedHostingRuntime,
+} from "../../src/sharedHostingRuntime.ts";
 import { hasSharedNodeRuntimeSettings } from "../../src/productionComposition.ts";
 import { createAzureBlobSasSigner } from "../../src/azureBlobSas.ts";
+import { runSharedHostingBillingScheduledSweep } from "../../src/sharedHostingScheduling.ts";
+import { runSharedNodeScheduledSweep } from "../../src/sharedNodeScheduling.ts";
 import { createBillingRoutes } from "../../src/routes/billing.ts";
 import { createSharedHostingRoutes } from "../../src/routes/sharedHosting.ts";
 import { createSharedHostingServiceRoutes } from "../../src/routes/sharedHostingServices.ts";
@@ -70,6 +75,7 @@ const adminReadPaths = new Set([
   "/v1/admin/audit-events",
   "/v1/admin/billing/overview",
   "/v1/admin/reconciliation",
+  "/v1/admin/shared-hosting/reconciliation",
 ]);
 const app = new Hono<AppEnv>();
 type StagingBindings = AppConfig & AppEnv["Bindings"];
@@ -223,6 +229,7 @@ app.use("/v1/shared-hosting/services", composeSharedRuntime);
 app.use("/v1/shared-hosting/services/*", composeSharedRuntime);
 app.use("/v1/internal/shared-nodes/*", composeSharedRuntime);
 app.use("/v1/staging/shared-nodes/enrollments", composeSharedRuntime);
+app.use("/v1/admin/shared-hosting/reconciliation", composeSharedRuntime);
 app.route("/", createBillingRoutes());
 app.route("/", createSharedHostingRoutes());
 app.route("/", createSharedHostingServiceRoutes());
@@ -712,6 +719,50 @@ export default {
             },
           });
           throw error;
+        }
+        const signer = workspaceSigner(env);
+        if (
+          hasSharedNodeRuntimeSettings(env, {
+            SHARED_NODE_WORKSPACE_SIGNER: signer,
+          })
+        ) {
+          try {
+            const runtime = createSharedHostingRuntime(
+              await getCloudflareDb(env),
+              env,
+              signer,
+            );
+            await runSharedHostingBillingScheduledSweep(
+              runtime.billingScheduledWork,
+              scheduledAt.toISOString(),
+            );
+            await runtime.scheduler.processCapacityRequests();
+            const result = await runSharedNodeScheduledSweep(
+              runtime.transport,
+              scheduledAt.toISOString(),
+            );
+            console.log({
+              event: "shared_hosting.staging_sweep.completed",
+              scheduledAt: scheduledAt.toISOString(),
+              ...result,
+            });
+          } catch (error) {
+            console.error({
+              event: "shared_hosting.staging_sweep.failed",
+              scheduledAt: scheduledAt.toISOString(),
+              errorName: error instanceof Error ? error.name : "UnknownError",
+            });
+            await alertStaging(env, {
+              severity: "critical",
+              event: "shared_hosting.staging_sweep.failed",
+              summary: "The scheduled Together Camp sweep failed.",
+              occurredAt: scheduledAt.toISOString(),
+              fields: {
+                errorName: error instanceof Error ? error.name : "UnknownError",
+              },
+            });
+            throw error;
+          }
         }
         const analyticsToken = env.CLOUDFLARE_TURN_ANALYTICS_API_TOKEN ??
           env.CLOUDFLARE_ANALYTICS_API_TOKEN;
