@@ -5,9 +5,15 @@ const REQUIRED_WAFFO_SETTINGS = [
   "WAFFO_ENVIRONMENT",
 ];
 const OPTIONAL_WAFFO_SETTINGS = ["WAFFO_PRODUCT_ID"];
+const PRODUCTION_DATABASE_NAME = "coturn";
+
+export const REQUIRED_DATABASE_BINDINGS = [
+  "MONGO_CONNECION_STRING",
+  "MONGODB_NAME",
+];
 
 export const REQUIRED_API_BINDINGS = [
-  "MONGO_CONNECION_STRING",
+  ...REQUIRED_DATABASE_BINDINGS,
   "XMCL_MULTIPLAYER_TICKET_SECRET",
   "XMCL_SESSION_SECRET_PRIMARY",
   "BILLING_CURRENCY",
@@ -17,13 +23,37 @@ export const REQUIRED_API_BINDINGS = [
   ...REQUIRED_WAFFO_SETTINGS,
 ];
 
+export const REQUIRED_AI_BINDINGS = [
+  ...REQUIRED_DATABASE_BINDINGS,
+  "XMCL_SESSION_SECRET_PRIMARY",
+];
+
+export const REQUIRED_SIGNALING_BINDINGS = [
+  ...REQUIRED_DATABASE_BINDINGS,
+  "CLOUDFLARE_ANALYTICS_API_TOKEN",
+  "CLOUDFLARE_APP_ID",
+  "XMCL_MULTIPLAYER_TICKET_SECRET",
+  "XMCL_SESSION_SECRET_PRIMARY",
+];
+
 function requiredValue(environment, name) {
   const value = environment[name]?.trim();
   if (!value) throw new Error(`${name} is required`);
   return value;
 }
 
+export function productionDatabaseConfig(environment) {
+  const databaseName = requiredValue(environment, "MONGODB_NAME");
+  if (databaseName !== PRODUCTION_DATABASE_NAME) {
+    throw new Error(
+      `production MONGODB_NAME must be ${PRODUCTION_DATABASE_NAME}`,
+    );
+  }
+  return { MONGODB_NAME: databaseName };
+}
+
 export function productionWorkerConfig(environment) {
+  const database = productionDatabaseConfig(environment);
   const currency = requiredValue(environment, "BILLING_CURRENCY");
   if (!/^[A-Z]{3}$/.test(currency)) {
     throw new Error("BILLING_CURRENCY must be an ISO-4217 currency code");
@@ -41,6 +71,7 @@ export function productionWorkerConfig(environment) {
   }
 
   const config = {
+    ...database,
     BILLING_CURRENCY: currency,
     BILLING_RATES_JSON: JSON.stringify(rates),
   };
@@ -77,11 +108,28 @@ export function productionWorkerConfig(environment) {
 }
 
 export function validateApiBindingNames(bindings) {
+  validateBindingNames(bindings, REQUIRED_API_BINDINGS, "API");
+}
+
+export function validateWorkerBindingNames(bindings, surface) {
+  const requirements = {
+    api: REQUIRED_API_BINDINGS,
+    ai: REQUIRED_AI_BINDINGS,
+    signaling: REQUIRED_SIGNALING_BINDINGS,
+  };
+  const required = requirements[surface];
+  if (!required) throw new Error(`Unknown Worker surface: ${surface}`);
+  validateBindingNames(bindings, required, surface);
+}
+
+function validateBindingNames(bindings, required, surface) {
   const names = new Set(bindings.map((binding) => binding.name));
-  const missing = REQUIRED_API_BINDINGS.filter((name) => !names.has(name));
+  const missing = required.filter((name) => !names.has(name));
   if (missing.length > 0) {
     throw new Error(
-      `deployed API Worker is missing required bindings: ${missing.join(", ")}`,
+      `deployed ${surface} Worker is missing required bindings: ${
+        missing.join(", ")
+      }`,
     );
   }
 }
@@ -99,10 +147,15 @@ async function main() {
     if (!Array.isArray(bindings)) {
       throw new Error("Wrangler binding output must be a JSON array");
     }
-    validateApiBindingNames(bindings);
+    const surface = process.argv.find((value) => value.startsWith("--surface="))
+      ?.slice("--surface=".length) ?? "api";
+    validateWorkerBindingNames(bindings, surface);
     return;
   }
-  stdout.write(`${JSON.stringify(productionWorkerConfig(process.env))}\n`);
+  const config = process.argv.includes("--database-only")
+    ? productionDatabaseConfig(process.env)
+    : productionWorkerConfig(process.env);
+  stdout.write(`${JSON.stringify(config)}\n`);
 }
 
 if (process.argv[1]?.endsWith("production-worker-config.mjs")) {
