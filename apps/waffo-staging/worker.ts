@@ -567,12 +567,15 @@ export default {
       const isSharedNodeTransport = url.pathname.startsWith(
         "/v1/internal/shared-nodes/",
       );
+      const isSharedNodeEnrollment = request.method === "POST" &&
+        url.pathname === "/v1/staging/shared-nodes/enrollments";
       if (
         !isBillingRead && !isBillingMutation && !isBillingPreflight &&
         !isSharedHostingRead && !isSharedHostingPreflight &&
         !isPlusRead && !isPlusMutation &&
         !isPlusPreflight && !isAccountSurface && !isAdminSurface &&
-        !isUsageSurface && !isWebhook && !isSharedNodeTransport
+        !isUsageSurface && !isWebhook && !isSharedNodeTransport &&
+        !isSharedNodeEnrollment
       ) {
         return new Response("Not Found", { status: 404 });
       }
