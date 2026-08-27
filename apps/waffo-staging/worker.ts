@@ -542,6 +542,10 @@ export default {
           /^\/v1\/shared-hosting\/services\/[^/]+\/export$/.test(url.pathname));
       const isSharedHostingPreflight = request.method === "OPTIONS" &&
         url.pathname.startsWith("/v1/shared-hosting/");
+      const isSharedHostingMutation = isStagingSharedHostingMutation(
+        request.method,
+        url.pathname,
+      );
       const isPlusRead = request.method === "GET" &&
         plusReadPaths.has(url.pathname);
       const isPlusMutation = request.method === "POST" &&
@@ -572,6 +576,7 @@ export default {
       if (
         !isBillingRead && !isBillingMutation && !isBillingPreflight &&
         !isSharedHostingRead && !isSharedHostingPreflight &&
+        !isSharedHostingMutation &&
         !isPlusRead && !isPlusMutation &&
         !isPlusPreflight && !isAccountSurface && !isAdminSurface &&
         !isUsageSurface && !isWebhook && !isSharedNodeTransport &&
@@ -799,4 +804,15 @@ export function isStagingUsageRequest(method: string, path: string) {
     (path === "/v1/chat/completions" || path === "/v1/rtc/official")) ||
     (method === "OPTIONS" &&
       (path.startsWith("/v1/chat/") || path.startsWith("/v1/rtc/")));
+}
+
+export function isStagingSharedHostingMutation(
+  method: string,
+  path: string,
+) {
+  return method === "POST" &&
+    (path === "/v1/shared-hosting/subscriptions" ||
+      /^\/v1\/shared-hosting\/subscriptions\/[^/]+\/cancel$/.test(path) ||
+      path === "/v1/shared-hosting/services" ||
+      /^\/v1\/shared-hosting\/services\/[^/]+\/(start|stop)$/.test(path));
 }

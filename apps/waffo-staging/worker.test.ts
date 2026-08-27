@@ -3,6 +3,7 @@ import {
   billingOnlyAdminAccount,
   isStagingAccountRequest,
   isStagingAdminRequest,
+  isStagingSharedHostingMutation,
   isStagingUsageRequest,
   isRecentBrowserOAuthAdminPrincipal,
   issueStagingAdminSession,
@@ -183,23 +184,32 @@ Deno.test("staging exposes only metered Home AI and TURN usage routes", () => {
   assert.equal(isStagingUsageRequest("POST", "/v1/internal/usage/ai"), false);
 });
 
-Deno.test("staging keeps hosted-server mutations disabled", async () => {
-  const worker = (await import("./worker.ts")).default;
+Deno.test("staging exposes the reviewed hosted-server mutation surface", () => {
   for (
     const path of [
       "/v1/shared-hosting/subscriptions",
+      "/v1/shared-hosting/subscriptions/subscription_123/cancel",
       "/v1/shared-hosting/services",
       "/v1/shared-hosting/services/service_123/start",
       "/v1/shared-hosting/services/service_123/stop",
     ]
   ) {
-    const response = await worker.fetch(
-      new Request(`https://api-staging.xmcl.app${path}`, { method: "POST" }),
-      stagingEnvironment as never,
-      { waitUntil() {}, passThroughOnException() {} } as never,
-    );
-    assert.equal(response.status, 404, path);
+    assert.equal(isStagingSharedHostingMutation("POST", path), true, path);
   }
+  assert.equal(
+    isStagingSharedHostingMutation(
+      "POST",
+      "/v1/shared-hosting/services/service_123/export",
+    ),
+    false,
+  );
+  assert.equal(
+    isStagingSharedHostingMutation(
+      "DELETE",
+      "/v1/shared-hosting/services/service_123",
+    ),
+    false,
+  );
 });
 
 Deno.test("staging admin bearer authenticates independently", async () => {
