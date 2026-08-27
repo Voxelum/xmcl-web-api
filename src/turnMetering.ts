@@ -29,6 +29,7 @@ export class TurnCredentialMeter {
     accountId: string,
     customIdentifier: string,
     ttlSeconds: number,
+    turnSessionId = crypto.randomUUID(),
   ): Promise<boolean> {
     const now = this.now();
     return await this.store.transaction((state) => {
@@ -62,6 +63,7 @@ export class TurnCredentialMeter {
       ) return false;
       state.turnCredentialIssuances.set(customIdentifier, {
         customIdentifier,
+        turnSessionId,
         accountId,
         sourceKey: key,
         issuedAt: now.toISOString(),

@@ -115,6 +115,7 @@ Deno.test("active Together subscribers receive metered Cloudflare TURN servers",
       server.urls.includes("turn:turn.cloudflare.com:3478?transport=udp")
     ),
   );
+  assert.match(body.turnSessionId, /^[0-9a-f]{8}-[0-9a-f-]{27}$/i);
 });
 
 Deno.test("exhausted Together allowance returns no TURN credentials", async () => {

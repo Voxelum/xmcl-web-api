@@ -146,6 +146,9 @@ export interface AppVariables {
  */
 export interface AppBindings {
   MULTIPLAYER_ROOMS?: unknown;
+  MULTIPLAYER_TELEMETRY_RATE_LIMITER?: {
+    limit(options: { key: string }): Promise<{ success: boolean }>;
+  };
   SHARED_NODE_WORKSPACE_SIGNER?: unknown;
   TRANSLATION_CACHE?: unknown;
   DPOP_REPLAY?: DurableObjectNamespace;

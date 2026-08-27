@@ -26,6 +26,10 @@ Deno.test("Cloudflare entrypoints own static, non-overlapping route surfaces", a
   assert.equal(ai.includes("/v1/multiplayer/rooms"), false);
 
   assert.equal(signaling.includes("/v1/multiplayer/rooms"), true);
+  assert.equal(
+    signaling.includes("/v1/multiplayer/telemetry/attempts"),
+    true,
+  );
   assert.equal(signaling.includes("/v1/rtc/official"), true);
   assert.equal(signaling.includes("/translation"), false);
   assert.equal(signaling.includes("/v1/chat/completions"), false);

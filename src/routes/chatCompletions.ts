@@ -3,10 +3,10 @@ import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { type AppConfig, getConfig } from "../config.ts";
 import {
-  AiProviderClient,
   AgnesConfigurationError,
   type AgnesFetch,
   AgnesUpstreamError,
+  AiProviderClient,
   DEFAULT_AGNES_MODEL,
   DEFAULT_DEEPSEEK_MODEL,
   defaultAgnesFetch,
@@ -16,10 +16,7 @@ import {
 import { handleAccountError, requestId } from "../accountHttp.ts";
 import { getAccountRuntime } from "../accountRuntime.ts";
 import { BillingEntitlementReader } from "../entitlements.ts";
-import {
-  AllowanceMeter,
-  type OpenAiTokenUsage,
-} from "../allowanceMetering.ts";
+import { AllowanceMeter, type OpenAiTokenUsage } from "../allowanceMetering.ts";
 import {
   buildLauncherAgentSystemPrompt,
   parseLauncherAgentRequestContext,
@@ -28,6 +25,10 @@ import { MongoBillingStore } from "../ledger.ts";
 import type { AccountRuntimeResolver } from "../middleware/xmclAuth.ts";
 import { xmclAuth } from "../middleware/xmclAuth.ts";
 import { proxyResponse } from "../proxy.ts";
+import {
+  type AiAuditRepository,
+  MongoAiAuditRepository,
+} from "../telemetry.ts";
 import type { AppEnv } from "../types.ts";
 
 export const CHAT_COMPLETIONS_MAX_BODY_BYTES = 4 * 1024 * 1024;
@@ -44,6 +45,7 @@ type AiAllowanceMeter = Pick<
 type AiAllowanceMeterResolver = (
   c: Context<AppEnv>,
 ) => Promise<AiAllowanceMeter>;
+type AiAuditResolver = (c: Context<AppEnv>) => Promise<AiAuditRepository>;
 
 const DEFAULT_MAX_COMPLETION_TOKENS = 8_192;
 
@@ -266,6 +268,8 @@ export function createChatCompletionsRoutes(
     ).read(accountId)).ai,
   resolveMeter: AiAllowanceMeterResolver = async (c) =>
     new AllowanceMeter(new MongoBillingStore(await c.get("getDb")())),
+  resolveAudit: AiAuditResolver = async (c) =>
+    new MongoAiAuditRepository(await c.get("getDb")()),
 ) {
   const app = new Hono<AppEnv>();
   let client: AiProviderClient | undefined;
@@ -340,6 +344,41 @@ export function createChatCompletionsRoutes(
 
     const accountId = c.get("xmclPrincipal")!.accountId;
     const authorizationId = `ai_${crypto.randomUUID().replaceAll("-", "")}`;
+    const startedAt = Date.now();
+    const audit = await resolveAudit(c);
+    const recordAudit = async (
+      event: Omit<
+        Parameters<AiAuditRepository["record"]>[0],
+        | "requestId"
+        | "accountId"
+        | "provider"
+        | "model"
+        | "durationMs"
+        | "receivedAt"
+      >,
+    ) => {
+      await audit.record({
+        ...event,
+        requestId: authorizationId,
+        accountId,
+        provider: "agnes_or_deepseek",
+        model,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        receivedAt: new Date(),
+      });
+    };
+    const recordSettledAudit = async (
+      event: Parameters<typeof recordAudit>[0],
+    ) => {
+      try {
+        await recordAudit(event);
+      } catch (error) {
+        console.error("AI audit persistence failed", {
+          requestId: authorizationId,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+    };
     const meter = await resolveMeter(c);
     if (
       !(await meter.reserveAi(
@@ -377,6 +416,11 @@ export function createChatCompletionsRoutes(
       );
       if (!upstream.ok) {
         await meter.releaseAi(authorizationId);
+        await recordAudit({
+          outcome: "failed",
+          statusClass: upstream.status >= 500 ? "5xx" : "4xx",
+          failureCode: "upstream_rejected",
+        });
       } else {
         const usageResponse = upstream.clone();
         const settle = async () => {
@@ -388,24 +432,45 @@ export function createChatCompletionsRoutes(
             await meter.releaseAi(authorizationId);
             throw new Error("Agnes response did not include token usage");
           }
-          await meter.settleAi(
+          const settlement = await meter.settleAi(
             authorizationId,
             measured.usageId ?? authorizationId,
             measured.usage,
           );
+          return {
+            usage: measured.usage,
+            billedUnits: settlement.weightedUnits,
+          };
         };
         if (parsed.stream) {
-          const work = settle().catch((error) => {
-            console.error("AI usage settlement failed", {
+          const work = settle().then(({ usage, billedUnits }) =>
+            recordSettledAudit({
+              outcome: "succeeded",
+              statusClass: "2xx",
+              promptTokens: usage.promptTokens,
+              cachedPromptTokens: usage.cachedPromptTokens,
+              completionTokens: usage.completionTokens,
+              billedUnits,
+            })
+          ).catch((error) => {
+            console.error("AI usage settlement or audit failed", {
               requestId: authorizationId,
-              error: error instanceof Error ? error.message : String(error),
+              errorName: error instanceof Error ? error.name : "UnknownError",
             });
           });
           const waitUntil = c.get("waitUntil");
           if (waitUntil) waitUntil(work);
           else await work;
         } else {
-          await settle();
+          const { usage, billedUnits } = await settle();
+          await recordSettledAudit({
+            outcome: "succeeded",
+            statusClass: "2xx",
+            promptTokens: usage.promptTokens,
+            cachedPromptTokens: usage.cachedPromptTokens,
+            completionTokens: usage.completionTokens,
+            billedUnits,
+          });
         }
       }
       const response = proxyResponse(upstream);
@@ -414,6 +479,11 @@ export function createChatCompletionsRoutes(
     } catch (error) {
       if (error instanceof AgnesConfigurationError) {
         await meter.releaseAi(authorizationId);
+        await recordAudit({
+          outcome: "failed",
+          statusClass: "5xx",
+          failureCode: "provider_unavailable",
+        });
         return openAiError(
           c,
           503,
@@ -423,11 +493,15 @@ export function createChatCompletionsRoutes(
       }
       if (error instanceof AgnesUpstreamError) {
         await meter.releaseAi(authorizationId);
+        await recordAudit({
+          outcome: "failed",
+          statusClass: "5xx",
+          failureCode: "provider_unavailable",
+        });
         console.error("AI provider request failed", {
           requestId: requestId(c),
           provider: error.provider,
           causeName: error.causeName,
-          causeMessage: error.causeMessage,
         });
         return openAiError(
           c,
@@ -436,6 +510,11 @@ export function createChatCompletionsRoutes(
           "ai_provider_unavailable",
         );
       }
+      await recordAudit({
+        outcome: "failed",
+        statusClass: "5xx",
+        failureCode: "accounting_failed",
+      });
       throw error;
     }
   });

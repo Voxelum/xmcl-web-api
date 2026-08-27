@@ -5,7 +5,7 @@ import type { AppConfig } from "./config.ts";
 export interface MongoCollection {
   createIndex?(
     keys: Record<string, 1 | -1>,
-    options?: { expireAfterSeconds?: number; name?: string },
+    options?: { expireAfterSeconds?: number; name?: string; sparse?: boolean },
   ): Promise<unknown>;
   findOne(filter: Record<string, unknown>): Promise<any>;
   findOneAndUpdate(
@@ -27,6 +27,7 @@ export interface MongoCollection {
     options?: { upsert?: boolean },
   ): Promise<unknown>;
   deleteOne(filter: Record<string, unknown>): Promise<unknown>;
+  insertOne?(document: Record<string, unknown>): Promise<unknown>;
 }
 
 export interface Db {

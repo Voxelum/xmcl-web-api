@@ -193,6 +193,7 @@ Deno.test("MongoBillingStore persists committed billing state across store insta
       availableMinor: 120,
       reservedMinor: 30,
     });
+
     state.ledger.push({
       ledgerEntryId: "ledger_1",
       accountId: "account_1",
@@ -232,6 +233,29 @@ Deno.test("MongoBillingStore persists committed billing state across store insta
     accountId: "account_1",
     status: "active",
   });
+});
+
+Deno.test("MongoBillingStore reads legacy TURN issuances without session correlation", async () => {
+  const db = new FakeDb();
+  const now = new Date("2026-07-24T00:00:00.000Z");
+  const first = new MongoBillingStore(db, { now: () => now });
+  await first.transaction((state) => {
+    state.turnCredentialIssuances.set("legacy_credential", {
+      customIdentifier: "legacy_credential",
+      accountId: "acct_legacy",
+      sourceKey: "plus:legacy",
+      issuedAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + 60_000).toISOString(),
+      observedEgressBytes: 0,
+    });
+  });
+  const reloaded = new MongoBillingStore(db, { now: () => now });
+  assert.equal(
+    await reloaded.read((state) =>
+      state.turnCredentialIssuances.get("legacy_credential")?.turnSessionId
+    ),
+    undefined,
+  );
 });
 
 Deno.test("MongoBillingStore rejects a commit if its lease token no longer owns the state", async () => {

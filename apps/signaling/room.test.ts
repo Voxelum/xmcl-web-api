@@ -134,6 +134,7 @@ function internal(path: string, body: unknown) {
 
 interface TestRoomState {
   roomId: string;
+  roomSessionId: string;
   masterAccountId: string;
   masterPeerId?: string;
   status: "waiting-master" | "open" | "closed";
@@ -157,6 +158,7 @@ function roomState(input?: {
   const joinedAt = Date.now();
   return {
     roomId: "room_1",
+    roomSessionId: "14d26be5-6367-4e5f-9654-129c7da8bf2e",
     masterAccountId: "account_1",
     masterPeerId: "master_peer",
     status: "open",
@@ -219,17 +221,26 @@ Deno.test("MultiplayerRoomObject creates a room on first admission and assigns i
     createIfMissing: true,
     expiresAt,
   };
-  assert.deepEqual(
-    await (await f.object.fetch(internal("/admission", firstAdmission))).json(),
-    { role: "master", maxPeers: 8, created: true },
-  );
+  const created = await (await f.object.fetch(internal(
+    "/admission",
+    firstAdmission,
+  ))).json();
+  assert.equal(created.role, "master");
+  assert.equal(created.maxPeers, 8);
+  assert.equal(created.created, true);
+  assert.match(created.roomSessionId, /^[0-9a-f]{8}-[0-9a-f-]{27}$/i);
   assert.equal(f.alarm, expiresAt);
   assert.deepEqual(
     await (await f.object.fetch(internal("/admission", {
       ...firstAdmission,
       accountId: "account_1",
     }))).json(),
-    { role: "master", maxPeers: 8, created: false },
+    {
+      role: "master",
+      maxPeers: 8,
+      created: false,
+      roomSessionId: created.roomSessionId,
+    },
   );
   assert.equal(
     (await f.object.fetch(internal("/admission", {
@@ -238,6 +249,26 @@ Deno.test("MultiplayerRoomObject creates a room on first admission and assigns i
     }))).status,
     409,
   );
+});
+
+Deno.test("MultiplayerRoomObject upgrades legacy rooms with a session ID", async () => {
+  const f = fixture();
+  const legacy = roomState() as Partial<TestRoomState>;
+  delete legacy.roomSessionId;
+  f.values.set("room", legacy);
+
+  const response = await f.object.fetch(internal("/admission", {
+    roomId: "room_1",
+    accountId: "account_1",
+    createIfMissing: false,
+  }));
+  const admitted = await response.json();
+  const stored = f.values.get("room") as TestRoomState;
+
+  assert.equal(response.status, 200);
+  assert.match(admitted.roomSessionId, /^[0-9a-f]{8}-[0-9a-f-]{27}$/i);
+  assert.equal(stored.roomSessionId, admitted.roomSessionId);
+  assert.equal(f.roomPuts, 1);
 });
 
 Deno.test("member rtc-state transitions broadcast authoritative snapshots", async () => {
@@ -447,7 +478,12 @@ Deno.test("master transfer persists once and broadcasts only one topology snapsh
       accountId: "account_2",
       createIfMissing: false,
     }))).json(),
-    { role: "master", maxPeers: 8, created: false },
+    {
+      role: "master",
+      maxPeers: 8,
+      created: false,
+      roomSessionId: room.roomSessionId,
+    },
   );
   assert.deepEqual(
     await (await f.object.fetch(internal("/admission", {
@@ -455,7 +491,12 @@ Deno.test("master transfer persists once and broadcasts only one topology snapsh
       accountId: "account_1",
       createIfMissing: false,
     }))).json(),
-    { role: "member", maxPeers: 8, created: false },
+    {
+      role: "member",
+      maxPeers: 8,
+      created: false,
+      roomSessionId: room.roomSessionId,
+    },
   );
 
   master.clear();

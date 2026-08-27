@@ -121,6 +121,8 @@ export interface AiAllowanceReservation {
 
 export interface TurnCredentialIssuance {
   customIdentifier: string;
+  /** Opaque XMCL issuance correlation ID. Legacy issuance records omit it. */
+  turnSessionId?: string;
   accountId: string;
   sourceKey: string;
   issuedAt: string;

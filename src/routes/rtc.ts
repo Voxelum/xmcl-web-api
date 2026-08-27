@@ -209,11 +209,13 @@ export function createRtcRoutes(options: RtcRouteOptions = {}) {
         const customIdentifier = `xmcl_${
           crypto.randomUUID().replaceAll("-", "")
         }`;
+        const turnSessionId = crypto.randomUUID();
         const meter = await resolveTurnMeter(c);
         const authorized = await meter.authorize(
           accountId,
           customIdentifier,
           CREDENTIAL_TTL_SECONDS,
+          turnSessionId,
         );
         if (!authorized) {
           return c.json({ stuns: STUNS, uris: [], servers: [] });
@@ -232,6 +234,7 @@ export function createRtcRoutes(options: RtcRouteOptions = {}) {
             stuns: STUNS,
             uris: [],
             servers: cloudflare,
+            ...(cloudflare.length ? { turnSessionId } : {}),
           });
         } catch (error) {
           await meter.release(customIdentifier);

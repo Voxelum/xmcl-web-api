@@ -34,6 +34,14 @@ script_name = "xmcl-web-api"
 name = "MULTIPLAYER_ROOMS"
 class_name = "MultiplayerRoomObject"
 
+[[ratelimits]]
+name = "MULTIPLAYER_TELEMETRY_RATE_LIMITER"
+namespace_id = "47001"
+
+  [ratelimits.simple]
+  limit = 120
+  period = 60
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["GroupRoom"]

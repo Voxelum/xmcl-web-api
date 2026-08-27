@@ -21,6 +21,7 @@ interface RoomMember {
 
 interface RoomState {
   roomId: string;
+  roomSessionId: string;
   masterAccountId: string;
   masterPeerId?: string;
   status: "waiting-master" | "open" | "closed";
@@ -280,6 +281,7 @@ export class MultiplayerRoomObject {
       }
       room = {
         roomId: input.roomId,
+        roomSessionId: crypto.randomUUID(),
         masterAccountId: input.accountId,
         status: "waiting-master",
         createdAt: Date.now(),
@@ -299,6 +301,7 @@ export class MultiplayerRoomObject {
         role: "master" satisfies MultiplayerRole,
         maxPeers: room.maxPeers,
         created,
+        roomSessionId: room.roomSessionId,
       });
     }
     if (room.status !== "open" || !this.masterSocket(room)) {
@@ -315,6 +318,7 @@ export class MultiplayerRoomObject {
       role: "member" satisfies MultiplayerRole,
       maxPeers: room.maxPeers,
       created,
+      roomSessionId: room.roomSessionId,
     });
   }
 
@@ -563,8 +567,13 @@ export class MultiplayerRoomObject {
     await this.state.storage.deleteAll();
   }
 
-  private room(): Promise<RoomState | undefined> {
-    return this.state.storage.get<RoomState>("room");
+  private async room(): Promise<RoomState | undefined> {
+    const room = await this.state.storage.get<RoomState>("room");
+    if (room && !room.roomSessionId) {
+      room.roomSessionId = crypto.randomUUID();
+      await this.persist(room);
+    }
+    return room;
   }
 
   private persist(room: RoomState): Promise<void> {

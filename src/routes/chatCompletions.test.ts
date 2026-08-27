@@ -31,6 +31,8 @@ function fixture(
   config: AppConfig = { AGNES_API_KEYS: '["key-a","key-b"]' },
   scopes = ["ai:invoke"],
   entitled = true,
+  settlementFails = false,
+  auditFails = false,
 ) {
   const settlements: Array<{
     authorizationId: string;
@@ -41,6 +43,7 @@ function fixture(
       completionTokens: number;
     };
   }> = [];
+  const audits: Array<Record<string, unknown>> = [];
   const runtime = {
     sessions: {
       verify: async (token: string) => {
@@ -69,6 +72,9 @@ function fixture(
           reserveAi: () => Promise.resolve(true),
           releaseAi: () => Promise.resolve(),
           settleAi: (authorizationId, usageId, usage) => {
+            if (settlementFails) {
+              return Promise.reject(new Error("private accounting failure"));
+            }
             settlements.push({ authorizationId, usageId, usage });
             return Promise.resolve({
               authorizationId,
@@ -77,11 +83,24 @@ function fixture(
             });
           },
         }),
+      () =>
+        Promise.resolve({
+          record: (event) => {
+            if (auditFails) {
+              return Promise.reject(new Error("private audit failure"));
+            }
+            audits.push(
+              structuredClone(event) as unknown as Record<string, unknown>,
+            );
+            return Promise.resolve("recorded" as const);
+          },
+        }),
     ),
   );
   return {
     app,
     settlements,
+    audits,
     request: (body: unknown, init: RequestInit = {}) => {
       const requestBody = body && typeof body === "object" &&
           !Array.isArray(body) && "messages" in body &&
@@ -152,7 +171,8 @@ Deno.test("AI reservations ignore a reused client request ID", async () => {
       id: "chatcmpl_usage",
       choices: [],
       usage: { prompt_tokens: 10, completion_tokens: 2 },
-    }));
+    })
+  );
   const body = { messages: [{ role: "user", content: "hello" }] };
   const headers = { "x-request-id": "client-controlled-id" };
   assert.equal((await f.request(body, { headers })).status, 200);
@@ -162,6 +182,106 @@ Deno.test("AI reservations ignore a reused client request ID", async () => {
     f.settlements[0].authorizationId,
     f.settlements[1].authorizationId,
   );
+});
+
+Deno.test("AI audit events are account-owned and never contain chat content", async () => {
+  const f = fixture(async () =>
+    Response.json({
+      id: "chatcmpl_usage",
+      choices: [{ message: { content: "must not be audited" } }],
+      usage: {
+        prompt_tokens: 10,
+        completion_tokens: 2,
+        prompt_tokens_details: { cached_tokens: 4 },
+      },
+    })
+  );
+  const response = await f.request({
+    messages: [{ role: "user", content: "private prompt" }],
+  });
+  assert.equal(response.status, 200);
+  assert.equal(f.audits.length, 1);
+  const audit = f.audits[0];
+  assert.equal(audit.accountId, "account");
+  assert.equal(audit.outcome, "succeeded");
+  assert.equal(audit.promptTokens, 10);
+  assert.equal(audit.cachedPromptTokens, 4);
+  assert.equal(audit.completionTokens, 2);
+  assert.equal(JSON.stringify(audit).includes("private prompt"), false);
+  assert.equal(JSON.stringify(audit).includes("must not be audited"), false);
+});
+
+Deno.test("AI audit records a bounded failure without provider error content", async () => {
+  const f = fixture(async () =>
+    Response.json({ error: { message: "provider private details" } }, {
+      status: 503,
+    })
+  );
+  const response = await f.request({
+    messages: [{ role: "user", content: "private prompt" }],
+  });
+
+  assert.equal(response.status, 503);
+  assert.deepEqual(
+    f.audits.map((audit) => ({
+      outcome: audit.outcome,
+      statusClass: audit.statusClass,
+      failureCode: audit.failureCode,
+    })),
+    [{
+      outcome: "failed",
+      statusClass: "5xx",
+      failureCode: "upstream_rejected",
+    }],
+  );
+  assert.equal(JSON.stringify(f.audits).includes("private"), false);
+});
+
+Deno.test("AI accounting failure does not return a successful billable response", async () => {
+  const f = fixture(
+    async () =>
+      Response.json({
+        id: "chatcmpl_usage",
+        choices: [],
+        usage: { prompt_tokens: 10, completion_tokens: 2 },
+      }),
+    undefined,
+    undefined,
+    true,
+    true,
+  );
+  const response = await f.request({
+    messages: [{ role: "user", content: "private prompt" }],
+  });
+  assert.equal(response.status, 500);
+  assert.deepEqual(f.audits.map((audit) => audit.failureCode), [
+    "accounting_failed",
+  ]);
+  assert.equal(JSON.stringify(f.audits).includes("private"), false);
+});
+
+Deno.test("AI audit failure does not discard an already billed completion", async () => {
+  const f = fixture(
+    async () =>
+      Response.json({
+        id: "chatcmpl_usage",
+        choices: [{ message: { role: "assistant", content: "hello" } }],
+        usage: { prompt_tokens: 10, completion_tokens: 2 },
+      }),
+    { AGNES_API_KEYS: '["key-a"]' },
+    ["ai:invoke"],
+    true,
+    false,
+    true,
+  );
+
+  const response = await f.request({
+    messages: [{ role: "user", content: "private prompt" }],
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(f.settlements.length, 1);
+  assert.equal(f.audits.length, 0);
 });
 
 Deno.test("Launcher envelope reaches mocked Agnes with a server-owned prompt and model", async () => {

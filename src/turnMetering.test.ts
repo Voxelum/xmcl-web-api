@@ -22,6 +22,7 @@ async function fixture() {
     });
   });
   return {
+    store,
     meter: new TurnCredentialMeter(store, () => issuedAt),
     plus: new XmclPlusService(store, { now: () => issuedAt }),
   };
@@ -75,8 +76,22 @@ Deno.test("TURN credentials require remaining Together allowance", async () => {
 });
 
 Deno.test("TURN credentials allow only one active issuance per account", async () => {
-  const { meter } = await fixture();
-  assert.equal(await meter.authorize("account", "credential_1", 300), true);
+  const { meter, store } = await fixture();
+  assert.equal(
+    await meter.authorize(
+      "account",
+      "credential_1",
+      300,
+      "3d3c4b29-a806-49b3-b92f-b4ec1e2e6e52",
+    ),
+    true,
+  );
+  assert.equal(
+    await store.read((state) =>
+      state.turnCredentialIssuances.get("credential_1")?.turnSessionId
+    ),
+    "3d3c4b29-a806-49b3-b92f-b4ec1e2e6e52",
+  );
   assert.equal(await meter.authorize("account", "credential_2", 300), false);
   await meter.release("credential_1");
   assert.equal(await meter.authorize("account", "credential_2", 300), true);
