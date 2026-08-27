@@ -39,6 +39,7 @@ XMCL_AZURE_STORAGE_ACCOUNT_NAME = "xmclcampstaging"
 XMCL_SHARED_COMPILER_ENDPOINT = "https://130.94.89.36.sslip.io/v1/compiler-jobs"
 XMCL_SHARED_COMPILER_KEY_ID = "xmcl-camp-compiler-staging-v1"
 XMCL_SHARED_COMPILER_TIMEOUT_MS = "300000"
+XMCL_SHARED_COMPILER_REVIEWED_IMAGE = "ghcr.io/voxelum/xmcl-shared-node-compiler@sha256:9e43dc03636c15f97782430dc2884a9ad26295c3e45740e9dae203f6c9fabf8b"
 XMCL_SHARED_RUNTIME_TERMS_VERSION = "minecraft-eula-v1"
 
 [observability]
