@@ -5,6 +5,7 @@ import { HTTPException } from "hono/http-exception";
 import appinstaller from "./routes/appinstaller.ts";
 import appx from "./routes/appx.ts";
 import backupStoragePolicy from "./routes/backupStoragePolicy.ts";
+import databaseDownloads from "./routes/databaseDownloads.ts";
 import elyby from "./routes/elyby.ts";
 import flights from "./routes/flights.ts";
 import multiplayer from "./routes/multiplayer.ts";
@@ -108,6 +109,7 @@ export function createApp(
     app.route("/", kookBadge);
     app.route("/", appx);
     app.route("/", appinstaller);
+    app.route("/", databaseDownloads);
     app.route("/", prebuilds);
     app.route("/", backupStoragePolicy);
   }
