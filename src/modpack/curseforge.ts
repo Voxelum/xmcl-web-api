@@ -20,12 +20,16 @@ interface CurseForgeFileResponse {
 
 export class CurseForgeSourceResolver implements ModpackSourceResolver {
   readonly provider = "curseforge" as const;
+  private readonly fetcher: typeof fetch;
 
   constructor(
     private readonly apiKey: string,
-    private readonly fetcher: typeof fetch = fetch,
+    fetcher?: typeof fetch,
     private readonly apiBase = "https://api.curseforge.com/v1",
-  ) {}
+  ) {
+    this.fetcher = fetcher ??
+      ((input, init) => globalThis.fetch(input, init));
+  }
 
   async resolve(reference: ModSourceReference): Promise<ResolvedModSource> {
     if (

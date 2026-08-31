@@ -6,6 +6,53 @@ import { CurseForgeSourceResolver } from "./curseforge.ts";
 import { ModrinthSourceResolver } from "./modrinth.ts";
 import { ModpackSourceError } from "./types.ts";
 
+Deno.test("provider defaults preserve the runtime fetch receiver", async () => {
+  const previous = globalThis.fetch;
+  globalThis.fetch = function (this: typeof globalThis, input) {
+    assert.equal(this, globalThis);
+    const url = String(input);
+    if (url.includes("modrinth")) {
+      return Promise.resolve(Response.json({
+        project_id: "project-a",
+        id: "version-a",
+        files: [{
+          filename: "example.jar",
+          url:
+            "https://cdn.modrinth.com/data/project-a/versions/version-a/example.jar",
+          size: 100,
+          hashes: { sha256: "a".repeat(64) },
+        }],
+      }));
+    }
+    return Promise.resolve(Response.json({
+      data: {
+        id: 2,
+        modId: 1,
+        fileName: "example.jar",
+        downloadUrl: "https://edge.forgecdn.net/files/1/2/example.jar",
+        fileLength: 100,
+        hashes: [{ algo: 3, value: "b".repeat(64) }],
+      },
+    }));
+  } as typeof fetch;
+  try {
+    await new ModrinthSourceResolver().resolve({
+      provider: "modrinth",
+      projectId: "project-a",
+      fileId: "version-a",
+      filename: "example.jar",
+    });
+    await new CurseForgeSourceResolver("key").resolve({
+      provider: "curseforge",
+      projectId: "1",
+      fileId: "2",
+      filename: "example.jar",
+    });
+  } finally {
+    globalThis.fetch = previous;
+  }
+});
+
 Deno.test("Modrinth resolver binds project/file IDs and allow-listed CDN artifacts", async () => {
   const resolver = new ModrinthSourceResolver(async () =>
     Response.json({

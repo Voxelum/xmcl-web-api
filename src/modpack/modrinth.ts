@@ -31,11 +31,15 @@ interface ModrinthVersion {
 
 export class ModrinthSourceResolver implements ModpackSourceResolver {
   readonly provider = "modrinth" as const;
+  private readonly fetcher: typeof fetch;
 
   constructor(
-    private readonly fetcher: typeof fetch = fetch,
+    fetcher?: typeof fetch,
     private readonly apiBase = "https://api.modrinth.com/v2",
-  ) {}
+  ) {
+    this.fetcher = fetcher ??
+      ((input, init) => globalThis.fetch(input, init));
+  }
 
   async resolve(reference: ModSourceReference): Promise<ResolvedModSource> {
     if (
