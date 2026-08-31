@@ -4,7 +4,14 @@ import {
   type ModpackZipLimits,
   readModpackZip,
 } from "./modpackImport.ts";
-import { isReviewedRuntimeToolchain, runtimeCatalog } from "./runtimeCatalog.ts";
+import {
+  isReviewedRuntimeToolchain,
+  runtimeCatalog,
+} from "./runtimeCatalog.ts";
+import type {
+  ModpackSourceResolver,
+  ResolvedModSource,
+} from "./modpack/types.ts";
 
 export interface XmclServerBundleFile {
   path: string;
@@ -45,6 +52,7 @@ export interface ValidatedXmclServerBundle {
   files: XmclServerBundleFile[];
   configFiles: XmclServerBundleFile[];
   dataFiles: XmclServerBundleFile[];
+  resolvedMods: ResolvedModSource[];
 }
 
 const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -85,6 +93,7 @@ export async function validateXmclServerBundle(input: {
   importId: string;
   archive: Uint8Array;
   limits?: ModpackZipLimits;
+  resolvers?: readonly ModpackSourceResolver[];
 }): Promise<ValidatedXmclServerBundle> {
   const report: XmclServerBundleValidationReport = {
     importId: input.importId,
@@ -104,7 +113,13 @@ export async function validateXmclServerBundle(input: {
   } catch (error) {
     if (error instanceof ModpackZipError) {
       reject(report, error.path ?? "$archive", error.code);
-      return { report, files: [], configFiles: [], dataFiles: [] };
+      return {
+        report,
+        files: [],
+        configFiles: [],
+        dataFiles: [],
+        resolvedMods: [],
+      };
     }
     throw error;
   }
@@ -112,7 +127,13 @@ export async function validateXmclServerBundle(input: {
   const bundleJson = entries.filter((entry) => entry.path === "bundle.json");
   if (bundleJson.length !== 1) {
     reject(report, "$archive", "bundle_manifest_count_invalid");
-    return { report, files: [], configFiles: [], dataFiles: [] };
+    return {
+      report,
+      files: [],
+      configFiles: [],
+      dataFiles: [],
+      resolvedMods: [],
+    };
   }
   let manifest: XmclServerBundleManifest;
   try {
@@ -123,7 +144,13 @@ export async function validateXmclServerBundle(input: {
       "bundle.json",
       error instanceof Error ? error.message : "invalid_bundle_manifest",
     );
-    return { report, files: [], configFiles: [], dataFiles: [] };
+    return {
+      report,
+      files: [],
+      configFiles: [],
+      dataFiles: [],
+      resolvedMods: [],
+    };
   }
   validateCompatibility(manifest, report);
 
@@ -159,17 +186,29 @@ export async function validateXmclServerBundle(input: {
     }
   }
   for (const file of manifest.files) {
-    if (!byPath.has(file.path)) reject(report, file.path, "manifest_file_missing");
+    if (!byPath.has(file.path)) {
+      reject(report, file.path, "manifest_file_missing");
+    }
   }
   for (const required of resolvedFiles) {
-    if (!byPath.has(required)) reject(report, required, "required_resolved_metadata_missing");
+    if (!byPath.has(required)) {
+      reject(report, required, "required_resolved_metadata_missing");
+    }
   }
   validateResolvedMetadata(byPath, manifest, report);
+  const resolvedMods = await resolveDeclaredMods(
+    byPath,
+    manifest,
+    report,
+    input.resolvers ?? [],
+  );
   report.mods.sort((left, right) => left.path.localeCompare(right.path));
   report.configFiles.sort();
   report.dataFiles.sort();
   if (report.rejectedFiles.length === 0) report.status = "valid";
-  const files = manifest.files.slice().sort((left, right) => comparePath(left.path, right.path));
+  const files = manifest.files.slice().sort((left, right) =>
+    comparePath(left.path, right.path)
+  );
   return {
     report,
     ...(report.status === "valid" ? { manifest } : {}),
@@ -184,6 +223,7 @@ export async function validateXmclServerBundle(input: {
       !file.path.startsWith("instance/config/") &&
       !file.path.startsWith("instance/defaultconfigs/")
     ),
+    resolvedMods,
   };
 }
 
@@ -326,8 +366,14 @@ function validateResolvedMetadata(
   const artifacts = entries.get("resolved/artifacts.json");
   if (!loader || !version || !artifacts) return;
   try {
-    const loaderMetadata = JSON.parse(decoder.decode(loader.bytes)) as Record<string, unknown>;
-    const versionMetadata = JSON.parse(decoder.decode(version.bytes)) as Record<string, unknown>;
+    const loaderMetadata = JSON.parse(decoder.decode(loader.bytes)) as Record<
+      string,
+      unknown
+    >;
+    const versionMetadata = JSON.parse(decoder.decode(version.bytes)) as Record<
+      string,
+      unknown
+    >;
     const metadataLoader = plainObject(loaderMetadata.loader);
     const metadataJava = plainObject(loaderMetadata.javaRequirement);
     const metadataVersionJava = plainObject(versionMetadata.javaVersion);
@@ -346,6 +392,149 @@ function validateResolvedMetadata(
   } catch {
     reject(report, "resolved", "invalid_resolved_metadata");
   }
+}
+
+async function resolveDeclaredMods(
+  entries: Map<string, { bytes: Uint8Array }>,
+  manifest: XmclServerBundleManifest,
+  report: XmclServerBundleValidationReport,
+  resolvers: readonly ModpackSourceResolver[],
+): Promise<ResolvedModSource[]> {
+  const metadata = entries.get("resolved/mods.json");
+  if (!metadata) return [];
+  let raw: unknown;
+  try {
+    raw = JSON.parse(decoder.decode(metadata.bytes));
+  } catch {
+    reject(report, "resolved/mods.json", "invalid_mod_metadata");
+    return [];
+  }
+  if (!Array.isArray(raw)) {
+    reject(report, "resolved/mods.json", "invalid_mod_metadata");
+    return [];
+  }
+  const embedded = new Map(
+    manifest.files
+      .filter((file) => file.path.startsWith("instance/mods/"))
+      .map((file) => [file.path, file]),
+  );
+  const seen = new Set<string>();
+  const resolved: ResolvedModSource[] = [];
+  for (const candidate of raw) {
+    const value = plainObject(candidate);
+    const path = value?.path;
+    if (
+      !value ||
+      typeof path !== "string" ||
+      !path.startsWith("instance/mods/") ||
+      !validSha256(value.sha256) ||
+      !Number.isSafeInteger(value.sizeBytes) ||
+      (value.sizeBytes as number) <= 0 ||
+      seen.has(path)
+    ) {
+      reject(report, "resolved/mods.json", "invalid_mod_metadata");
+      continue;
+    }
+    seen.add(path);
+    const source = plainObject(value.source);
+    if (!source) {
+      if (
+        Object.keys(value).some((key) =>
+          !["path", "sha256", "sizeBytes"].includes(key)
+        )
+      ) {
+        reject(report, path, "invalid_mod_metadata");
+        continue;
+      }
+      const file = embedded.get(path);
+      if (
+        !file ||
+        file.sha256 !== (value.sha256 as string).toLowerCase() ||
+        file.sizeBytes !== value.sizeBytes
+      ) {
+        reject(report, path, "local_mod_metadata_mismatch");
+      }
+      continue;
+    }
+    if (
+      Object.keys(value).some((key) =>
+        !["path", "filename", "sha256", "sizeBytes", "source"].includes(key)
+      ) ||
+      embedded.has(path) ||
+      entries.has(path) ||
+      typeof value.filename !== "string" ||
+      path !== `instance/mods/${value.filename}` ||
+      !safeFilename(value.filename)
+    ) {
+      reject(report, path, "invalid_remote_mod_source");
+      continue;
+    }
+    let reference;
+    if (
+      source.provider === "modrinth" &&
+      Object.keys(source).every((key) =>
+        ["provider", "projectId", "versionId"].includes(key)
+      ) &&
+      typeof source.projectId === "string" &&
+      typeof source.versionId === "string"
+    ) {
+      reference = {
+        provider: "modrinth" as const,
+        projectId: source.projectId,
+        fileId: source.versionId,
+        filename: value.filename,
+      };
+    } else if (
+      source.provider === "curseforge" &&
+      Object.keys(source).every((key) =>
+        ["provider", "projectId", "fileId"].includes(key)
+      ) &&
+      Number.isSafeInteger(source.projectId) &&
+      (source.projectId as number) > 0 &&
+      Number.isSafeInteger(source.fileId) &&
+      (source.fileId as number) > 0
+    ) {
+      reference = {
+        provider: "curseforge" as const,
+        projectId: String(source.projectId),
+        fileId: String(source.fileId),
+        filename: value.filename,
+      };
+    } else {
+      reject(report, path, "invalid_remote_mod_source");
+      continue;
+    }
+    const resolver = resolvers.find((candidate) =>
+      candidate.provider === reference.provider
+    );
+    if (!resolver) {
+      reject(report, path, "remote_mod_resolver_missing");
+      continue;
+    }
+    try {
+      const remote = await resolver.resolve(reference);
+      if (
+        remote.provider !== reference.provider ||
+        remote.projectId !== reference.projectId ||
+        remote.fileId !== reference.fileId ||
+        remote.filename !== value.filename ||
+        remote.sha256 !== (value.sha256 as string).toLowerCase() ||
+        remote.sizeBytes !== value.sizeBytes
+      ) {
+        throw new Error("source mismatch");
+      }
+      resolved.push(remote);
+      report.mods.push({ path, sha256: remote.sha256 });
+    } catch {
+      reject(report, path, "remote_mod_source_mismatch");
+    }
+  }
+  for (const path of embedded.keys()) {
+    if (!seen.has(path)) reject(report, path, "mod_metadata_missing");
+  }
+  return resolved.sort((left, right) =>
+    left.filename.localeCompare(right.filename)
+  );
 }
 
 function isAllowedBundlePath(path: string) {
@@ -367,20 +556,28 @@ function validateArtifactMetadata(
 ) {
   const raw = JSON.parse(decoder.decode(bytes)) as unknown;
   const metadata = plainObject(raw);
-  if (!metadata ||
-    Object.keys(metadata).some((key) => key !== "schemaVersion" && key !== "artifacts") ||
+  if (
+    !metadata ||
+    Object.keys(metadata).some((key) =>
+      key !== "schemaVersion" && key !== "artifacts"
+    ) ||
     metadata.schemaVersion !== 1 ||
     !Array.isArray(metadata.artifacts)
   ) throw new Error("invalid_artifact_metadata");
-  const expected = manifest.files.filter((file) => file.path.startsWith("instance/"));
-  if (metadata.artifacts.length !== expected.length) throw new Error("invalid_artifact_metadata");
+  const expected = manifest.files.filter((file) =>
+    file.path.startsWith("instance/")
+  );
+  if (metadata.artifacts.length !== expected.length) {
+    throw new Error("invalid_artifact_metadata");
+  }
   for (let index = 0; index < expected.length; index += 1) {
     const value = plainObject(metadata.artifacts[index]);
     const file = expected[index];
     if (
       !value ||
       Object.keys(value).some((key) =>
-        key !== "intent" && key !== "path" && key !== "sha256" && key !== "sizeBytes"
+        key !== "intent" && key !== "path" && key !== "sha256" &&
+        key !== "sizeBytes"
       ) ||
       value.path !== file.path ||
       value.sha256 !== file.sha256 ||
@@ -392,7 +589,10 @@ function validateArtifactMetadata(
 
 function artifactIntent(path: string) {
   if (path.startsWith("instance/mods/")) return "mod";
-  if (path.startsWith("instance/config/") || path.startsWith("instance/defaultconfigs/")) return "config";
+  if (
+    path.startsWith("instance/config/") ||
+    path.startsWith("instance/defaultconfigs/")
+  ) return "config";
   if (path.startsWith("instance/kubejs/")) return "kubejs";
   if (path.startsWith("instance/scripts/")) return "script";
   if (path.startsWith("instance/datapacks/")) return "datapack";
@@ -418,9 +618,16 @@ function validLoaderVersion(value: unknown): value is string {
     /^[0-9A-Za-z][0-9A-Za-z._+-]*$/.test(value);
 }
 
+function safeFilename(value: string) {
+  return value.length > 0 && value.length <= 255 &&
+    !value.includes("/") && !value.includes("\\") &&
+    !value.includes("\0") && value.toLowerCase().endsWith(".jar");
+}
+
 function validMinecraftVersion(value: unknown): value is string {
   return typeof value === "string" &&
-    /^(?:1\.(?:0|[1-9]\d{0,2})\.(?:0|[1-9]\d{0,2})|[1-9]\d{1,3}\.(?:0|[1-9]\d{0,2})(?:\.(?:0|[1-9]\d{0,2}))?)$/.test(value);
+    /^(?:1\.(?:0|[1-9]\d{0,2})\.(?:0|[1-9]\d{0,2})|[1-9]\d{1,3}\.(?:0|[1-9]\d{0,2})(?:\.(?:0|[1-9]\d{0,2}))?)$/
+      .test(value);
 }
 
 function minecraftAtLeast(value: string, minor: number, patch: number) {

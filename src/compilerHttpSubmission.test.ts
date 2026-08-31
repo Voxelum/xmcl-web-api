@@ -103,8 +103,8 @@ Deno.test("HTTP compiler submission sends a closed versioned envelope with exact
     fetchImpl: async (input, init) => {
       captured = { input, init };
       return new Response(
-        JSON.stringify({ status: "published", deploymentId: deployment.deploymentId }),
-        { headers: { "content-type": "application/json" } },
+        JSON.stringify({ status: "accepted", deploymentId: deployment.deploymentId }),
+        { status: 202, headers: { "content-type": "application/json" } },
       );
     },
   });
@@ -231,7 +231,6 @@ Deno.test("HTTP compiler submission rejects arbitrary successful responses", asy
     now: () => now,
     fetchImpl: async () => new Response(JSON.stringify({ status: "ok" })),
   });
-
   await assert.rejects(
     () =>
       compiler.submit({
@@ -247,6 +246,54 @@ Deno.test("HTTP compiler submission rejects arbitrary successful responses", asy
       error instanceof SharedModdedRuntimeError &&
       error.code === "compiler_unavailable",
   );
+});
+
+Deno.test("HTTP compiler submission accepts only an exact 202 queue acknowledgement", async () => {
+  for (const response of [
+    new Response(JSON.stringify({
+      status: "accepted",
+      deploymentId: deployment.deploymentId,
+    }), { status: 200 }),
+    new Response(JSON.stringify({
+      status: "accepted",
+      deploymentId: "other_deployment",
+    }), { status: 202 }),
+    new Response(JSON.stringify({
+      status: "accepted",
+      deploymentId: deployment.deploymentId,
+      queued: true,
+    }), { status: 202 }),
+  ]) {
+    const compiler = new HttpSharedModdedCompiler({
+      endpoint: "https://compiler.example/v1/compiler-jobs",
+      repository: { getDeployment: async () => deployment },
+      grants: { issue: async () => grants },
+      identity: new HmacCompilerServiceIdentity({
+        keyId: "compiler-v1",
+        secret,
+        nonceStore: new Nonces(),
+        now: () => now.getTime(),
+      }),
+      timeoutMs: 10_000,
+      now: () => now,
+      fetchImpl: async () => response,
+    });
+    await assert.rejects(
+      () =>
+        compiler.submit({
+          deploymentId: deployment.deploymentId,
+          compilerRequestId: deployment.compilerRequestId,
+          accountId: deployment.accountId,
+          serviceId: deployment.serviceId,
+          manifestSha256: deployment.manifestSha256,
+          expectedContentKey: deployment.expectedContentKey,
+          frozenManifest: deployment.frozenManifest,
+        }),
+      (error) =>
+        error instanceof SharedModdedRuntimeError &&
+        error.code === "compiler_unavailable",
+    );
+  }
 });
 
 Deno.test("HTTP compiler submission preserves upload uncertainty for durable retry", async () => {

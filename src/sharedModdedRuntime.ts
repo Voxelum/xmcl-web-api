@@ -818,7 +818,11 @@ export class SharedModdedRuntimeService {
       });
       validationStage = "content";
       validated = imported.sourceFormat === "xmcl_server_bundle"
-        ? await validateXmclServerBundle({ importId, archive })
+        ? await validateXmclServerBundle({
+          importId,
+          archive,
+          resolvers: this.options.resolvers,
+        })
         : await validateModpackArchive({
           importId,
           archive,
@@ -1609,7 +1613,14 @@ async function freezeRuntimeManifest(
       },
       configFiles: validated.bundle.configFiles.map((file) => ({ ...file })).sort(sortPath),
       dataFiles: validated.bundle.dataFiles.map((file) => ({ ...file })).sort(sortPath),
-      mods: [],
+      mods: validated.bundle.resolvedMods.map((mod) => {
+        assertApprovedCompilerArtifact(mod);
+        return { ...mod };
+      }).sort((left, right) =>
+        `${left.provider}:${left.projectId}:${left.fileId}`.localeCompare(
+          `${right.provider}:${right.projectId}:${right.fileId}`,
+        )
+      ),
       bundle: {
         schemaVersion: 1,
         files: validated.bundle.files.map((file) => ({ ...file })).sort(sortPath),
@@ -1749,7 +1760,7 @@ function assertApprovedCompilerArtifact(mod: ResolvedModSource) {
   }
   const hosts = mod.provider === "modrinth"
     ? ["cdn.modrinth.com"]
-    : ["edge.forgecdn.net", "mediafilez.forgecdn.net"];
+    : ["forgecdn.net"];
   try {
     assertProviderDownloadUrl(mod.downloadUrl, mod.provider, hosts);
   } catch {

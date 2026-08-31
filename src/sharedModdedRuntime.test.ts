@@ -267,18 +267,18 @@ async function publishedFixture() {
   return { ...f, service, deployment, compilerGrants };
 }
 
-async function localBundleArchive() {
+async function localBundleArchive(remote = false) {
   const mod = {
     path: "instance/mods/example.jar",
     bytes: new Uint8Array([1, 2, 3]),
   };
-  const artifacts = [{
+  const artifacts = remote ? [] : [{
     intent: "mod",
     path: mod.path,
     sha256: await sha256Bytes(mod.bytes),
     sizeBytes: mod.bytes.byteLength,
   }];
-  const files = [mod, {
+  const files = [...(remote ? [] : [mod]), {
     path: "resolved/loader.json",
     bytes: jsonBytes({
       schemaVersion: 1,
@@ -289,7 +289,19 @@ async function localBundleArchive() {
     }),
   }, {
     path: "resolved/mods.json",
-    bytes: jsonBytes(artifacts.map(({ intent: _, ...file }) => file)),
+    bytes: jsonBytes(remote
+      ? [{
+        path: mod.path,
+        filename: "example.jar",
+        sha256: sha,
+        sizeBytes: 123,
+        source: {
+          provider: "modrinth",
+          projectId: "project-a",
+          versionId: "version-a",
+        },
+      }]
+      : artifacts.map(({ intent: _, ...file }) => file)),
   }, {
     path: "resolved/artifacts.json",
     bytes: jsonBytes({ schemaVersion: 1, artifacts }),
@@ -419,7 +431,7 @@ Deno.test("compiler grants bind the frozen service/deployment and one immutable 
 });
 
 Deno.test("freezes validated local server bundles with exact catalog Java and compiler-only input grants", async () => {
-  const archive = await localBundleArchive();
+  const archive = await localBundleArchive(true);
   const f = fixture({ archive });
   const service = await f.scheduler.createService({
     accountId: "account_1",
@@ -451,6 +463,16 @@ Deno.test("freezes validated local server bundles with exact catalog Java and co
     major: 17,
   });
   assert.match(deployment.frozenManifest.archive.key, /\.xmcl-server-bundle$/);
+  assert.deepEqual(deployment.frozenManifest.mods, [{
+    provider: "modrinth",
+    projectId: "project-a",
+    fileId: "version-a",
+    filename: "example.jar",
+    sha256: sha,
+    sizeBytes: 123,
+    downloadUrl:
+      "https://cdn.modrinth.com/data/project-a/versions/version-a/example.jar",
+  }]);
   const grants = await f.runtime.compilerGrants({
     deploymentId: deployment.deploymentId,
     compilerRequestId: deployment.compilerRequestId,

@@ -270,11 +270,19 @@ async function validateCompilerResponse(
   }
   const value = payload as Record<string, unknown>;
   if (
+    response.status === 202 &&
+    value.status === "accepted" &&
+    value.deploymentId === deployment.deploymentId &&
+    Object.keys(value).length === 2
+  ) return undefined;
+  if (
+    response.status === 200 &&
     value.status === "published" &&
     value.deploymentId === deployment.deploymentId &&
     Object.keys(value).length === 2
   ) return undefined;
   if (
+    response.status === 200 &&
     value.status === "failed" &&
     ["unsupported_compatibility", "compiler_unavailable", "compiler_failed"]
       .includes(value.code as string) &&
@@ -284,6 +292,7 @@ async function validateCompilerResponse(
     | "compiler_unavailable"
     | "compiler_failed";
   if (
+    response.status === 200 &&
     ["published_callback_uncertain", "upload_reconciliation_uncertain"]
       .includes(value.status as string) &&
     value.deploymentId === deployment.deploymentId &&
