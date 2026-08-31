@@ -163,3 +163,34 @@ Deno.test("service responses omit nullable optional persistence fields", () => {
   assert.equal("retentionStartedAt" in service, false);
   assert.equal("retentionEndsAt" in service, false);
 });
+
+Deno.test("service responses expose only the public Minecraft endpoint", () => {
+  const service = publicService(
+    {
+      serviceId: "service_endpoint",
+      subscriptionId: "sub_1",
+      accountId: "account_1",
+      planId: "shared-small",
+      regionId: "mow",
+      status: "running",
+      workspace: {
+        revision: 1,
+        sizeBytes: 1024,
+        objectPrefix: "shared-hosting/account_1/service_endpoint/",
+      },
+      nodeId: "ln-mow-camp-1",
+      assignmentId: "assignment_1",
+      createdAt: "2026-08-31T00:00:00.000Z",
+      updatedAt: "2026-08-31T00:01:00.000Z",
+    },
+    undefined,
+    { host: "38.60.218.60", port: 25645 },
+  );
+
+  assert.deepEqual(service.endpoint, {
+    host: "38.60.218.60",
+    port: 25645,
+  });
+  assert.equal("nodeId" in service, false);
+  assert.equal("assignmentId" in service, false);
+});

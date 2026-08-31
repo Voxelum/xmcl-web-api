@@ -26,6 +26,10 @@ export function publicService(
     memoryLimitMiB: number;
     observedAt: string;
   },
+  endpoint?: {
+    host: string;
+    port: number;
+  },
 ) {
   return {
     serviceId: value.serviceId,
@@ -42,6 +46,7 @@ export function publicService(
     },
     statusReason: value.statusReason ?? undefined,
     metrics,
+    endpoint,
     retentionStartedAt: value.retentionStartedAt ?? undefined,
     retentionEndsAt: value.retentionEndsAt ?? undefined,
     createdAt: value.createdAt,
@@ -63,17 +68,15 @@ export function createSharedHostingServiceRoutes(
     const services = await schedulerFor(c, scheduler).listServices(accountId);
     const activeTransport = transport ?? c.var.sharedNodeTransport;
     return c.json(
-      await Promise.all(services.map(async (service) =>
-        publicService(
-          service,
-          activeTransport
-            ? await activeTransport.sharedServiceMetrics(
-              accountId,
-              service.serviceId,
-            )
-            : undefined,
-        )
-      )),
+      await Promise.all(services.map(async (service) => {
+        const [metrics, endpoint] = activeTransport
+          ? await Promise.all([
+            activeTransport.sharedServiceMetrics(accountId, service.serviceId),
+            activeTransport.endpointForService(service.serviceId),
+          ])
+          : [undefined, undefined];
+        return publicService(service, metrics, endpoint);
+      })),
     );
   });
   app.get("/v1/shared-hosting/services/:serviceId/export", async (c) => {
@@ -107,7 +110,17 @@ export function createSharedHostingServiceRoutes(
           c.req.param("serviceId"),
           requireIdempotencyKey(c),
         );
-        return c.json(publicService(result), 202);
+        const activeTransport = transport ?? c.var.sharedNodeTransport;
+        return c.json(
+          publicService(
+            result,
+            undefined,
+            activeTransport
+              ? await activeTransport.endpointForService(result.serviceId)
+              : undefined,
+          ),
+          202,
+        );
       },
     );
   }
