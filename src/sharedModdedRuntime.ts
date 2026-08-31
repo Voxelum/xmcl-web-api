@@ -1697,7 +1697,17 @@ function validateCompiledContent(
     !content.paths.includes(".xmcl/launch.sh") ||
     content.paths.some((path) => !isCompilerContentPath(path))
   ) {
-    throw new SharedModdedRuntimeError("content_invalid");
+    throw new SharedModdedRuntimeError("content_invalid", {
+      expectedKey: content.key === deployment.expectedContentKey,
+      validSha256: validSha256(content.sha256),
+      descriptorSha256: content.sha256 === descriptor.contentSha256,
+      compressedSize: content.compressedSize,
+      logicalSize: content.logicalSize,
+      pathCount: content.paths.length,
+      hasRuntimeDescriptor: content.paths.includes(".xmcl/runtime.json"),
+      hasLaunchScript: content.paths.includes(".xmcl/launch.sh"),
+      invalidPath: content.paths.find((path) => !isCompilerContentPath(path)),
+    });
   }
   const resolved = resolveRuntimeCompatibility({
     minecraftVersion: deployment.frozenManifest.compatibility.minecraftVersion,
