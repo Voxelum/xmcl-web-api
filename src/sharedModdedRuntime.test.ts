@@ -763,7 +763,12 @@ Deno.test("a missing server-side terms acceptance cannot select content", async 
       sha256: descriptor.contentSha256,
       compressedSize: 10,
       logicalSize: 10,
-      paths: [".xmcl/runtime.json", ".xmcl/launch.sh"],
+      paths: [
+        ".xmcl/runtime.json",
+        ".xmcl/launch.sh",
+        "config/fml.toml",
+        "defaultconfigs/neoforge-server.toml",
+      ],
     },
     descriptor,
   };

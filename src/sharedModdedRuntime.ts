@@ -1902,9 +1902,7 @@ function isCompilerContentPath(path: string) {
     !(
       path === "world" || path.startsWith("world/") ||
       path === "world_nether" || path.startsWith("world_nether/") ||
-      path === "world_the_end" || path.startsWith("world_the_end/") ||
-      path === "config" || path.startsWith("config/") ||
-      path === "defaultconfigs" || path.startsWith("defaultconfigs/")
+      path === "world_the_end" || path.startsWith("world_the_end/")
     );
 }
 
