@@ -529,7 +529,7 @@ function clone<T>(value: T): T {
 }
 
 function commandFingerprint(command: SharedNodeCommand) {
-  return JSON.stringify(canonicalizeCommand({
+  return canonicalJson({
     commandId: command.commandId,
     kind: command.kind,
     nodeId: command.nodeId,
@@ -542,16 +542,20 @@ function commandFingerprint(command: SharedNodeCommand) {
     eulaAccepted: command.eulaAccepted,
     resources: command.resources,
     connection: command.connection,
-  }));
+  });
 }
 
-function canonicalizeCommand(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalizeCommand);
+function canonicalJson(value: unknown) {
+  return JSON.stringify(canonicalizeJsonValue(value));
+}
+
+function canonicalizeJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeJsonValue);
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
         .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, child]) => [key, canonicalizeCommand(child)]),
+        .map(([key, child]) => [key, canonicalizeJsonValue(child)]),
     );
   }
   return value;
@@ -1566,7 +1570,7 @@ export class MemorySharedWorkspaceManifestRepository
           existing.commandId !== record.commandId ||
           existing.assignmentId !== record.assignmentId ||
           existing.manifestSha256 !== record.manifestSha256 ||
-          JSON.stringify(existing.manifest) !== JSON.stringify(record.manifest)
+          canonicalJson(existing.manifest) !== canonicalJson(record.manifest)
         ) {
           throw new SharedNodeTransportError("workspace_grant_denied");
         }
@@ -1675,7 +1679,7 @@ export class MongoSharedWorkspaceManifestRepository
       current.commandId !== record.commandId ||
       current.assignmentId !== record.assignmentId ||
       current.manifestSha256 !== record.manifestSha256 ||
-      JSON.stringify(current.manifest) !== JSON.stringify(record.manifest)
+      canonicalJson(current.manifest) !== canonicalJson(record.manifest)
     ) {
       throw new SharedNodeTransportError("workspace_grant_denied");
     }
@@ -2554,7 +2558,7 @@ export class SharedNodeTransportService {
       record.commandId !== command.commandId ||
       record.assignmentId !== command.assignmentId ||
       record.manifestSha256 !== input.manifestSha256 ||
-      JSON.stringify(record.manifest) !== JSON.stringify(input.manifest)
+      canonicalJson(record.manifest) !== canonicalJson(input.manifest)
     ) {
       throw new SharedNodeTransportError("workspace_grant_denied");
     }
