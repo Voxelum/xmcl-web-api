@@ -793,7 +793,7 @@ export class MongoSharedNodeCommandOutbox implements SharedNodeCommandOutbox {
 
   async enqueue(command: SharedNodeCommand) {
     const collection = this.collection();
-    await collection.updateOne(
+    const result = await collection.updateOne(
       { _id: command.commandId },
       {
         $setOnInsert: {
@@ -807,6 +807,7 @@ export class MongoSharedNodeCommandOutbox implements SharedNodeCommandOutbox {
       },
       { upsert: true },
     );
+    if (result.upsertedCount === 1) return;
     const existing = await collection.findOne({ _id: command.commandId }) as
       | StoredCommand
       | undefined;
