@@ -1009,6 +1009,7 @@ Deno.test("workspace grants are lease-bound, exact, manifest-last, and credentia
     ...command("node_a", "workspace.stop_and_sync:assignment_1"),
     kind: "workspace.stop_and_sync",
   });
+
   const leased = await f.service.nextCommand(
     "node_a",
     await signed(
@@ -1357,6 +1358,88 @@ Deno.test("workspace grants are lease-bound, exact, manifest-last, and credentia
     ),
     false,
   );
+});
+
+Deno.test("workspace sync accepts compiler content descriptors with command metadata", async () => {
+  const f = await fixture();
+  const credential = f.registrations.get("node_a")!;
+  const descriptor = {
+    key: "shared-hosting/account_1/service_1/compiler-content/" +
+      "a".repeat(64) + ".tar.zst",
+    sha256: "b".repeat(64),
+    compressedSize: 10,
+    logicalSize: 1,
+    paths: [".xmcl/runtime.json", ".xmcl/launch.sh", "mods/stable.jar"],
+  };
+  const runtimeContent = {
+    ...descriptor,
+    deploymentId: "deployment_1",
+    manifestSha256: "a".repeat(64),
+    eulaAccepted: true,
+  };
+  f.service.setRuntimeContentGrantAuthority({
+    authorizeNodeRestore: async (input) => {
+      assert.deepEqual(input.content, descriptor);
+      return true;
+    },
+  });
+  await f.service.dispatch({
+    ...command("node_a", "workspace.stop_and_sync:assignment_1"),
+    kind: "workspace.stop_and_sync",
+    runtimeContent,
+  });
+  const leased = await f.service.nextCommand(
+    "node_a",
+    await signed(
+      credential,
+      `SharedNode ${credential}`,
+      "POST",
+      "/v1/internal/shared-nodes/node_a/commands:next",
+      "",
+      "compiler-content-next",
+    ),
+  );
+  const aggregate = await digest(
+    `${descriptor.key}\0${descriptor.sha256}\0${descriptor.compressedSize}:${descriptor.logicalSize}\0${
+      descriptor.paths.map((path) => `${path}\0`).join("")
+    }\n`,
+  );
+  const manifest = {
+    schemaVersion: 2 as const,
+    serviceId: "service_1",
+    assignmentId: "assignment_1",
+    revision: 1,
+    createdAt: nowValue.value.toISOString(),
+    logicalSize: descriptor.logicalSize,
+    manifestHash: aggregate,
+    aggregateSha256: aggregate,
+    content: descriptor,
+    world: [],
+  };
+  const input = {
+    contractVersion: SHARED_NODE_WORKSPACE_CONTRACT_VERSION as 2,
+    commandId: "workspace.stop_and_sync:assignment_1",
+    assignmentId: "assignment_1",
+    leaseToken: leased!.leaseToken,
+    leaseGeneration: leased!.leaseGeneration,
+    keys: [descriptor.key],
+    manifest,
+    manifestSha256: "c".repeat(64),
+  };
+  const body = JSON.stringify(input);
+  const response = await f.service.workspaceSyncGrant(
+    "node_a",
+    input,
+    await signed(
+      credential,
+      `SharedNode ${credential}`,
+      "POST",
+      "/v1/internal/shared-nodes/node_a/workspace-grants/sync",
+      body,
+      "compiler-content-sync",
+    ),
+  );
+  assert.deepEqual(response.grants, []);
 });
 
 Deno.test("workspace grant rejects an expired command lease before issuing URLs", async () => {

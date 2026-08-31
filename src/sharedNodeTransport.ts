@@ -3150,7 +3150,12 @@ function sameDescriptor(
   left: SharedWorkspaceBlobDescriptor,
   right: SharedWorkspaceBlobDescriptor,
 ) {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return left.key === right.key &&
+    left.sha256 === right.sha256 &&
+    left.compressedSize === right.compressedSize &&
+    left.logicalSize === right.logicalSize &&
+    left.paths.length === right.paths.length &&
+    left.paths.every((path, index) => path === right.paths[index]);
 }
 
 function escapeRegExp(value: string) {
