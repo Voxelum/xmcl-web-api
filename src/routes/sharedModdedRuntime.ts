@@ -307,6 +307,15 @@ export function createSharedModdedCompilerRoutes(
         if (!content || typeof content !== "object" || Array.isArray(content)) {
           throw new SharedModdedRuntimeError("invalid_request", { field: "content" });
         }
+        const contentRecord = content as Record<string, unknown>;
+        console.info("shared runtime compiler upload prepared", {
+          deploymentId: c.req.param("deploymentId"),
+          compressedSize: contentRecord.compressedSize,
+          logicalSize: contentRecord.logicalSize,
+          pathCount: Array.isArray(contentRecord.paths)
+            ? contentRecord.paths.length
+            : undefined,
+        });
         const runtime = runtimeFor(c, configured);
         const prepared = await runtime.prepareCompilerUpload({
           deploymentId: c.req.param("deploymentId"),
