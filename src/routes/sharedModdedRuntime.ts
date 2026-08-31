@@ -465,6 +465,14 @@ function compilerError(
   error: unknown,
   c: { json: (value: unknown, status?: number) => Response },
 ) {
+  console.warn("shared runtime compiler callback rejected", {
+    code: error instanceof SharedModdedRuntimeError
+      ? error.code
+      : "compiler_callback_invalid",
+    details: error instanceof SharedModdedRuntimeError
+      ? error.details
+      : undefined,
+  });
   const status = error instanceof SharedModdedRuntimeError &&
       error.code === "not_found"
     ? 404
