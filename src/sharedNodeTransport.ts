@@ -1961,6 +1961,10 @@ export class SharedNodeTransportService {
     };
   }
 
+  stagingNodeHeartbeat(nodeId: string) {
+    return this.options.credentialRepository.findHeartbeat(nodeId);
+  }
+
   async dispatch(command: SharedNodeCommand) {
     if (!command.connection) {
       throw new SharedNodeTransportError("invalid_request");

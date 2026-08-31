@@ -86,7 +86,11 @@ export function createSharedNodeTransportRoutes(
       transport.reconciliationCommands(),
       transport.reconciliationNodes(),
     ]);
-    return c.json({ services, commands, nodes });
+    const heartbeats = await Promise.all(nodes.map(async (node) => ({
+      nodeId: node.nodeId,
+      heartbeat: await transport.stagingNodeHeartbeat(node.nodeId),
+    })));
+    return c.json({ services, commands, nodes, heartbeats });
   });
 
   app.get("/v1/staging/shared-hosting/services/:serviceId", async (c) => {
