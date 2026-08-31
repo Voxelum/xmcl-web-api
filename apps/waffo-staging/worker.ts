@@ -719,6 +719,9 @@ export default {
       );
       const isSharedNodeEnrollment = request.method === "POST" &&
         url.pathname === "/v1/staging/shared-nodes/enrollments";
+      const isSharedNodeOperator =
+        (request.method === "GET" || request.method === "POST") &&
+        url.pathname.startsWith("/v1/staging/shared-hosting/");
       if (
         !isBillingRead && !isBillingMutation && !isBillingPreflight &&
         !isSharedHostingRead && !isSharedHostingPreflight &&
@@ -726,7 +729,7 @@ export default {
         !isPlusRead && !isPlusMutation &&
         !isPlusPreflight && !isAccountSurface && !isAdminSurface &&
         !isUsageSurface && !isWebhook && !isSharedNodeTransport &&
-        !isSharedNodeEnrollment
+        !isSharedNodeEnrollment && !isSharedNodeOperator
       ) {
         return new Response("Not Found", { status: 404 });
       }
