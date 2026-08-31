@@ -744,6 +744,20 @@ Deno.test("one-time enrollment binds node identity and cannot replace an active 
     { ...request, bootstrapCredential: token },
   );
   assert.equal(issued.nodeId, "node_c");
+  const retryRequest = await signed(
+    token,
+    undefined,
+    "POST",
+    "/v1/internal/shared-nodes/register",
+    body,
+    "register-c-retry",
+  );
+  const retried = await f.service.register(
+    JSON.parse(body),
+    { ...retryRequest, bootstrapCredential: token },
+  );
+  assert.equal(retried.nodeId, "node_c");
+  assert.notEqual(retried.credential, issued.credential);
   const replacementToken = "replacement-node-token";
   await f.credentialRepository.saveEnrollment({
     nodeId: "node_c",

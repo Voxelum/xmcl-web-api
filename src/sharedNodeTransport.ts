@@ -1985,10 +1985,39 @@ export class SharedNodeTransportService {
     const now = this.now().toISOString();
     if (!credential) throw new SharedNodeTransportError("unauthorized");
     await this.authenticateBootstrap(request, credential, input.nodeId);
+    const tokenHash = await hashSharedNodeToken(credential);
     const active = await this.options.credentialRepository.findCredential(
       input.nodeId,
     );
     if (active && Date.parse(active.expiresAt) > this.now().getTime()) {
+      const enrollment = await this.options.enrollmentRepository.findEnrollment(
+        input.nodeId,
+      );
+      if (
+        enrollment?.consumedAt &&
+        enrollment.region === input.region &&
+        enrollment.instanceId === input.instanceId &&
+        enrollment.oneTimeTokenHash === tokenHash &&
+        Date.parse(enrollment.expiresAt) > this.now().getTime() &&
+        sameExpectedCapacity(enrollment.expectedCapacity, {
+          totalMemoryMiB: input.totalMemoryMiB,
+          totalSharedCpu: input.totalSharedCpu,
+          totalWorkspaceGiB: input.totalWorkspaceGiB,
+        })
+      ) {
+        const issued = await issueSharedNodeCredential(
+          input.nodeId,
+          now,
+          this.credentialTtlMs,
+        );
+        await this.options.credentialRepository.saveCredential(issued.record);
+        return {
+          contractVersion: SHARED_NODE_TRANSPORT_CONTRACT_VERSION,
+          nodeId: input.nodeId,
+          credential: issued.token,
+          expiresAt: issued.record.expiresAt,
+        };
+      }
       throw new SharedNodeTransportError("node_conflict");
     }
     const enrollment = await this.options.enrollmentRepository
@@ -1996,7 +2025,7 @@ export class SharedNodeTransportService {
         nodeId: input.nodeId,
         region: input.region,
         instanceId: input.instanceId,
-        tokenHash: await hashSharedNodeToken(credential),
+        tokenHash,
         expectedCapacity: {
           totalMemoryMiB: input.totalMemoryMiB,
           totalSharedCpu: input.totalSharedCpu,
