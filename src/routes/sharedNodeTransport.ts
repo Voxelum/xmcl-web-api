@@ -64,6 +64,31 @@ export function createSharedNodeTransportRoutes(
     return c.json(await scheduler.listAllServices());
   });
 
+  app.get("/v1/staging/shared-hosting/diagnostics", async (c) => {
+    const config = getConfig(c);
+    if (
+      config.XMCL_DEPLOYMENT_ENVIRONMENT !== "staging" ||
+      !config.XMCL_STAGING_NODE_OPERATOR_TOKEN ||
+      !await bearerMatches(
+        c.req.header("authorization"),
+        config.XMCL_STAGING_NODE_OPERATOR_TOKEN,
+      )
+    ) {
+      throw new SharedNodeTransportError("unauthorized");
+    }
+    const scheduler = c.var.sharedHostingScheduler;
+    const transport = c.var.sharedNodeTransport;
+    if (!scheduler || !transport) {
+      throw new SharedNodeTransportError("unavailable");
+    }
+    const [services, commands, nodes] = await Promise.all([
+      scheduler.reconciliationServices(),
+      transport.reconciliationCommands(),
+      transport.reconciliationNodes(),
+    ]);
+    return c.json({ services, commands, nodes });
+  });
+
   app.get("/v1/staging/shared-hosting/services/:serviceId", async (c) => {
     const config = getConfig(c);
     if (
