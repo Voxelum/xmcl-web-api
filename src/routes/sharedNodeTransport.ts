@@ -96,12 +96,17 @@ export function createSharedNodeTransportRoutes(
         item.workspace.revision + 1,
       )
     ))).filter((item) => item !== undefined);
+    const runtimeAuthorizations = await Promise.all(services.map(async (item) => ({
+      serviceId: item.serviceId,
+      ...await transport.reconciliationRuntimeAuthorization(item),
+    })));
     return c.json({
       services,
       commands,
       nodes,
       heartbeats,
       workspaceManifests,
+      runtimeAuthorizations,
     });
   });
 

@@ -1823,6 +1823,34 @@ export class SharedNodeTransportService {
     };
   }
 
+  async reconciliationRuntimeAuthorization(input: {
+    accountId: string;
+    serviceId: string;
+    runtimeContent?: SharedNodeCommand["runtimeContent"];
+  }) {
+    if (!input.runtimeContent) return { configured: false, allowed: false };
+    if (!this.runtimeContentGrantAuthority) {
+      return { configured: false, allowed: false };
+    }
+    const selected = input.runtimeContent;
+    return {
+      configured: true,
+      allowed: await this.runtimeContentGrantAuthority.authorizeNodeRestore({
+        accountId: input.accountId,
+        serviceId: input.serviceId,
+        deploymentId: selected.deploymentId,
+        manifestSha256: selected.manifestSha256,
+        content: {
+          key: selected.key,
+          sha256: selected.sha256,
+          compressedSize: selected.compressedSize,
+          logicalSize: selected.logicalSize,
+          paths: selected.paths,
+        },
+      }),
+    };
+  }
+
   async preparePreprovisionedEnrollment(
     input: PreprovisionedSharedNodeEnrollment,
   ) {
