@@ -90,7 +90,19 @@ export function createSharedNodeTransportRoutes(
       nodeId: node.nodeId,
       heartbeat: await transport.stagingNodeHeartbeat(node.nodeId),
     })));
-    return c.json({ services, commands, nodes, heartbeats });
+    const workspaceManifests = (await Promise.all(services.map((item) =>
+      transport.reconciliationWorkspaceManifest(
+        item.serviceId,
+        item.workspace.revision + 1,
+      )
+    ))).filter((item) => item !== undefined);
+    return c.json({
+      services,
+      commands,
+      nodes,
+      heartbeats,
+      workspaceManifests,
+    });
   });
 
   app.get("/v1/staging/shared-hosting/services/:serviceId", async (c) => {

@@ -1803,6 +1803,26 @@ export class SharedNodeTransportService {
     return await this.options.credentialRepository.reconciliation?.() ?? [];
   }
 
+  async reconciliationWorkspaceManifest(serviceId: string, revision: number) {
+    const record = await this.options.workspaceManifestRepository?.find(
+      serviceId,
+      revision,
+    );
+    if (!record) return undefined;
+    return {
+      serviceId: record.serviceId,
+      revision: record.revision,
+      assignmentId: record.assignmentId,
+      commandId: record.commandId,
+      manifestSha256: record.manifestSha256,
+      status: record.status,
+      aggregateSha256: record.manifest.aggregateSha256,
+      manifestHash: record.manifest.manifestHash,
+      logicalSize: record.manifest.logicalSize,
+      createdAt: record.manifest.createdAt,
+    };
+  }
+
   async preparePreprovisionedEnrollment(
     input: PreprovisionedSharedNodeEnrollment,
   ) {
