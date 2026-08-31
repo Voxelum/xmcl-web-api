@@ -39,6 +39,7 @@ export class SharedNodeTransportError extends Error {
       | "invalid_request"
       | "unavailable"
       | "workspace_grant_denied",
+    readonly detail?: string,
   ) {
     super(code);
   }
@@ -2898,7 +2899,10 @@ async function validateWorkspaceManifestDescriptor(
   runtimeContent?: SharedNodeCommand["runtimeContent"],
 ) {
   if (!isWorkspaceManifestDescriptor(manifest)) {
-    throw new SharedNodeTransportError("workspace_grant_denied");
+    throw new SharedNodeTransportError(
+      "workspace_grant_denied",
+      "invalid_manifest_shape",
+    );
   }
   const prefix = validWorkspacePrefix(command.workspace.objectPrefix);
   if (
@@ -2915,14 +2919,20 @@ async function validateWorkspaceManifestDescriptor(
     !validSha256(manifestSha256) ||
     !Number.isFinite(Date.parse(manifest.createdAt))
   ) {
-    throw new SharedNodeTransportError("workspace_grant_denied");
+    throw new SharedNodeTransportError(
+      "workspace_grant_denied",
+      "invalid_manifest_header",
+    );
   }
   const descriptors = manifestBlobDescriptors(manifest);
   if (
     !manifest.content || !descriptors.length ||
     descriptors.length > maxWorkspaceBlobCount
   ) {
-    throw new SharedNodeTransportError("workspace_grant_denied");
+    throw new SharedNodeTransportError(
+      "workspace_grant_denied",
+      "invalid_manifest_descriptors",
+    );
   }
   const keys = new Set<string>();
   const paths = new Set<string>();
@@ -2934,7 +2944,10 @@ async function validateWorkspaceManifestDescriptor(
       keys.has(descriptor.key) ||
       descriptor.paths.some((path) => paths.has(path))
     ) {
-      throw new SharedNodeTransportError("workspace_grant_denied");
+      throw new SharedNodeTransportError(
+        "workspace_grant_denied",
+        "invalid_blob_descriptor",
+      );
     }
     keys.add(descriptor.key);
     for (const path of descriptor.paths) paths.add(path);
@@ -2946,7 +2959,10 @@ async function validateWorkspaceManifestDescriptor(
     compressedSize > maxWorkspaceBytes ||
     paths.size > maxWorkspacePathCount
   ) {
-    throw new SharedNodeTransportError("workspace_grant_denied");
+    throw new SharedNodeTransportError(
+      "workspace_grant_denied",
+      "invalid_manifest_totals",
+    );
   }
   const contentIsCompilerSelected = Boolean(
     manifest.content && runtimeContent &&
@@ -2958,7 +2974,10 @@ async function validateWorkspaceManifestDescriptor(
       `${prefix}/content/${manifest.content.sha256}.tar.zst` &&
     !contentIsCompilerSelected
   ) {
-    throw new SharedNodeTransportError("workspace_grant_denied");
+    throw new SharedNodeTransportError(
+      "workspace_grant_denied",
+      "invalid_content_key",
+    );
   }
   if (
     manifest.content &&

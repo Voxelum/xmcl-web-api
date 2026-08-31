@@ -458,6 +458,10 @@ export function createSharedNodeTransportRoutes(
         {
           contractVersion: SHARED_NODE_TRANSPORT_CONTRACT_VERSION,
           error: error.code,
+          ...(getConfig(c).XMCL_DEPLOYMENT_ENVIRONMENT === "staging" &&
+              error.detail
+            ? { detail: error.detail }
+            : {}),
         },
         status,
       );
