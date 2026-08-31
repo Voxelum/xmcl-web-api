@@ -1573,6 +1573,10 @@ Deno.test("control plane reserves command host ports and rejects missing ingress
   const first = await allocator.reserve(command("node_a", "assigned-port-1"));
   assert.equal(first.host, "public-node.example");
   assert.ok(first.hostPort >= 25565 && first.hostPort <= 25566);
+  await f.outbox.enqueue({
+    ...command("node_a", "assigned-port-1"),
+    connection: { host: first.host, hostPort: first.hostPort },
+  });
   await assert.rejects(
     async () =>
       f.service.started(
@@ -1610,6 +1614,14 @@ Deno.test("control plane reserves command host ports and rejects missing ingress
     "node_a",
     "assignment_1",
     nowValue.value.toISOString(),
+  );
+  assert.deepEqual(
+    await f.service.endpointForService("service_1", "assignment_1"),
+    { host: "public-node.example", port: first.hostPort },
+  );
+  assert.equal(
+    await f.service.endpointForService("service_1", "stale_assignment"),
+    undefined,
   );
   const reused = await allocator.reserve({
     ...command("node_a", "assigned-port-3"),

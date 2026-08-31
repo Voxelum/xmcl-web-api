@@ -360,6 +360,10 @@ export class MemorySharedNodeIngressRepository
 
 export interface SharedNodeCommandOutbox {
   enqueue(command: SharedNodeCommand): Promise<void>;
+  endpointForAssignment(
+    serviceId: string,
+    assignmentId: string,
+  ): Promise<SharedNodePublicEndpoint | undefined>;
   next(
     nodeId: string,
     now: string,
@@ -618,6 +622,23 @@ export class MemorySharedNodeCommandOutbox implements SharedNodeCommandOutbox {
     });
   }
 
+  async endpointForAssignment(serviceId: string, assignmentId: string) {
+    return await this.transact(() => {
+      const command = [...this.commands.values()].find((item) =>
+        item.kind === "workspace.restore_and_start" &&
+        item.serviceId === serviceId &&
+        item.assignmentId === assignmentId &&
+        item.connection
+      );
+      return command?.connection
+        ? {
+          host: command.connection.host,
+          port: command.connection.hostPort,
+        }
+        : undefined;
+    });
+  }
+
   async next(nodeId: string, now: string, leaseMs: number) {
     return await this.transact(() => {
       const current = [...this.commands.values()].find((item) =>
@@ -825,6 +846,21 @@ export class MongoSharedNodeCommandOutbox implements SharedNodeCommandOutbox {
     ) {
       throw new SharedNodeTransportError("node_conflict");
     }
+  }
+
+  async endpointForAssignment(serviceId: string, assignmentId: string) {
+    const command = await this.collection().findOne({
+      kind: "workspace.restore_and_start",
+      serviceId,
+      assignmentId,
+      connection: { $exists: true },
+    }) as StoredCommand | null;
+    return command?.connection
+      ? {
+        host: command.connection.host,
+        port: command.connection.hostPort,
+      }
+      : undefined;
   }
 
   async next(nodeId: string, now: string, leaseMs: number) {
@@ -1053,9 +1089,9 @@ export class MongoSharedNodeCommandOutbox implements SharedNodeCommandOutbox {
         { returnDocument: "before" },
       );
       if (!result) return count;
-      const command = ((result && "value" in result)
-        ? result.value
-        : result) as StoredCommand | undefined;
+      const command = ((result && "value" in result) ? result.value : result) as
+        | StoredCommand
+        | undefined;
       if (command) {
         await this.nodeClaims().deleteOne({
           _id: command.nodeId,
@@ -2717,15 +2753,26 @@ export class SharedNodeTransportService {
     };
   }
 
-  async endpointForService(serviceId: string) {
+  async endpointForService(serviceId: string, assignmentId?: string) {
     const reservation = await this.options.ingressRepository
       ?.findActiveByService(
         serviceId,
       );
-    return reservation && {
-      host: reservation.host,
-      port: reservation.port,
-    } satisfies SharedNodePublicEndpoint;
+    if (
+      reservation &&
+      (!assignmentId || reservation.assignmentId === assignmentId)
+    ) {
+      return {
+        host: reservation.host,
+        port: reservation.port,
+      } satisfies SharedNodePublicEndpoint;
+    }
+    return assignmentId
+      ? await this.options.commandOutbox.endpointForAssignment(
+        serviceId,
+        assignmentId,
+      )
+      : undefined;
   }
 
   private async authenticateNode(

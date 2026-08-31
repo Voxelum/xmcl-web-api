@@ -95,10 +95,21 @@ export function createSharedNodeTransportRoutes(
         item.serviceId,
         item.workspace.revision + 1,
       )
-    ))).filter((item) => item !== undefined);
-    const runtimeAuthorizations = await Promise.all(services.map(async (item) => ({
+    ))).filter((item) =>
+      item !== undefined
+    );
+    const runtimeAuthorizations = await Promise.all(
+      services.map(async (item) => ({
+        serviceId: item.serviceId,
+        ...await transport.reconciliationRuntimeAuthorization(item),
+      })),
+    );
+    const endpoints = await Promise.all(services.map(async (item) => ({
       serviceId: item.serviceId,
-      ...await transport.reconciliationRuntimeAuthorization(item),
+      endpoint: await transport.endpointForService(
+        item.serviceId,
+        item.assignmentId,
+      ),
     })));
     return c.json({
       services,
@@ -107,6 +118,7 @@ export function createSharedNodeTransportRoutes(
       heartbeats,
       workspaceManifests,
       runtimeAuthorizations,
+      endpoints,
     });
   });
 

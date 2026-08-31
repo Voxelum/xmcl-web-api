@@ -72,7 +72,10 @@ export function createSharedHostingServiceRoutes(
         const [metrics, endpoint] = activeTransport
           ? await Promise.all([
             activeTransport.sharedServiceMetrics(accountId, service.serviceId),
-            activeTransport.endpointForService(service.serviceId),
+            activeTransport.endpointForService(
+              service.serviceId,
+              service.assignmentId,
+            ),
           ])
           : [undefined, undefined];
         return publicService(service, metrics, endpoint);
@@ -116,7 +119,10 @@ export function createSharedHostingServiceRoutes(
             result,
             undefined,
             activeTransport
-              ? await activeTransport.endpointForService(result.serviceId)
+              ? await activeTransport.endpointForService(
+                result.serviceId,
+                result.assignmentId,
+              )
               : undefined,
           ),
           202,
