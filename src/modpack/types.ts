@@ -31,7 +31,7 @@ export class ModpackSourceError extends Error {
       | "provider_unavailable"
       | "unsafe_provider_url",
     readonly provider: ModpackProvider,
-    message = code,
+    message: string = code,
   ) {
     super(message);
     this.name = "ModpackSourceError";

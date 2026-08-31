@@ -531,7 +531,11 @@ async function resolveDeclaredMods(
         report,
         path,
         error instanceof ModpackSourceError
-          ? `remote_mod_${error.code}`
+          ? `remote_mod_${error.code}${
+            /^[a-z0-9_]+$/.test(error.message) && error.message !== error.code
+              ? `_${error.message}`
+              : ""
+          }`
           : "remote_mod_source_mismatch",
       );
     }

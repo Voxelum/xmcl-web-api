@@ -58,20 +58,32 @@ export class ModrinthSourceResolver implements ModpackSourceResolver {
         },
       );
     } catch {
-      throw new ModpackSourceError("provider_unavailable", this.provider);
+      throw new ModpackSourceError(
+        "provider_unavailable",
+        this.provider,
+        "metadata_fetch_failed",
+      );
     }
     if (response.status === 404) {
       throw new ModpackSourceError("source_not_found", this.provider);
     }
     if (!response.ok) {
-      throw new ModpackSourceError("provider_unavailable", this.provider);
+      throw new ModpackSourceError(
+        "provider_unavailable",
+        this.provider,
+        `metadata_status_${response.status}`,
+      );
     }
 
     let version: ModrinthVersion;
     try {
       version = await response.json() as ModrinthVersion;
     } catch {
-      throw new ModpackSourceError("provider_unavailable", this.provider);
+      throw new ModpackSourceError(
+        "provider_unavailable",
+        this.provider,
+        "metadata_json_invalid",
+      );
     }
     if (
       version.project_id !== reference.projectId ||
@@ -133,7 +145,11 @@ export class ModrinthSourceResolver implements ModpackSourceResolver {
         redirect: "error",
       });
     } catch {
-      throw new ModpackSourceError("provider_unavailable", this.provider);
+      throw new ModpackSourceError(
+        "provider_unavailable",
+        this.provider,
+        "artifact_fetch_failed",
+      );
     }
     if (response.status === 404) {
       throw new ModpackSourceError("source_not_found", this.provider);
@@ -141,7 +157,11 @@ export class ModrinthSourceResolver implements ModpackSourceResolver {
     if (!response.ok || response.redirected ||
       (response.url && response.url !== downloadUrl)) {
       void response.body?.cancel("unsafe Modrinth response").catch(() => undefined);
-      throw new ModpackSourceError("provider_unavailable", this.provider);
+      throw new ModpackSourceError(
+        "provider_unavailable",
+        this.provider,
+        `artifact_response_${response.status}`,
+      );
     }
     const encoding = response.headers.get("content-encoding");
     const length = response.headers.get("content-length");
@@ -157,7 +177,11 @@ export class ModrinthSourceResolver implements ModpackSourceResolver {
     }
     const reader = response.body?.getReader();
     if (!reader) {
-      throw new ModpackSourceError("provider_unavailable", this.provider);
+      throw new ModpackSourceError(
+        "provider_unavailable",
+        this.provider,
+        "artifact_body_missing",
+      );
     }
     const digests = {
       sha1: sha1 ? createHash("sha1") : undefined,
