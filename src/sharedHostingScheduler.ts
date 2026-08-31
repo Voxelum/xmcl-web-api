@@ -548,6 +548,10 @@ export class SharedHostingScheduler {
       .map(clone);
   }
 
+  async listAllServices() {
+    return (await this.repository.read()).services.map(clone);
+  }
+
   /**
    * Returns the account-owned service for a deployment adapter without exposing
    * node placement or object-store details to an HTTP route.

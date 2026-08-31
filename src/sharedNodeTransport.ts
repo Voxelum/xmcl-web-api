@@ -1967,6 +1967,10 @@ export class SharedNodeTransportService {
     return service;
   }
 
+  stagingServices() {
+    return this.options.scheduler.listAllServices();
+  }
+
   async stagingServiceOperation(
     serviceId: string,
     operation: "start" | "stop",
