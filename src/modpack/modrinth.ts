@@ -9,6 +9,8 @@ import {
 } from "./types.ts";
 
 const maximumModBytes = 512 * 1024 * 1024;
+const userAgent =
+  "XMCL-Together-Camp/1.0 (https://github.com/Voxelum/xmcl-web-api)";
 
 interface ModrinthFileHashes {
   sha1?: string;
@@ -48,7 +50,12 @@ export class ModrinthSourceResolver implements ModpackSourceResolver {
     try {
       response = await this.fetcher(
         `${this.apiBase}/version/${encodeURIComponent(reference.fileId)}`,
-        { headers: { accept: "application/json" } },
+        {
+          headers: {
+            accept: "application/json",
+            "user-agent": userAgent,
+          },
+        },
       );
     } catch {
       throw new ModpackSourceError("provider_unavailable", this.provider);
@@ -121,6 +128,7 @@ export class ModrinthSourceResolver implements ModpackSourceResolver {
         headers: {
           accept: "application/octet-stream",
           "accept-encoding": "identity",
+          "user-agent": userAgent,
         },
         redirect: "error",
       });
