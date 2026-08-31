@@ -302,6 +302,7 @@ const composeSharedModdedRuntime = async (
         config.XMCL_SHARED_RUNTIME_TERMS_VERSION,
       ),
     });
+    hosting.transport.setRuntimeContentGrantAuthority(runtime);
     c.set("sharedModdedRuntime", runtime);
     c.set("sharedModdedCompilerGrants", grants);
     if (c.req.path.startsWith("/v1/internal/shared-runtime-compiler/")) {
@@ -360,6 +361,10 @@ app.use(
   composeSharedModdedRuntime,
 );
 app.use("/v1/internal/shared-nodes/*", composeSharedRuntime);
+app.use(
+  "/v1/internal/shared-nodes/:nodeId/workspace-grants/*",
+  composeSharedModdedRuntime,
+);
 app.use("/v1/staging/shared-nodes/enrollments", composeSharedRuntime);
 app.use("/v1/staging/shared-hosting/*", composeSharedRuntime);
 app.use("/v1/admin/shared-hosting/reconciliation", composeSharedRuntime);
