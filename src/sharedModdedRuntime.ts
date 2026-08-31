@@ -615,6 +615,22 @@ export interface SharedRuntimeTerms {
   }>;
 }
 
+export class SharedModdedArchiveVerificationError extends Error {
+  constructor(readonly code:
+    | "invalid_expected"
+    | "signing_failed"
+    | "download_failed"
+    | "body_missing"
+    | "body_read_failed"
+    | "digest_failed"
+    | "size_exceeded"
+    | "size_mismatch"
+    | "hash_mismatch") {
+    super(code);
+    this.name = "SharedModdedArchiveVerificationError";
+  }
+}
+
 /**
  * The external terms-acceptance flow writes this narrow, versioned record.
  * Compiler callbacks and customer input can never set its acceptance bit.
@@ -791,6 +807,7 @@ export class SharedModdedRuntimeService {
     imported.updatedAt = this.now();
     await this.options.repository.putImport(imported);
     let validated: ValidatedModpack | ValidatedXmclServerBundle;
+    let validationStage: "archive" | "content" = "archive";
     try {
       const archive = await this.options.archives.readVerified({
         importId,
@@ -799,6 +816,7 @@ export class SharedModdedRuntimeService {
         expectedSha256: imported.expectedSha256,
         expectedSizeBytes: imported.expectedSizeBytes,
       });
+      validationStage = "content";
       validated = imported.sourceFormat === "xmcl_server_bundle"
         ? await validateXmclServerBundle({ importId, archive })
         : await validateModpackArchive({
@@ -806,9 +824,14 @@ export class SharedModdedRuntimeService {
           archive,
           resolvers: this.options.resolvers,
         });
-    } catch {
+    } catch (error) {
       imported.status = "invalid";
-      imported.validation = invalidValidation(imported);
+      imported.validation = invalidValidation(
+        imported,
+        validationStage === "archive"
+          ? archiveFailureReason(error)
+          : "bundle_validation_failed",
+      );
       imported.updatedAt = this.now();
       await this.options.repository.putImport(imported);
       return imported;
@@ -1747,6 +1770,7 @@ function sortPath(
 
 function invalidValidation(
   imported: SharedModdedImport,
+  reason: string,
 ): SharedRuntimeValidationReport {
   if (imported.sourceFormat === "xmcl_server_bundle") {
     return {
@@ -1758,7 +1782,7 @@ function invalidValidation(
       mods: [],
       rejectedFiles: [{
         path: "$archive",
-        reason: "archive_verification_failed",
+        reason,
       }],
     };
   }
@@ -1771,9 +1795,31 @@ function invalidValidation(
     mods: [],
     rejectedFiles: [{
       path: "$archive",
-      reason: "archive_verification_failed",
+      reason,
     }],
   };
+}
+
+function archiveFailureReason(error: unknown) {
+  const code = error && typeof error === "object" && "code" in error
+    ? error.code
+    : undefined;
+  return typeof code === "string" &&
+      [
+        "invalid_expected",
+        "signing_failed",
+        "download_failed",
+        "body_missing",
+        "body_read_failed",
+        "digest_failed",
+        "size_exceeded",
+        "size_mismatch",
+        "hash_mismatch",
+      ].includes(code)
+    ? `archive_${code}`
+    : error instanceof Error && /^[A-Za-z][A-Za-z0-9]*$/.test(error.name)
+    ? `archive_unclassified_${error.name}`
+    : "archive_unclassified_failure";
 }
 
 function compilerInputKey(

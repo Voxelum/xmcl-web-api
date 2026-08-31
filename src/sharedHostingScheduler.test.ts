@@ -184,6 +184,7 @@ Deno.test("shared scheduler packs services into slots and queues without capacit
     totalSharedCpu: 2,
     totalWorkspaceGiB: 32,
   });
+
   const first = await f.scheduler.createService({
     accountId: "account_a",
     subscriptionId: "sub_a",
@@ -221,6 +222,71 @@ Deno.test("shared scheduler packs services into slots and queues without capacit
   assert.equal(queued.status, "queued");
   await f.scheduler.processCapacityRequests();
   assert.equal(f.requests.length, 1);
+});
+
+Deno.test("empty historical workspaces restore selected runtime as an initial workspace", async () => {
+  const f = fixture();
+  f.subscriptions.set("sub_a", subscription("account_a", "sub_a"));
+  await f.scheduler.registerNode({
+    nodeId: "node_a",
+    region: "sgp",
+    status: "ready",
+    totalMemoryMiB: 4096,
+    totalSharedCpu: 2,
+    totalWorkspaceGiB: 32,
+  });
+  const created = await f.scheduler.createService({
+    accountId: "account_a",
+    subscriptionId: "sub_a",
+    idempotencyKey: "create_a",
+  });
+  await f.repository.transact((state) => {
+    const service = state.services.find((value) =>
+      value.serviceId === created.serviceId
+    )!;
+    service.workspace = {
+      ...service.workspace,
+      revision: 1,
+      sizeBytes: 0,
+      physicalBytes: 0,
+      sha256: "a".repeat(64),
+      syncedAt: "2026-07-23T00:00:00.000Z",
+    };
+    service.runtimeContent = {
+      deploymentId: "deployment_1",
+      manifestSha256: "b".repeat(64),
+      key:
+        `shared-hosting/account_a/${created.serviceId}/compiler-content/content_1`,
+      sha256: "c".repeat(64),
+      compressedSize: 1,
+      logicalSize: 1,
+      paths: [".xmcl/runtime.json"],
+      eulaAccepted: true,
+    };
+  });
+
+  await f.scheduler.start("account_a", created.serviceId, "start_a");
+
+  assert.equal(f.commands[0].workspace.revision, 0);
+  assert.equal(f.commands[0].workspace.sha256, undefined);
+  assert.equal(
+    (await f.repository.read()).services[0].workspace.revision,
+    1,
+  );
+  const stopping = await f.scheduler.stop(
+    "account_a",
+    created.serviceId,
+    "stop_a",
+  );
+  assert.equal(await f.scheduler.reportStopped({
+    nodeId: "node_a",
+    serviceId: created.serviceId,
+    assignmentId: stopping.assignmentId!,
+  }), false);
+  assert.equal(
+    (await f.repository.read()).services[0].status,
+    "ready",
+  );
 });
 
 Deno.test("shared scheduler syncs stopped data to object storage and assigns the next queued service", async () => {

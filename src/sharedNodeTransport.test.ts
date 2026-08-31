@@ -180,6 +180,7 @@ async function fixture() {
     );
     registrations.set(nodeId, issued.credential);
   }
+
   return {
     service,
     scheduler,
@@ -192,6 +193,23 @@ async function fixture() {
     schedulerRepository,
   };
 }
+
+Deno.test("stop commands preempt queued restore retries", async () => {
+  const outbox = new MemorySharedNodeCommandOutbox();
+  await outbox.enqueue(command("node_a", "restore"));
+  await outbox.enqueue({
+    ...command("node_a", "stop"),
+    kind: "workspace.stop_and_sync",
+  });
+
+  const leased = await outbox.next(
+    "node_a",
+    "2026-07-24T00:00:00.000Z",
+    1_000,
+  );
+
+  assert.equal(leased?.command.kind, "workspace.stop_and_sync");
+});
 
 Deno.test("retained workspace export grants only the published canonical revision", async (t) => {
   const f = await fixture();

@@ -121,8 +121,8 @@ Deno.test("HTTP compiler submission sends a closed versioned envelope with exact
 
   assert.ok(captured);
   assert.equal(String(captured.input), "https://compiler.example/v1/compiler-jobs");
-  assert.equal(captured.init?.redirect, "error");
-  assert.equal(captured.init?.credentials, "omit");
+  assert.equal(captured.init?.redirect, "manual");
+  assert.equal(captured.init?.credentials, undefined);
   const body = captured.init?.body as Uint8Array;
   const raw = body instanceof Uint8Array
     ? body

@@ -515,6 +515,14 @@ interface StoredCommand extends SharedNodeCommand {
   leaseRenewals: number;
 }
 
+function commandDeliveryOrder(left: StoredCommand, right: StoredCommand) {
+  const priority = (command: StoredCommand) =>
+    command.kind === "workspace.stop_and_sync" ? 0 : 1;
+  return priority(left) - priority(right) ||
+    left.createdAt.localeCompare(right.createdAt) ||
+    left.commandId.localeCompare(right.commandId);
+}
+
 function clone<T>(value: T): T {
   return structuredClone(value);
 }
@@ -610,10 +618,7 @@ export class MemorySharedNodeCommandOutbox implements SharedNodeCommandOutbox {
         .filter((item) =>
           item.nodeId === nodeId && item.outboxStatus === "queued"
         )
-        .sort((left, right) =>
-          left.createdAt.localeCompare(right.createdAt) ||
-          left.commandId.localeCompare(right.commandId)
-        )[0];
+        .sort(commandDeliveryOrder)[0];
       if (!next) return undefined;
       const leaseExpiresAt = new Date(
         Date.parse(now) + leaseMs,
@@ -818,7 +823,7 @@ export class MongoSharedNodeCommandOutbox implements SharedNodeCommandOutbox {
       nodeId,
       outboxStatus: "queued",
     }).toArray() as unknown as StoredCommand[];
-    queued.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    queued.sort(commandDeliveryOrder);
     for (const candidate of queued) {
       const leaseToken = crypto.randomUUID();
       const found = await this.collection().findOneAndUpdate(
@@ -867,6 +872,7 @@ export class MongoSharedNodeCommandOutbox implements SharedNodeCommandOutbox {
         );
         return undefined;
       }
+
       return {
         command: clone(command),
         leaseToken,
@@ -2063,11 +2069,46 @@ export class SharedNodeTransportService {
   async nextCommand(nodeId: string, request: SharedNodeSignedRequest) {
     await this.authenticateNode(nodeId, request);
     try {
-      return await this.options.commandOutbox.next(
-        nodeId,
-        this.now().toISOString(),
-        this.commandLeaseMs,
-      );
+      await this.options.scheduler.finalizeUnstartedStops();
+      for (let attempt = 0; attempt < 16; attempt += 1) {
+        const leased = await this.options.commandOutbox.next(
+          nodeId,
+          this.now().toISOString(),
+          this.commandLeaseMs,
+        );
+        if (!leased) return undefined;
+        const service = await this.options.scheduler.findService(
+          leased.command.accountId,
+          leased.command.serviceId,
+        );
+        if (
+          !service &&
+          Date.parse((leased.command as StoredCommand).createdAt) >
+            this.now().getTime() - 5 * 60_000
+        ) {
+          return leased;
+        }
+        const expectedKind = service?.status === "starting"
+          ? "workspace.restore_and_start"
+          : service?.status === "stopping"
+          ? "workspace.stop_and_sync"
+          : undefined;
+        if (
+          service &&
+          service.assignmentId === leased.command.assignmentId &&
+          leased.command.kind === expectedKind
+        ) {
+          return leased;
+        }
+        await this.options.commandOutbox.acknowledge({
+          nodeId,
+          commandId: leased.command.commandId,
+          leaseToken: leased.leaseToken,
+          leaseGeneration: leased.leaseGeneration,
+          now: this.now().toISOString(),
+        });
+      }
+      throw new SharedNodeTransportError("node_conflict");
     } catch (error) {
       console.error({
         event: "shared_node.command_poll_failed",
@@ -2226,7 +2267,19 @@ export class SharedNodeTransportService {
     if (command.serviceId !== input.serviceId) {
       throw new SharedNodeTransportError("workspace_grant_denied");
     }
-    await this.options.scheduler.reportStopped({ nodeId, ...input });
+    const syncRequired = await this.options.scheduler.reportStopped({
+      nodeId,
+      ...input,
+    });
+    if (!syncRequired) {
+      await this.options.commandOutbox.acknowledge({
+        nodeId,
+        commandId: input.commandId,
+        leaseToken: input.leaseToken,
+        leaseGeneration: input.leaseGeneration,
+        now: this.now().toISOString(),
+      });
+    }
     await this.options.ingressRepository?.release(
       nodeId,
       input.assignmentId,

@@ -18,7 +18,7 @@ function requireAccountWrite(scopes: string[]) {
   }
 }
 
-function publicService(
+export function publicService(
   value: SharedHostingServiceRecord,
   metrics?: {
     cpuPercent: number;
@@ -36,14 +36,14 @@ function publicService(
     workspace: {
       revision: value.workspace.revision,
       sizeBytes: value.workspace.sizeBytes,
-      syncedAt: value.workspace.syncedAt,
-      storageOverageSince: value.storageOverageSince,
-      storageGraceEndsAt: value.storageGraceEndsAt,
+      syncedAt: value.workspace.syncedAt ?? undefined,
+      storageOverageSince: value.storageOverageSince ?? undefined,
+      storageGraceEndsAt: value.storageGraceEndsAt ?? undefined,
     },
-    statusReason: value.statusReason,
+    statusReason: value.statusReason ?? undefined,
     metrics,
-    retentionStartedAt: value.retentionStartedAt,
-    retentionEndsAt: value.retentionEndsAt,
+    retentionStartedAt: value.retentionStartedAt ?? undefined,
+    retentionEndsAt: value.retentionEndsAt ?? undefined,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
   };

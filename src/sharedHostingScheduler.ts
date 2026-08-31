@@ -342,6 +342,17 @@ function commandFor(
   if (!value.nodeId || !value.assignmentId) {
     throw new Error("Shared service has no assigned node");
   }
+  const workspace = clone(value.workspace);
+  if (
+    kind === "workspace.restore_and_start" &&
+    value.runtimeContent &&
+    workspace.sizeBytes === 0
+  ) {
+    workspace.revision = 0;
+    workspace.physicalBytes = undefined;
+    workspace.sha256 = undefined;
+    workspace.syncedAt = undefined;
+  }
   return {
     commandId: `${kind}:${value.assignmentId}`,
     kind,
@@ -349,7 +360,7 @@ function commandFor(
     serviceId: value.serviceId,
     assignmentId: value.assignmentId,
     accountId: value.accountId,
-    workspace: clone(value.workspace),
+    workspace,
     ...(value.runtimeContent
       ? { runtimeContent: clone(value.runtimeContent) }
       : {}),
@@ -543,6 +554,13 @@ export class SharedHostingScheduler {
    */
   async getService(accountId: string, serviceId: string) {
     return await this.requireService(accountId, serviceId);
+  }
+
+  async findService(accountId: string, serviceId: string) {
+    const value = (await this.repository.read()).services.find((item) =>
+      item.serviceId === serviceId && item.accountId === accountId
+    );
+    return value ? clone(value) : undefined;
   }
 
   async assertInitialWorldEligible(accountId: string, serviceId: string) {
@@ -1096,6 +1114,23 @@ export class SharedHostingScheduler {
           capacityRequest: undefined,
         };
       }
+      if (value.status === "starting" && value.assignmentId && value.nodeId) {
+        state.idempotency.push({
+          accountId,
+          key: scope,
+          fingerprint: requestFingerprint,
+          serviceId,
+        });
+        return {
+          service: clone(value),
+          command: commandFor(
+            value,
+            plan(value.planId),
+            "workspace.restore_and_start",
+          ),
+          capacityRequest: undefined,
+        };
+      }
       if (!["ready", "queued", "failed"].includes(value.status)) {
         throw new AccountError(409, "shared_service_not_startable");
       }
@@ -1312,10 +1347,20 @@ export class SharedHostingScheduler {
       ) {
         throw new AccountError(409, "shared_assignment_conflict");
       }
-      if (!value.runtime) return undefined;
+      if (!value.runtime) {
+        value.nodeId = undefined;
+        value.assignmentId = undefined;
+        value.status = value.retentionEndsAt ? "retained" : "ready";
+        value.statusReason = value.retentionEndsAt
+          ? "cancellation_retention"
+          : "workspace_synced";
+        value.updatedAt = reportedAt;
+        return { syncRequired: false as const };
+      }
       value.runtime.stoppedAt ??= reportedAt;
       value.updatedAt = reportedAt;
       return {
+        syncRequired: true as const,
         accountId: value.accountId,
         serviceId: value.serviceId,
         subscriptionId: value.subscriptionId,
@@ -1326,7 +1371,11 @@ export class SharedHostingScheduler {
         stoppedAt: value.runtime.stoppedAt,
       };
     });
-    if (!stopped || !this.subscriptions.settleRuntime) return;
+    if (!stopped.syncRequired) {
+      await this.scheduleQueued();
+      return false;
+    }
+    if (!this.subscriptions.settleRuntime) return true;
     const runtime = await this.subscriptions.settleRuntime({
       accountId: stopped.accountId,
       serviceId: stopped.serviceId,
@@ -1356,6 +1405,28 @@ export class SharedHostingScheduler {
       }
       value.updatedAt = reportedAt;
     });
+    return true;
+  }
+
+  async finalizeUnstartedStops() {
+    const now = this.now().toISOString();
+    const finalized = await this.repository.transact((state) => {
+      const serviceIds: string[] = [];
+      for (const value of state.services) {
+        if (value.status !== "stopping" || value.runtime) continue;
+        value.nodeId = undefined;
+        value.assignmentId = undefined;
+        value.status = value.retentionEndsAt ? "retained" : "ready";
+        value.statusReason = value.retentionEndsAt
+          ? "cancellation_retention"
+          : "workspace_synced";
+        value.updatedAt = now;
+        serviceIds.push(value.serviceId);
+      }
+      return serviceIds;
+    });
+    if (finalized.length) await this.scheduleQueued();
+    return finalized;
   }
 
   private async requireService(accountId: string, serviceId: string) {
@@ -1460,7 +1531,22 @@ export class SharedHostingScheduler {
   }
 
   private async dispatch(commands: SharedNodeCommand[]) {
-    for (const command of commands) await this.nodes.dispatch(command);
+    for (const command of commands) {
+      try {
+        await this.nodes.dispatch(command);
+      } catch (error) {
+        console.error({
+          event: "shared_hosting.command_dispatch_failed",
+          commandId: command.commandId,
+          kind: command.kind,
+          nodeId: command.nodeId,
+          serviceId: command.serviceId,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    }
   }
 
   private validateNode(node: Omit<SharedHostingNode, "lastHeartbeatAt">) {

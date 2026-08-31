@@ -38,7 +38,8 @@ export class HttpSharedModdedCompiler implements SharedModdedCompiler {
 
   constructor(private readonly options: CompilerHttpSubmissionOptions) {
     this.endpoint = parseCompilerEndpoint(options.endpoint);
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = options.fetchImpl ??
+      ((input, init) => globalThis.fetch(input, init));
     this.now = options.now ?? (() => new Date());
     if (
       typeof options.grants?.issue !== "function" ||
@@ -140,9 +141,7 @@ export class HttpSharedModdedCompiler implements SharedModdedCompiler {
           ...identityHeaders,
         },
         body: body as unknown as BodyInit,
-        redirect: "error",
-        credentials: "omit",
-        referrerPolicy: "no-referrer",
+        redirect: "manual",
         signal: controller.signal,
       });
       if (

@@ -57,12 +57,13 @@ export class AzureBlobSasSigner {
       const signed = await this.presignObject(key, "DELETE", 60);
       const response = await fetch(signed.url, {
         method: "DELETE",
-        redirect: "error",
-        credentials: "omit",
-        referrerPolicy: "no-referrer",
-        cache: "no-store",
+        redirect: "manual",
       });
-      if (!response.ok && response.status !== 404) {
+      if (
+        response.redirected ||
+        (response.url && response.url !== signed.url) ||
+        (!response.ok && response.status !== 404)
+      ) {
         throw new AzureBlobSasError("exact Azure Blob deletion failed");
       }
     }

@@ -8,7 +8,10 @@ import {
 import type { PublicSharedHostingSubscription } from "../sharedHosting.ts";
 import type { AppEnv } from "../types.ts";
 import { createSharedHostingRoutes } from "./sharedHosting.ts";
-import { createSharedHostingServiceRoutes } from "./sharedHostingServices.ts";
+import {
+  createSharedHostingServiceRoutes,
+  publicService,
+} from "./sharedHostingServices.ts";
 
 const subscription: PublicSharedHostingSubscription = {
   subscriptionId: "sub_1",
@@ -130,4 +133,33 @@ Deno.test("subscription and service routers authenticate a service request once"
 
   assert.equal(response.status, 200);
   assert.equal(verificationCount, 1);
+});
+
+Deno.test("service responses omit nullable optional persistence fields", () => {
+  const service = JSON.parse(JSON.stringify(publicService({
+    serviceId: "service_nullable",
+    subscriptionId: "sub_1",
+    accountId: "account_1",
+    planId: "shared-small",
+    regionId: "mow",
+    status: "ready",
+    workspace: {
+      revision: 1,
+      sizeBytes: 0,
+      syncedAt: null,
+    },
+    storageOverageSince: null,
+    storageGraceEndsAt: null,
+    statusReason: null,
+    retentionStartedAt: null,
+    retentionEndsAt: null,
+    createdAt: "2026-08-27T00:00:00.000Z",
+    updatedAt: "2026-08-27T00:00:00.000Z",
+  } as unknown as Parameters<typeof publicService>[0])));
+  assert.equal("syncedAt" in service.workspace, false);
+  assert.equal("storageOverageSince" in service.workspace, false);
+  assert.equal("storageGraceEndsAt" in service.workspace, false);
+  assert.equal("statusReason" in service, false);
+  assert.equal("retentionStartedAt" in service, false);
+  assert.equal("retentionEndsAt" in service, false);
 });
