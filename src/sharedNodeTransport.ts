@@ -406,6 +406,7 @@ export interface SharedNodeCommandReconciliation {
   serviceId: string;
   assignmentId: string;
   workspaceRevision: number;
+  workspace: SharedNodeCommand["workspace"];
   outboxStatus: "queued" | "leased" | "acked";
   createdAt: string;
   leaseGeneration: number;
@@ -572,6 +573,7 @@ function commandReconciliation(
     serviceId: command.serviceId,
     assignmentId: command.assignmentId,
     workspaceRevision: command.workspace.revision,
+    workspace: clone(command.workspace),
     outboxStatus: command.outboxStatus,
     createdAt: command.createdAt,
     leaseGeneration: command.leaseGeneration,
