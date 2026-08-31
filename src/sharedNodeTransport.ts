@@ -136,7 +136,6 @@ export interface SharedWorkspaceGrantRequest {
   contractVersion: typeof SHARED_NODE_WORKSPACE_CONTRACT_VERSION;
   commandId: string;
   assignmentId: string;
-  workspaceRevision: number;
   leaseToken: string;
   leaseGeneration: number;
   /** Restore requests select a manifest, manifest-owned blobs, or one seed. */
@@ -406,6 +405,7 @@ export interface SharedNodeCommandReconciliation {
   nodeId: string;
   serviceId: string;
   assignmentId: string;
+  workspaceRevision: number;
   outboxStatus: "queued" | "leased" | "acked";
   createdAt: string;
   leaseGeneration: number;
@@ -536,7 +536,6 @@ function commandFingerprint(command: SharedNodeCommand) {
     nodeId: command.nodeId,
     serviceId: command.serviceId,
     assignmentId: command.assignmentId,
-    workspaceRevision: command.workspace.revision,
     accountId: command.accountId,
     workspace: command.workspace,
     runtimeContent: command.runtimeContent,
@@ -572,6 +571,7 @@ function commandReconciliation(
     nodeId: command.nodeId,
     serviceId: command.serviceId,
     assignmentId: command.assignmentId,
+    workspaceRevision: command.workspace.revision,
     outboxStatus: command.outboxStatus,
     createdAt: command.createdAt,
     leaseGeneration: command.leaseGeneration,
