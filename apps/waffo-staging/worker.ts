@@ -361,6 +361,7 @@ app.use(
 );
 app.use("/v1/internal/shared-nodes/*", composeSharedRuntime);
 app.use("/v1/staging/shared-nodes/enrollments", composeSharedRuntime);
+app.use("/v1/staging/shared-hosting/*", composeSharedRuntime);
 app.use("/v1/admin/shared-hosting/reconciliation", composeSharedRuntime);
 app.route("/", createBillingRoutes());
 app.route("/", createSharedHostingRoutes());
