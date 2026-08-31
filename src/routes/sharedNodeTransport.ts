@@ -59,7 +59,9 @@ export function createSharedNodeTransportRoutes(
     ) {
       throw new SharedNodeTransportError("unauthorized");
     }
-    return c.json(await serviceFor(c, configured).stagingServices());
+    const scheduler = c.var.sharedHostingScheduler;
+    if (!scheduler) throw new SharedNodeTransportError("unavailable");
+    return c.json(await scheduler.listAllServices());
   });
 
   app.get("/v1/staging/shared-hosting/services/:serviceId", async (c) => {
@@ -74,9 +76,11 @@ export function createSharedNodeTransportRoutes(
     ) {
       throw new SharedNodeTransportError("unauthorized");
     }
-    return c.json(
-      await serviceFor(c, configured).stagingService(c.req.param("serviceId")),
-    );
+    const scheduler = c.var.sharedHostingScheduler;
+    if (!scheduler) throw new SharedNodeTransportError("unavailable");
+    const service = await scheduler.findServiceById(c.req.param("serviceId"));
+    if (!service) throw new SharedNodeTransportError("service_not_found");
+    return c.json(service);
   });
 
   for (const operation of ["start", "stop"] as const) {
@@ -98,10 +102,15 @@ export function createSharedNodeTransportRoutes(
         if (!idempotencyKey) {
           throw new SharedNodeTransportError("invalid_request");
         }
+        const scheduler = c.var.sharedHostingScheduler;
+        if (!scheduler) throw new SharedNodeTransportError("unavailable");
+        const serviceId = c.req.param("serviceId");
+        const service = await scheduler.findServiceById(serviceId);
+        if (!service) throw new SharedNodeTransportError("service_not_found");
         return c.json(
-          await serviceFor(c, configured).stagingServiceOperation(
-            c.req.param("serviceId"),
-            operation,
+          await scheduler[operation](
+            service.accountId,
+            serviceId,
             idempotencyKey,
           ),
           202,
