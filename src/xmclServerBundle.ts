@@ -8,9 +8,10 @@ import {
   isReviewedRuntimeToolchain,
   runtimeCatalog,
 } from "./runtimeCatalog.ts";
-import type {
-  ModpackSourceResolver,
-  ResolvedModSource,
+import {
+  ModpackSourceError,
+  type ModpackSourceResolver,
+  type ResolvedModSource,
 } from "./modpack/types.ts";
 
 export interface XmclServerBundleFile {
@@ -525,8 +526,14 @@ async function resolveDeclaredMods(
       }
       resolved.push(remote);
       report.mods.push({ path, sha256: remote.sha256 });
-    } catch {
-      reject(report, path, "remote_mod_source_mismatch");
+    } catch (error) {
+      reject(
+        report,
+        path,
+        error instanceof ModpackSourceError
+          ? `remote_mod_${error.code}`
+          : "remote_mod_source_mismatch",
+      );
     }
   }
   for (const path of embedded.keys()) {
