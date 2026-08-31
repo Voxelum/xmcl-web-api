@@ -211,6 +211,20 @@ Deno.test("stop commands preempt queued restore retries", async () => {
   assert.equal(leased?.command.kind, "workspace.stop_and_sync");
 });
 
+Deno.test("command enqueue tolerates document key reordering", async () => {
+  const outbox = new MemorySharedNodeCommandOutbox();
+  const original = command("node_a", "restore");
+  await outbox.enqueue(original);
+  await outbox.enqueue({
+    ...original,
+    workspace: {
+      sizeBytes: original.workspace.sizeBytes,
+      revision: original.workspace.revision,
+      objectPrefix: original.workspace.objectPrefix,
+    },
+  });
+});
+
 Deno.test("retained workspace export grants only the published canonical revision", async (t) => {
   const f = await fixture();
   const prefix = "shared-hosting/account_1/service_retained/";

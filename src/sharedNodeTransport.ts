@@ -529,7 +529,7 @@ function clone<T>(value: T): T {
 }
 
 function commandFingerprint(command: SharedNodeCommand) {
-  return JSON.stringify({
+  return JSON.stringify(canonicalizeCommand({
     commandId: command.commandId,
     kind: command.kind,
     nodeId: command.nodeId,
@@ -542,7 +542,19 @@ function commandFingerprint(command: SharedNodeCommand) {
     eulaAccepted: command.eulaAccepted,
     resources: command.resources,
     connection: command.connection,
-  });
+  }));
+}
+
+function canonicalizeCommand(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeCommand);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, canonicalizeCommand(child)]),
+    );
+  }
+  return value;
 }
 
 function commandReconciliation(
