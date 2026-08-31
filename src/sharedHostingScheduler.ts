@@ -965,6 +965,15 @@ export class SharedHostingScheduler {
     });
   }
 
+  async markNodeReady(nodeId: string) {
+    await this.repository.transact((state) => {
+      const node = state.nodes.find((item) => item.nodeId === nodeId);
+      if (!node) throw new AccountError(404, "shared_node_not_found");
+      node.status = "ready";
+      node.lastHeartbeatAt = this.now().toISOString();
+    });
+  }
+
   async activeServicesOnNode(nodeId: string) {
     return (await this.repository.read()).services
       .filter((item) => item.nodeId === nodeId && activeOnNode(item.status))

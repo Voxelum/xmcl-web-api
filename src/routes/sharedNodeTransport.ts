@@ -169,6 +169,27 @@ export function createSharedNodeTransportRoutes(
     },
   );
 
+  app.post(
+    "/v1/staging/shared-hosting/nodes/:nodeId/ready",
+    async (c) => {
+      const config = getConfig(c);
+      if (
+        config.XMCL_DEPLOYMENT_ENVIRONMENT !== "staging" ||
+        !config.XMCL_STAGING_NODE_OPERATOR_TOKEN ||
+        !await bearerMatches(
+          c.req.header("authorization"),
+          config.XMCL_STAGING_NODE_OPERATOR_TOKEN,
+        )
+      ) {
+        throw new SharedNodeTransportError("unauthorized");
+      }
+      const scheduler = c.var.sharedHostingScheduler;
+      if (!scheduler) throw new SharedNodeTransportError("unavailable");
+      await scheduler.markNodeReady(c.req.param("nodeId"));
+      return c.json({ nodeId: c.req.param("nodeId"), status: "ready" });
+    },
+  );
+
   app.post("/v1/internal/shared-nodes/register", async (c) => {
     const service = serviceFor(c, configured);
     const parsed = await rawJson(c, maxWorkspaceGrantRequestBytes);

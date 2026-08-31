@@ -497,6 +497,8 @@ Deno.test("a draining node heartbeat prevents later placement until control-plan
   await scheduler.heartbeatNode("node_1", "ready");
 
   assert.equal((await repository.read()).nodes[0]?.status, "draining");
+  await scheduler.markNodeReady("node_1");
+  assert.equal((await repository.read()).nodes[0]?.status, "ready");
 });
 
 Deno.test("shared scheduler fails closed for a durable node outside its configured pool region", async () => {
