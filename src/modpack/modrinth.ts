@@ -146,7 +146,7 @@ export class ModrinthSourceResolver implements ModpackSourceResolver {
           "accept-encoding": "identity",
           "user-agent": userAgent,
         },
-        redirect: "error",
+        redirect: "manual",
       });
     } catch {
       throw new ModpackSourceError(

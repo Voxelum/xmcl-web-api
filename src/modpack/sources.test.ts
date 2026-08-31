@@ -103,7 +103,7 @@ Deno.test("Modrinth resolver securely derives sha256 when real metadata only has
       });
     }
     assert.equal(url, downloadUrl);
-    assert.equal(init?.redirect, "error");
+    assert.equal(init?.redirect, "manual");
     assert.equal(new Headers(init?.headers).get("accept-encoding"), "identity");
     downloads += 1;
     return new Response(bytes, {
