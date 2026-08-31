@@ -1154,7 +1154,27 @@ export class SharedHostingScheduler {
       });
       return this.assignOrQueue(state, value, now);
     });
-    await this.dispatch(outcome.command ? [outcome.command] : []);
+    try {
+      await this.dispatch(outcome.command ? [outcome.command] : []);
+    } catch (error) {
+      if (outcome.command) {
+        await this.repository.transact((state) => {
+          const value = service(state, serviceId);
+          if (
+            value?.status === "starting" &&
+            value.assignmentId === outcome.command?.assignmentId &&
+            !value.runtime
+          ) {
+            value.nodeId = undefined;
+            value.assignmentId = undefined;
+            value.status = "ready";
+            value.statusReason = "command_dispatch_failed";
+            value.updatedAt = this.now().toISOString();
+          }
+        });
+      }
+      throw error;
+    }
     return outcome.service;
   }
 

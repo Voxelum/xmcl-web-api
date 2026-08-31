@@ -58,7 +58,10 @@ function subscription(
   };
 }
 
-function fixture(regions: readonly string[] = ["sgp"]) {
+function fixture(
+  regions: readonly string[] = ["sgp"],
+  dispatchError?: Error,
+) {
   let sequence = 0;
   const commands: SharedNodeCommand[] = [];
   const requests: Array<{ region: string; workloadClass: string }> = [];
@@ -75,7 +78,12 @@ function fixture(regions: readonly string[] = ["sgp"]) {
         return value;
       },
     },
-    { dispatch: async (command) => void commands.push(command) },
+    {
+      dispatch: async (command) => {
+        if (dispatchError) throw dispatchError;
+        commands.push(command);
+      },
+    },
     { requestCapacity: async (request) => void requests.push(request) },
     {
       region: "sgp",
@@ -86,6 +94,36 @@ function fixture(regions: readonly string[] = ["sgp"]) {
   );
   return { scheduler, repository, commands, requests, subscriptions };
 }
+
+Deno.test("failed start dispatch releases the incomplete assignment", async () => {
+  const f = fixture(["sgp"], new Error("outbox unavailable"));
+  f.subscriptions.set("sub_1", subscription("account_1", "sub_1"));
+  await f.scheduler.registerNode({
+    nodeId: "node_1",
+    region: "sgp",
+    status: "ready",
+    totalMemoryMiB: 4096,
+    totalSharedCpu: 2,
+    totalWorkspaceGiB: 32,
+  });
+  const service = await f.scheduler.createService({
+    accountId: "account_1",
+    subscriptionId: "sub_1",
+    idempotencyKey: "create",
+  });
+  await assert.rejects(
+    () => f.scheduler.start("account_1", service.serviceId, "start"),
+    /outbox unavailable/,
+  );
+  const recovered = await f.scheduler.getService(
+    "account_1",
+    service.serviceId,
+  );
+  assert.equal(recovered.status, "ready");
+  assert.equal(recovered.statusReason, "command_dispatch_failed");
+  assert.equal(recovered.nodeId, undefined);
+  assert.equal(recovered.assignmentId, undefined);
+});
 
 Deno.test("failed retention deletion stays retained for reconciliation", async () => {
   const f = fixture();
