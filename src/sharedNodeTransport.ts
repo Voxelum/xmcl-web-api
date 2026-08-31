@@ -33,6 +33,7 @@ export class SharedNodeTransportError extends Error {
       | "replay_detected"
       | "node_conflict"
       | "command_not_found"
+      | "service_not_found"
       | "lease_conflict"
       | "lease_maximum_exceeded"
       | "invalid_request"
@@ -1958,6 +1959,25 @@ export class SharedNodeTransportService {
       memoryLimitMiB: metrics.memoryLimitMiB,
       observedAt: heartbeat.receivedAt,
     };
+  }
+
+  async stagingService(serviceId: string) {
+    const service = await this.options.scheduler.findServiceById(serviceId);
+    if (!service) throw new SharedNodeTransportError("service_not_found");
+    return service;
+  }
+
+  async stagingServiceOperation(
+    serviceId: string,
+    operation: "start" | "stop",
+    idempotencyKey: string,
+  ) {
+    const service = await this.stagingService(serviceId);
+    return await this.options.scheduler[operation](
+      service.accountId,
+      serviceId,
+      idempotencyKey,
+    );
   }
 
   async dispatch(command: SharedNodeCommand) {

@@ -47,6 +47,54 @@ export function createSharedNodeTransportRoutes(
     return c.json(result, 201);
   });
 
+  app.get("/v1/staging/shared-hosting/services/:serviceId", async (c) => {
+    const config = getConfig(c);
+    if (
+      config.XMCL_DEPLOYMENT_ENVIRONMENT !== "staging" ||
+      !config.XMCL_STAGING_NODE_OPERATOR_TOKEN ||
+      !await bearerMatches(
+        c.req.header("authorization"),
+        config.XMCL_STAGING_NODE_OPERATOR_TOKEN,
+      )
+    ) {
+      throw new SharedNodeTransportError("unauthorized");
+    }
+    return c.json(
+      await serviceFor(c, configured).stagingService(c.req.param("serviceId")),
+    );
+  });
+
+  for (const operation of ["start", "stop"] as const) {
+    app.post(
+      `/v1/staging/shared-hosting/services/:serviceId/${operation}`,
+      async (c) => {
+        const config = getConfig(c);
+        if (
+          config.XMCL_DEPLOYMENT_ENVIRONMENT !== "staging" ||
+          !config.XMCL_STAGING_NODE_OPERATOR_TOKEN ||
+          !await bearerMatches(
+            c.req.header("authorization"),
+            config.XMCL_STAGING_NODE_OPERATOR_TOKEN,
+          )
+        ) {
+          throw new SharedNodeTransportError("unauthorized");
+        }
+        const idempotencyKey = c.req.header("idempotency-key");
+        if (!idempotencyKey) {
+          throw new SharedNodeTransportError("invalid_request");
+        }
+        return c.json(
+          await serviceFor(c, configured).stagingServiceOperation(
+            c.req.param("serviceId"),
+            operation,
+            idempotencyKey,
+          ),
+          202,
+        );
+      },
+    );
+  }
+
   app.post("/v1/internal/shared-nodes/register", async (c) => {
     const service = serviceFor(c, configured);
     const parsed = await rawJson(c, maxWorkspaceGrantRequestBytes);

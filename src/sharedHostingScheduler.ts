@@ -563,6 +563,13 @@ export class SharedHostingScheduler {
     return value ? clone(value) : undefined;
   }
 
+  async findServiceById(serviceId: string) {
+    const value = (await this.repository.read()).services.find((item) =>
+      item.serviceId === serviceId
+    );
+    return value ? clone(value) : undefined;
+  }
+
   async assertInitialWorldEligible(accountId: string, serviceId: string) {
     const value = await this.requireService(accountId, serviceId);
     await this.subscriptions.activeSubscription(
