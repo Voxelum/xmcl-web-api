@@ -3032,7 +3032,9 @@ async function validateWorkspaceManifestDescriptor(
   }
   if (
     manifest.content &&
-    !manifest.content.paths.every(isContentPath)
+    !manifest.content.paths.every(
+      contentIsCompilerSelected ? (path) => !isWorldPath(path) : isContentPath,
+    )
   ) {
     throw new SharedNodeTransportError("workspace_grant_denied");
   }
