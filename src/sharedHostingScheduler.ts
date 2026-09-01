@@ -908,7 +908,10 @@ export class SharedHostingScheduler {
     return { settled, paymentDue };
   }
 
-  async registerNode(input: Omit<SharedHostingNode, "lastHeartbeatAt">) {
+  async registerNode(
+    input: Omit<SharedHostingNode, "lastHeartbeatAt">,
+    scheduleQueued = true,
+  ) {
     this.validateNode(input);
     const now = this.now().toISOString();
     await this.repository.transact((state) => {
@@ -922,7 +925,7 @@ export class SharedHostingScheduler {
         state.nodes.push({ ...input, lastHeartbeatAt: now });
       }
     });
-    await this.scheduleQueued();
+    if (scheduleQueued) await this.scheduleQueued();
   }
 
   async heartbeatNode(
@@ -930,7 +933,7 @@ export class SharedHostingScheduler {
     reportedStatus: "ready" | "draining" = "ready",
   ) {
     const now = this.now().toISOString();
-    await this.repository.transact((state) => {
+    const ready = await this.repository.transact((state) => {
       const node = state.nodes.find((item) => item.nodeId === nodeId);
       if (!node) throw new AccountError(404, "shared_node_not_found");
       if (!this.isPoolRegion(node.region)) {
@@ -942,7 +945,9 @@ export class SharedHostingScheduler {
       if (reportedStatus === "draining" && node.status !== "offline") {
         node.status = "draining";
       }
+      return node.status === "ready";
     });
+    if (ready) await this.scheduleQueued();
   }
 
   async hasNode(nodeId: string) {

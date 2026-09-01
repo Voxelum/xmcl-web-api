@@ -2151,7 +2151,7 @@ export class SharedNodeTransportService {
         ? { workloadClasses: enrollment.expectedCapacity.workloadClasses }
         : {}),
       status: "ready",
-    });
+    }, false);
     const issued = await issueSharedNodeCredential(
       input.nodeId,
       now,

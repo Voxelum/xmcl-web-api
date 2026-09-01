@@ -125,6 +125,44 @@ Deno.test("failed start dispatch releases the incomplete assignment", async () =
   assert.equal(recovered.assignmentId, undefined);
 });
 
+Deno.test("node registration can defer queued services until the first heartbeat", async () => {
+  const f = fixture();
+  f.subscriptions.set("sub_1", subscription("account_1", "sub_1"));
+  const service = await f.scheduler.createService({
+    accountId: "account_1",
+    subscriptionId: "sub_1",
+    idempotencyKey: "create",
+  });
+  const queued = await f.scheduler.start(
+    "account_1",
+    service.serviceId,
+    "start",
+  );
+  assert.equal(queued.status, "queued");
+
+  await f.scheduler.registerNode({
+    nodeId: "node_1",
+    region: "sgp",
+    status: "ready",
+    totalMemoryMiB: 4096,
+    totalSharedCpu: 2,
+    totalWorkspaceGiB: 32,
+  }, false);
+  assert.equal(
+    (await f.scheduler.getService("account_1", service.serviceId)).status,
+    "queued",
+  );
+  assert.equal(f.commands.length, 0);
+
+  await f.scheduler.heartbeatNode("node_1");
+  assert.equal(
+    (await f.scheduler.getService("account_1", service.serviceId)).status,
+    "starting",
+  );
+  assert.equal(f.commands.length, 1);
+  assert.equal(f.commands[0].nodeId, "node_1");
+});
+
 Deno.test("operator reassigns an unstarted service from an offline node", async () => {
   const f = fixture();
   f.subscriptions.set("sub_1", subscription("account_1", "sub_1"));
