@@ -163,6 +163,30 @@ Deno.test("node registration can defer queued services until the first heartbeat
   assert.equal(f.commands[0].nodeId, "node_1");
 });
 
+Deno.test("node heartbeat redispatches an unstarted assignment", async () => {
+  const f = fixture();
+  f.subscriptions.set("sub_1", subscription("account_1", "sub_1"));
+  await f.scheduler.registerNode({
+    nodeId: "node_1",
+    region: "sgp",
+    status: "ready",
+    totalMemoryMiB: 4096,
+    totalSharedCpu: 2,
+    totalWorkspaceGiB: 32,
+  });
+  const service = await f.scheduler.createService({
+    accountId: "account_1",
+    subscriptionId: "sub_1",
+    idempotencyKey: "create",
+  });
+  await f.scheduler.start("account_1", service.serviceId, "start");
+  assert.equal(f.commands.length, 1);
+
+  await f.scheduler.heartbeatNode("node_1");
+  assert.equal(f.commands.length, 2);
+  assert.equal(f.commands[1].commandId, f.commands[0].commandId);
+});
+
 Deno.test("operator reassigns an unstarted service from an offline node", async () => {
   const f = fixture();
   f.subscriptions.set("sub_1", subscription("account_1", "sub_1"));
@@ -424,11 +448,14 @@ Deno.test("empty historical workspaces restore selected runtime as an initial wo
     created.serviceId,
     "stop_a",
   );
-  assert.equal(await f.scheduler.reportStopped({
-    nodeId: "node_a",
-    serviceId: created.serviceId,
-    assignmentId: stopping.assignmentId!,
-  }), false);
+  assert.equal(
+    await f.scheduler.reportStopped({
+      nodeId: "node_a",
+      serviceId: created.serviceId,
+      assignmentId: stopping.assignmentId!,
+    }),
+    false,
+  );
   assert.equal(
     (await f.repository.read()).services[0].status,
     "ready",

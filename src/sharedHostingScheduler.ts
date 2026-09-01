@@ -947,7 +947,10 @@ export class SharedHostingScheduler {
       }
       return node.status === "ready";
     });
-    if (ready) await this.scheduleQueued();
+    if (ready) {
+      await this.redispatchUnstarted(nodeId);
+      await this.scheduleQueued();
+    }
   }
 
   async hasNode(nodeId: string) {
@@ -1562,6 +1565,20 @@ export class SharedHostingScheduler {
       });
       await this.dispatch(outcome.command ? [outcome.command] : []);
     }
+  }
+
+  private async redispatchUnstarted(nodeId: string) {
+    const current = await this.repository.read();
+    const commands = current.services
+      .filter((value) =>
+        value.nodeId === nodeId &&
+        value.status === "starting" &&
+        !value.runtime
+      )
+      .map((value) =>
+        commandFor(value, plan(value.planId), "workspace.restore_and_start")
+      );
+    await this.dispatch(commands);
   }
 
   private assignOrQueue(
