@@ -3,6 +3,7 @@ import { getConfig } from "../config.ts";
 import type { AppEnv } from "../types.ts";
 import {
   SHARED_NODE_TRANSPORT_CONTRACT_VERSION,
+  type SharedNodeCommandResult,
   type SharedNodeSignedRequest,
   SharedNodeTransportError,
   type SharedNodeTransportService,
@@ -358,6 +359,7 @@ export function createSharedNodeTransportRoutes(
         text(body.leaseToken),
         integer(body.leaseGeneration),
         request(c, { body: parsed.body }),
+        commandResult(body),
       );
       return c.json(result);
     },
@@ -602,6 +604,39 @@ function integer(value: unknown) {
     throw new SharedNodeTransportError("invalid_request");
   }
   return value as number;
+}
+
+function commandResult(
+  value: Record<string, unknown>,
+): SharedNodeCommandResult | undefined {
+  if (value.status === undefined) return undefined;
+  if (
+    value.status !== "started" &&
+    value.status !== "failed" &&
+    value.status !== "stopped-and-synced"
+  ) {
+    throw new SharedNodeTransportError("invalid_request");
+  }
+  const code = value.code;
+  if (
+    code !== undefined &&
+    (typeof code !== "string" || !/^[a-z0-9_]{1,64}$/.test(code))
+  ) {
+    throw new SharedNodeTransportError("invalid_request");
+  }
+  const message = value.message;
+  if (
+    message !== undefined &&
+    (typeof message !== "string" || message.length > 512 ||
+      /[\u0000-\u001f\u007f]/.test(message))
+  ) {
+    throw new SharedNodeTransportError("invalid_request");
+  }
+  return {
+    status: value.status,
+    ...(code ? { code } : {}),
+    ...(message ? { message } : {}),
+  };
 }
 
 function nonNegativeInteger(value: unknown) {

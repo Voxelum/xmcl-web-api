@@ -290,6 +290,16 @@ function activeOnNode(status: SharedServiceStatus) {
   return ["starting", "running", "stopping"].includes(status);
 }
 
+const sharedStartFailureCodes = new Set([
+  "runtime_content_missing",
+  "runtime_descriptor_invalid",
+  "runtime_request_invalid",
+  "container_exited",
+  "health_check_missing",
+  "health_check_failed",
+  "health_check_timeout",
+]);
+
 function nodeUsage(state: SharedHostingSchedulerState, nodeId: string) {
   let memoryMiB = 0;
   let sharedCpu = 0;
@@ -1322,6 +1332,37 @@ export class SharedHostingScheduler {
       return undefined;
     });
     await this.dispatch(stopCommand ? [stopCommand] : []);
+  }
+
+  async reportStartFailed(input: {
+    nodeId: string;
+    serviceId: string;
+    assignmentId: string;
+    code: string;
+  }) {
+    const now = this.now().toISOString();
+    await this.repository.transact((state) => {
+      const value = service(state, input.serviceId);
+      if (
+        value?.status === "failed" &&
+        value.nodeId === input.nodeId &&
+        value.assignmentId === input.assignmentId
+      ) {
+        return;
+      }
+      if (
+        !value || value.nodeId !== input.nodeId ||
+        value.assignmentId !== input.assignmentId ||
+        value.status !== "starting" || value.runtime
+      ) {
+        throw new AccountError(409, "shared_assignment_conflict");
+      }
+      value.status = "failed";
+      value.statusReason = sharedStartFailureCodes.has(input.code)
+        ? `node_start_${input.code}`
+        : "node_start_failed";
+      value.updatedAt = now;
+    });
   }
 
   async reportStoppedAndSynced(input: {

@@ -382,7 +382,8 @@ export interface SharedNodeCommandOutbox {
     leaseToken: string;
     leaseGeneration: number;
     now: string;
-  }): Promise<void>;
+    result?: SharedNodeCommandResult;
+  }): Promise<SharedNodeCommand & { result?: SharedNodeCommandResult }>;
   renew(input: {
     nodeId: string;
     commandId: string;
@@ -404,6 +405,12 @@ export interface SharedNodeCommandOutbox {
   reconciliation?(): Promise<SharedNodeCommandReconciliation[]>;
 }
 
+export interface SharedNodeCommandResult {
+  status: "started" | "failed" | "stopped-and-synced";
+  code?: string;
+  message?: string;
+}
+
 export interface SharedNodeCommandReconciliation {
   commandId: string;
   kind: SharedNodeCommand["kind"];
@@ -421,6 +428,7 @@ export interface SharedNodeCommandReconciliation {
   leaseRenewedAt?: string;
   leaseExpiresAt?: string;
   acknowledgedAt?: string;
+  result?: SharedNodeCommandResult;
 }
 
 /**
@@ -517,6 +525,7 @@ interface StoredCommand extends SharedNodeCommand {
   createdAt: string;
   leaseExpiresAt?: string;
   acknowledgedAt?: string;
+  result?: SharedNodeCommandResult;
   leaseToken?: string;
   leaseGeneration: number;
   leaseStartedAt?: string;
@@ -599,6 +608,7 @@ function commandReconciliation(
     ...(command.acknowledgedAt
       ? { acknowledgedAt: command.acknowledgedAt }
       : {}),
+    ...(command.result ? { result: clone(command.result) } : {}),
   };
 }
 
@@ -692,13 +702,14 @@ export class MemorySharedNodeCommandOutbox implements SharedNodeCommandOutbox {
     leaseToken: string;
     leaseGeneration: number;
     now: string;
+    result?: SharedNodeCommandResult;
   }) {
-    await this.transact(() => {
+    return await this.transact(() => {
       const command = this.commands.get(input.commandId);
       if (!command || command.nodeId !== input.nodeId) {
         throw new SharedNodeTransportError("command_not_found");
       }
-      if (command.outboxStatus === "acked") return;
+      if (command.outboxStatus === "acked") return clone(command);
       if (
         command.outboxStatus !== "leased" ||
         command.leaseToken !== input.leaseToken ||
@@ -709,8 +720,10 @@ export class MemorySharedNodeCommandOutbox implements SharedNodeCommandOutbox {
       }
       command.outboxStatus = "acked";
       command.acknowledgedAt = input.now;
+      command.result = input.result ? clone(input.result) : undefined;
       command.leaseExpiresAt = undefined;
       command.leaseToken = undefined;
+      return clone(command);
     });
   }
 
@@ -952,6 +965,7 @@ export class MongoSharedNodeCommandOutbox implements SharedNodeCommandOutbox {
     leaseToken: string;
     leaseGeneration: number;
     now: string;
+    result?: SharedNodeCommandResult;
   }) {
     const collection = this.collection();
     const command = await collection.findOne({ _id: input.commandId }) as
@@ -960,7 +974,7 @@ export class MongoSharedNodeCommandOutbox implements SharedNodeCommandOutbox {
     if (!command || command.nodeId !== input.nodeId) {
       throw new SharedNodeTransportError("command_not_found");
     }
-    if (command.outboxStatus === "acked") return;
+    if (command.outboxStatus === "acked") return clone(command);
     if (
       command.outboxStatus !== "leased" ||
       command.leaseToken !== input.leaseToken ||
@@ -982,6 +996,7 @@ export class MongoSharedNodeCommandOutbox implements SharedNodeCommandOutbox {
         $set: {
           outboxStatus: "acked",
           acknowledgedAt: input.now,
+          ...(input.result ? { result: clone(input.result) } : {}),
         },
         $unset: { leaseExpiresAt: "", leaseToken: "" },
       },
@@ -993,6 +1008,12 @@ export class MongoSharedNodeCommandOutbox implements SharedNodeCommandOutbox {
       commandId: input.commandId,
       leaseToken: input.leaseToken,
       leaseGeneration: input.leaseGeneration,
+    });
+    return clone({
+      ...updated,
+      outboxStatus: "acked",
+      acknowledgedAt: input.now,
+      ...(input.result ? { result: clone(input.result) } : {}),
     });
   }
 
@@ -2270,15 +2291,33 @@ export class SharedNodeTransportService {
     leaseToken: string,
     leaseGeneration: number,
     request: SharedNodeSignedRequest,
+    result?: SharedNodeCommandResult,
   ) {
     await this.authenticateNode(nodeId, request);
-    await this.options.commandOutbox.acknowledge({
+    const command = await this.options.commandOutbox.acknowledge({
       nodeId,
       commandId,
       leaseToken,
       leaseGeneration,
       now: this.now().toISOString(),
+      result,
     });
+    if (
+      command.kind === "workspace.restore_and_start" &&
+      command.result?.status === "failed"
+    ) {
+      await this.options.scheduler.reportStartFailed({
+        nodeId,
+        serviceId: command.serviceId,
+        assignmentId: command.assignmentId,
+        code: command.result.code ?? "unknown",
+      });
+      await this.options.ingressRepository?.release(
+        nodeId,
+        command.assignmentId,
+        this.now().toISOString(),
+      );
+    }
     return {
       contractVersion: SHARED_NODE_TRANSPORT_CONTRACT_VERSION,
       commandId,

@@ -493,6 +493,7 @@ Deno.test("shared node command leases are durable, ordered, and at-least-once", 
   const ackBody = JSON.stringify({
     leaseToken: first!.leaseToken,
     leaseGeneration: first!.leaseGeneration,
+    status: "started",
   });
   await f.service.acknowledge(
     "node_a",
@@ -507,6 +508,40 @@ Deno.test("shared node command leases are durable, ordered, and at-least-once", 
       ackBody,
       "ack-1",
     ),
+    { status: "started" },
+  );
+  assert.deepEqual(
+    (await f.outbox.reconciliation?.())?.find((item) =>
+      item.commandId === "command_1"
+    )?.result,
+    { status: "started" },
+  );
+  const conflictingReplayBody = JSON.stringify({
+    leaseToken: first!.leaseToken,
+    leaseGeneration: first!.leaseGeneration,
+    status: "failed",
+    code: "runtime_descriptor_invalid",
+  });
+  await f.service.acknowledge(
+    "node_a",
+    "command_1",
+    first!.leaseToken,
+    first!.leaseGeneration,
+    await signed(
+      secret,
+      `SharedNode ${credential}`,
+      "POST",
+      "/v1/internal/shared-nodes/node_a/commands/command_1/ack",
+      conflictingReplayBody,
+      "ack-conflicting-replay",
+    ),
+    { status: "failed", code: "runtime_descriptor_invalid" },
+  );
+  assert.deepEqual(
+    (await f.outbox.reconciliation?.())?.find((item) =>
+      item.commandId === "command_1"
+    )?.result,
+    { status: "started" },
   );
   assert.equal(
     await f.service.nextCommand(

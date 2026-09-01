@@ -125,6 +125,48 @@ Deno.test("failed start dispatch releases the incomplete assignment", async () =
   assert.equal(recovered.assignmentId, undefined);
 });
 
+Deno.test("terminal node start failure releases capacity and remains visible", async () => {
+  const f = fixture();
+  f.subscriptions.set("sub_1", subscription("account_1", "sub_1"));
+  await f.scheduler.registerNode({
+    nodeId: "node_1",
+    region: "sgp",
+    status: "ready",
+    totalMemoryMiB: 4096,
+    totalSharedCpu: 2,
+    totalWorkspaceGiB: 32,
+  });
+  const created = await f.scheduler.createService({
+    accountId: "account_1",
+    subscriptionId: "sub_1",
+    idempotencyKey: "create",
+  });
+  const starting = await f.scheduler.start(
+    "account_1",
+    created.serviceId,
+    "start",
+  );
+
+  await f.scheduler.reportStartFailed({
+    nodeId: starting.nodeId!,
+    serviceId: starting.serviceId,
+    assignmentId: starting.assignmentId!,
+    code: "runtime_descriptor_invalid",
+  });
+
+  const failed = await f.scheduler.getService(
+    "account_1",
+    created.serviceId,
+  );
+  assert.equal(failed.status, "failed");
+  assert.equal(
+    failed.statusReason,
+    "node_start_runtime_descriptor_invalid",
+  );
+  assert.equal(failed.nodeId, starting.nodeId);
+  assert.equal(failed.assignmentId, starting.assignmentId);
+});
+
 Deno.test("node registration can defer queued services until the first heartbeat", async () => {
   const f = fixture();
   f.subscriptions.set("sub_1", subscription("account_1", "sub_1"));
