@@ -1215,6 +1215,51 @@ export class SharedHostingScheduler {
     return await this.requireService(accountId, serviceId);
   }
 
+  async reassignUnstartedService(
+    serviceId: string,
+    expectedNodeId: string,
+  ) {
+    const now = this.now().toISOString();
+    const outcome = await this.repository.transact((state) => {
+      const value = service(state, serviceId);
+      const node = state.nodes.find((item) => item.nodeId === expectedNodeId);
+      if (
+        !value || value.status !== "starting" || value.runtime ||
+        value.nodeId !== expectedNodeId || node?.status !== "offline"
+      ) {
+        throw new AccountError(409, "shared_assignment_conflict");
+      }
+      value.nodeId = undefined;
+      value.assignmentId = undefined;
+      value.status = "ready";
+      value.statusReason = "node_offline";
+      value.updatedAt = now;
+      return this.assignOrQueue(state, value, now);
+    });
+    try {
+      await this.dispatch(outcome.command ? [outcome.command] : []);
+    } catch (error) {
+      if (outcome.command) {
+        await this.repository.transact((state) => {
+          const value = service(state, serviceId);
+          if (
+            value?.status === "starting" &&
+            value.assignmentId === outcome.command?.assignmentId &&
+            !value.runtime
+          ) {
+            value.nodeId = undefined;
+            value.assignmentId = undefined;
+            value.status = "ready";
+            value.statusReason = "command_dispatch_failed";
+            value.updatedAt = this.now().toISOString();
+          }
+        });
+      }
+      throw error;
+    }
+    return outcome.service;
+  }
+
   async reportStarted(input: {
     nodeId: string;
     serviceId: string;

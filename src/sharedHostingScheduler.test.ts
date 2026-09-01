@@ -125,6 +125,76 @@ Deno.test("failed start dispatch releases the incomplete assignment", async () =
   assert.equal(recovered.assignmentId, undefined);
 });
 
+Deno.test("operator reassigns an unstarted service from an offline node", async () => {
+  const f = fixture();
+  f.subscriptions.set("sub_1", subscription("account_1", "sub_1"));
+  await f.scheduler.registerNode({
+    nodeId: "node_old",
+    region: "sgp",
+    status: "ready",
+    totalMemoryMiB: 4096,
+    totalSharedCpu: 2,
+    totalWorkspaceGiB: 32,
+  });
+  const service = await f.scheduler.createService({
+    accountId: "account_1",
+    subscriptionId: "sub_1",
+    idempotencyKey: "create",
+  });
+  const starting = await f.scheduler.start(
+    "account_1",
+    service.serviceId,
+    "start",
+  );
+  await f.scheduler.sweepStaleNodes(
+    1,
+    new Date("2026-07-24T00:00:01.000Z"),
+  );
+  await f.scheduler.registerNode({
+    nodeId: "node_new",
+    region: "sgp",
+    status: "ready",
+    totalMemoryMiB: 4096,
+    totalSharedCpu: 2,
+    totalWorkspaceGiB: 32,
+  });
+
+  const reassigned = await f.scheduler.reassignUnstartedService(
+    service.serviceId,
+    "node_old",
+  );
+
+  assert.equal(reassigned.status, "starting");
+  assert.equal(reassigned.nodeId, "node_new");
+  assert.notEqual(reassigned.assignmentId, starting.assignmentId);
+  assert.equal(f.commands.at(-1)?.nodeId, "node_new");
+  assert.equal(f.commands.at(-1)?.kind, "workspace.restore_and_start");
+});
+
+Deno.test("operator cannot reassign from a node that is not offline", async () => {
+  const f = fixture();
+  f.subscriptions.set("sub_1", subscription("account_1", "sub_1"));
+  await f.scheduler.registerNode({
+    nodeId: "node_1",
+    region: "sgp",
+    status: "ready",
+    totalMemoryMiB: 4096,
+    totalSharedCpu: 2,
+    totalWorkspaceGiB: 32,
+  });
+  const service = await f.scheduler.createService({
+    accountId: "account_1",
+    subscriptionId: "sub_1",
+    idempotencyKey: "create",
+  });
+  await f.scheduler.start("account_1", service.serviceId, "start");
+
+  await assert.rejects(
+    () => f.scheduler.reassignUnstartedService(service.serviceId, "node_1"),
+    /shared_assignment_conflict/,
+  );
+});
+
 Deno.test("failed retention deletion stays retained for reconciliation", async () => {
   const f = fixture();
   await f.repository.transact((state) => {
