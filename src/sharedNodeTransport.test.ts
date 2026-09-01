@@ -1407,7 +1407,9 @@ Deno.test("workspace sync accepts compiler content descriptors with command meta
   const aggregate = await digest(
     `${descriptor.key}\0${descriptor.sha256}\0${descriptor.compressedSize}:${descriptor.logicalSize}\0${
       descriptor.paths.map((path) => `${path}\0`).join("")
-    }\n`,
+    }\nshared-hosting/account_1/service_1/revisions/1/config.tar.zst\0${
+      "d".repeat(64)
+    }\0${1}:${1}\0config/fml.toml\0\n`,
   );
   const manifest = {
     schemaVersion: 2 as const,
@@ -1415,10 +1417,17 @@ Deno.test("workspace sync accepts compiler content descriptors with command meta
     assignmentId: "assignment_1",
     revision: 1,
     createdAt: nowValue.value.toISOString(),
-    logicalSize: descriptor.logicalSize,
+    logicalSize: descriptor.logicalSize + 1,
     manifestHash: aggregate,
     aggregateSha256: aggregate,
     content: descriptor,
+    config: {
+      key: "shared-hosting/account_1/service_1/revisions/1/config.tar.zst",
+      sha256: "d".repeat(64),
+      compressedSize: 1,
+      logicalSize: 1,
+      paths: ["config/fml.toml"],
+    },
     world: [],
   };
   const input = {

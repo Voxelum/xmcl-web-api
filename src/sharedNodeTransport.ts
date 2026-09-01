@@ -2990,10 +2990,14 @@ async function validateWorkspaceManifestDescriptor(
   let logicalSize = 0;
   let compressedSize = 0;
   for (const descriptor of descriptors) {
+    const duplicatePaths = descriptor.paths.filter((path) => paths.has(path));
+    const configOverlay = descriptor === manifest.config &&
+      duplicatePaths.every(isConfigPath) &&
+      duplicatePaths.every((path) => manifest.content?.paths.includes(path));
     if (
       !validateBlobDescriptor(descriptor) ||
       keys.has(descriptor.key) ||
-      descriptor.paths.some((path) => paths.has(path))
+      (duplicatePaths.length > 0 && !configOverlay)
     ) {
       throw new SharedNodeTransportError(
         "workspace_grant_denied",
