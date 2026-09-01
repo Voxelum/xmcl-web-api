@@ -1369,7 +1369,12 @@ Deno.test("workspace sync accepts compiler content descriptors with command meta
     sha256: "b".repeat(64),
     compressedSize: 10,
     logicalSize: 1,
-    paths: [".xmcl/runtime.json", ".xmcl/launch.sh", "mods/stable.jar"],
+    paths: [
+      ".xmcl/runtime.json",
+      ".xmcl/launch.sh",
+      "config/fml.toml",
+      "mods/stable.jar",
+    ],
   };
   const runtimeContent = {
     ...descriptor,

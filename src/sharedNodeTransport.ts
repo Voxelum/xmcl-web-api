@@ -3131,7 +3131,7 @@ function validateRuntimeContentDescriptor(
     value.key.startsWith(prefix) && value.key.endsWith(".tar.zst") &&
     value.paths.includes(".xmcl/runtime.json") &&
     value.paths.includes(".xmcl/launch.sh") &&
-    value.paths.every(isContentPath);
+    value.paths.every((path) => !isWorldPath(path));
 }
 
 async function aggregateManifestDescriptors(
