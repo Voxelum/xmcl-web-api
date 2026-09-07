@@ -13,7 +13,6 @@ declare module "geoip-country" {
 declare module "semver" {
   export function gte(left: string, right: string): boolean;
   export function lt(left: string, right: string): boolean;
-  export function valid(version: string): string | null;
 
   export class Range {
     constructor(range: string);
