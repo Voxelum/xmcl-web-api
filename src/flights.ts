@@ -1,3 +1,5 @@
+import { gte, valid } from "semver";
+
 export function getFlights(
   version: string | null,
   locale: string | null,
@@ -6,10 +8,9 @@ export function getFlights(
   if (!version || !locale) {
     return {};
   }
-  // The launcher merges remote flights into its cache, so omission does not
-  // clear a previously cached true value.
+  const agentTelemetry = valid(version) !== null && gte(version, "0.68.0");
   const flights: Record<string, boolean | string[]> = {
-    agentTelemetry: false,
+    agentTelemetry,
   };
   if (build && Number(build) > 1002) {
     flights.i18nSearch = ["zh-CN", "zh-TW", "ru"];
