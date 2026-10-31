@@ -206,7 +206,7 @@ surface listed above:
 - `/prebuilds` - GitHub Actions prebuild workflow runs and artifacts
 - `POST https://ai.xmcl.app/v1/chat/completions` - Authenticated
   OpenAI-compatible chat proxy. Requires an XMCL access token with `ai:invoke`;
-  defaults to the server-owned `agnes-2.5-flash` model, supports `stream: true`
+  defaults to the server-owned `agnes-3.5-flash` model, supports `stream: true`
   SSE passthrough, and never forwards the caller's authorization or cookies to
   Agnes. Requests are limited to 4 MiB. The client supplies structured XMCL
   agent context, not a system prompt.
@@ -217,7 +217,7 @@ Configure `AGNES_API_KEYS` as a server-only JSON array of one or more keys, for
 example `["first-key","second-key"]`. Store it as one secret value; never put
 keys in Wrangler configs, source code, logs, or client settings.
 `AGNES_DEFAULT_MODEL` selects the server-owned upstream model and defaults to
-`agnes-2.5-flash`. The client model (the Launcher sends `xmcl-agent`) is never
+`agnes-3.5-flash`. The client model (the Launcher sends `xmcl-agent`) is never
 forwarded to Agnes.
 
 The proxy chooses keys round-robin within each runtime isolate. An Agnes `429`
@@ -302,7 +302,7 @@ The same variables are used across every runtime (read via `hono/adapter`:
 - `AGNES_API_KEYS` - server-only JSON array of Agnes API keys for
   `POST /v1/chat/completions`.
 - `AGNES_DEFAULT_MODEL` - optional default chat model; defaults to
-  `agnes-2.5-flash`.
+  `agnes-3.5-flash`.
 - `XMCL_MODRINTH_CLIENT_ID` - Modrinth OAuth client ID (defaults to the existing
   registered XMCL client ID)
 - `XMCL_MODRINTH_CLIENT_SECRET` - Modrinth OAuth client secret

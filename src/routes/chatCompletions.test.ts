@@ -326,7 +326,7 @@ Deno.test("Launcher envelope reaches mocked Agnes with a server-owned prompt and
     },
   });
   assert.equal(response.status, 200);
-  assert.equal(upstreamBody?.model, "agnes-2.5-flash");
+  assert.equal(upstreamBody?.model, "agnes-3.5-flash");
   assert.equal(upstreamBody?.max_tokens, 8192);
   assert.equal(upstreamBody?.xmcl, undefined);
   const messages = upstreamBody?.messages as Array<Record<string, unknown>>;
@@ -403,7 +403,7 @@ Deno.test("chat completions falls back from Agnes to DeepSeek", async () => {
   });
   assert.equal(response.status, 200);
   assert.deepEqual(calls.map((call) => call.model), [
-    "agnes-2.5-flash",
+    "agnes-3.5-flash",
     "deepseek-v4-flash",
   ]);
   assert.deepEqual(routed.settlements[0]?.usage, {

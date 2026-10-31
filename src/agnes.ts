@@ -1,6 +1,6 @@
 export const AGNES_CHAT_COMPLETIONS_URL =
   "https://apihub.agnes-ai.com/v1/chat/completions";
-export const DEFAULT_AGNES_MODEL = "agnes-2.5-flash";
+export const DEFAULT_AGNES_MODEL = "agnes-3.5-flash";
 export const DEEPSEEK_CHAT_COMPLETIONS_URL =
   "https://api.deepseek.com/v1/chat/completions";
 export const DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash";
